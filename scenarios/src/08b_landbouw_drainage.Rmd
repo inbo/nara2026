@@ -27,7 +27,7 @@ library(leaflet)
 
 De data zitten in een map "data" onder de folder van het **studiegebied** (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– src -\> `08b_landbouw_drainage.Rmd`
@@ -60,8 +60,8 @@ targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_stuw
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -179,7 +179,7 @@ df <- as.data.frame(c(ecosysteem, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
 colnames(df) <- c("cell", "eco_code", "score")
 
 # Optie 2: cellen met infiltratiemaatregelen uitsluiten
-ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_infilt.tif"))
+ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_infilt.tif"))
 df <- as.data.frame(c(ecosysteem_infilt, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
 colnames(df) <- c("cell", "eco_code", "score")
 
@@ -199,7 +199,7 @@ top_cellen_indices <- df_sorted$cell[1:opp_dedrain]
 ecosysteem_dedrain <- deepcopy(ecosysteem_infilt) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
 ecosysteem_dedrain[top_cellen_indices] <- nieuwe_code
 
-writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
+writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
 ```
 
 ## 4. Kaart maken
@@ -211,7 +211,7 @@ Het script maakt een ecosysteemkaart van het gebied, op basis van de originele e
 ```{r kaarten}
 
 # colormap voor de ecosysteemklassen inladen (geëxporteerd uit Arcmap)
-clr_data <- read.table("C:/R/NARA2026/scenarios/ecosysteemkaart_niv2_2022_v13.clr")
+clr_data <- read.table("C:/R/NARA2026/nara2026-git/scenarios/ecosysteemkaart_niv2_2022_v13.clr")
 named_colors <- rgb(clr_data$V2, clr_data$V3, clr_data$V4, maxColorValue = 255)
 names(named_colors) <- as.character(clr_data$V1)
 
