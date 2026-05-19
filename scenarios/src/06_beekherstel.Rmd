@@ -28,7 +28,7 @@ library(jsonlite)
 
 De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– src -\> `06_beekherstel.Rmd`
@@ -39,9 +39,9 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 
 De volgende datasets worden gebruikt:
 
--   gebied.shp -\> polygoon van het gebied (zonder buffer)
--   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
--   rivier_poly.shp -\> polygonen rivieren (wtz)
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+- rivier_poly.shp -\> polygonen rivieren (wtz)
 
 ```{r bestanden_folders}
 
@@ -51,9 +51,8 @@ targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "rivier_test.shp
 
 # In welke folders zitten de data?
 
-search_paths <- c(
-  "C:/R/NARA2026/scenarios/rivierbeek/data",
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -119,11 +118,11 @@ list2env(data_list_ok, envir = .GlobalEnv)
 
 Baken de zones af voor beekherstel
 
--   Sc 1: meandergordel alleen thv doelen vis indien niet in conflict met terrestrische doelen + thv doelen 3260, 6120, 3270 + thv kerngebied bever
+- Sc 1: meandergordel alleen thv doelen vis indien niet in conflict met terrestrische doelen + thv doelen 3260, 6120, 3270 + thv kerngebied bever
 
--   Sc 2: meandergordel alleen thv doelen vis + thv doelen 3260, 6120, 3270 + thv bever
+- Sc 2: meandergordel alleen thv doelen vis + thv doelen 3260, 6120, 3270 + thv bever
 
--   Sc 3: overal meandergordel met natuur langs natuurlijke waterlopen (KRW)
+- Sc 3: overal meandergordel met natuur langs natuurlijke waterlopen (KRW)
 
 ```{r afbakening}
 
@@ -142,15 +141,15 @@ rivier_poly
 
 Harman, W., R. Starr, M. Carter, K. Tweedy, M. Clemmons, K. Suggs, C. Miller. 2012. [A Function-Based Framework for Stream Assessment and Restoration Projects](https://www.spk.usace.army.mil/Portals/12/documents/regulatory/pdf/A_Function-Based_Framework.pdf). US Environmental Protection Agency, Office of Wetlands, Oceans, and Watersheds, Washington, DC EPA 843-K-12-006.
 
--   Entrenchment Ratio (ER) for C and E Stream Types **\> 2.2** (ER = floodprone width/bankfull width)
+- Entrenchment Ratio (ER) for C and E Stream Types **\> 2.2** (ER = floodprone width/bankfull width)
 
--   The minimum meander width ratio for meandering streams (C and E stream types) is between 3.0 and 3.5; this ratio is required to create a sinuosity of at least 1.2, the most common break point between meandering and non-meandering streams. If a straightened stream is eroding on both banks and readjusting its pattern, the bankfull width (measured from the aerial) can be multiplied by **3.5** (conservatively) to estimate the amount of lateral erosion that will likely occur.
+- The minimum meander width ratio for meandering streams (C and E stream types) is between 3.0 and 3.5; this ratio is required to create a sinuosity of at least 1.2, the most common break point between meandering and non-meandering streams. If a straightened stream is eroding on both banks and readjusting its pattern, the bankfull width (measured from the aerial) can be multiplied by **3.5** (conservatively) to estimate the amount of lateral erosion that will likely occur.
 
--   Bufer width (vegetation): minstens 15 feet (\~**4.6 m**)
+- Bufer width (vegetation): minstens 15 feet (\~**4.6 m**)
 
 Vermont DEC River Management Program - [Defining River Corridors](https://dec.vermont.gov/sites/dec/files/wsm/rivers/docs/rv_definingrcfactsheet.pdf):
 
--   Where rivers are assessed as being in equilibrium and the lateral extent of their meanders create a belt width that is at or near the “**6 times channel width**” relationship, then corridors are drawn as two roughly parallel lines, following down the valley and capturing the extent of existing meanders. If the river slope and sinuosity have been modified, the corridor is drawn using 3 channel widths either side of a meander centerline or 6 channel widths out from the toe of the valley if the river is presently flowing less than 3 channel widths from the toe
+- Where rivers are assessed as being in equilibrium and the lateral extent of their meanders create a belt width that is at or near the “**6 times channel width**” relationship, then corridors are drawn as two roughly parallel lines, following down the valley and capturing the extent of existing meanders. If the river slope and sinuosity have been modified, the corridor is drawn using 3 channel widths either side of a meander centerline or 6 channel widths out from the toe of the valley if the river is presently flowing less than 3 channel widths from the toe
 
 Besluit: de criteria van Harman et al. (3.5 x breedte + 4.5 m) en Vermont (6 x breedte) leveren min of meer dezelfde grootteorde op voor de zone die belangrijk is voor rivierprocessen. De breedte van de functionele overstromingszone (2.2 x breedte) en de riviercorridor voor analyse van vrijstromendheid (2 x breedte) liggen lager. Als middenweg opteren we voor de benadering van Hartman et al.:
 
