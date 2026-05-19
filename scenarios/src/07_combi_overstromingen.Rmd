@@ -30,7 +30,7 @@ library(progress)
 
 De data zitten in een map "data" onder de folder van het **studiegebied** (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |          `Overstromingstolerantie_habitats_gis.xlsx`
@@ -42,9 +42,9 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 
 De volgende datasets worden gebruikt:
 
--   toekomstlaag.shp -\> polygonen natuurdoelen
--   waterdiepte_t100.tif -\> waterdiepte toekomstig klimaat t100
--   overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
+- toekomstlaag.shp -\> polygonen natuurdoelen
+- waterdiepte_t100.tif -\> waterdiepte toekomstig klimaat t100
+- overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
 
 ```{r bestanden_folders}
 
@@ -57,9 +57,8 @@ targets <- c("ecosysteem.tif", "toekomstlaag.shp", "waterdiepte_t100.tif", "over
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/rivierbeek/data",
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -125,8 +124,8 @@ list2env(data_list_ok, envir = .GlobalEnv)
 
 De combineerbaarheid van de natuurdoelen met overstromingen wordt bepaald op basis van de waterdiepte bij een overstroming met terugkeerperiode van 100 jaar (t100) onder het toekomstig klimaat (2050). De tolerantiescores (0 = niet tolerant -\> 3 = tolerant) zijn afkomstig uit de studie van De Nocker. De tabel `overstromingstolerantie_habitats_gis` geeft tolerantiescores voor winter- (w) en zomeroverstromingen (z) bij verschillende dieptes (d \< 20 cm, d tussen 20 en 50 cm en d \> 50 cm). De meeste De Nocker-types kunnen aan meerdere habitattypes gekoppeld worden en omgekeerd. Voor habitattypes die meerdere De Nocker-types hebben, werd voor elke kolom (seizoen & diepte) een hoogste en laagste waarde bepaald op basis van het meest en minst gevoelige type. Bijvoorbeeld:
 
--   wd20 = tolerantie voor een **winter**overstroming met waterdiepte minder dan **20 cm**, op basis van het **meest tolerante** vegetatietype
--   minzd50 = tolerantie voor een **zomer**overstroming met waterdiepte meer dan **50 cm**, op basis van het **minst tolerante** vegetatietype
+- wd20 = tolerantie voor een **winter**overstroming met waterdiepte minder dan **20 cm**, op basis van het **meest tolerante** vegetatietype
+- minzd50 = tolerantie voor een **zomer**overstroming met waterdiepte meer dan **50 cm**, op basis van het **minst tolerante** vegetatietype
 
 In deze analyse gebruiken we de scores voor de **minst tolerante types bij een winsteroveroverstroming**. Dat komt overeen met een *worst case* scenario bij een zware winteroverstroming. Zomeroverstromingen laten we buiten beschouwing omdat die eerder zeldzaam zijn (cf. waterbom).
 
