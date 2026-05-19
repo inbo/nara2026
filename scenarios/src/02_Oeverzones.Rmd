@@ -32,7 +32,7 @@ De regels verschillen voor waterlopen uit de VHA (**blauwe** lijnen en polygonen
 
 De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– src -\> `02_Oeverzones.Rmd`
@@ -64,8 +64,8 @@ targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "oever_paars
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
