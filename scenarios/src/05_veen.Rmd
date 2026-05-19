@@ -25,7 +25,7 @@ library(leaflet) # Nodig voor colorFactor
 
 De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |          \|—– grondwater
@@ -38,11 +38,13 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 
 De volgende datasets worden gebruikt:
 
--   gebied.shp -\> polygoone van het gebied (zonder buffer)
--   signaalk_veen_bkvwk.shp -\> veenkaart INBO met vernattingsdoel
--   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+- gebied.shp -\> polygoone van het gebied (zonder buffer)
+- signaalk_veen_bkvwk.shp -\> veenkaart INBO met vernattingsdoel
+- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
 
 ```{r bestanden_folders}
+
+studiegebied <- "rivierbeek"
 
 # Kies de bestanden die je nodig hebt
 
@@ -50,9 +52,8 @@ targets <- c("gebied.shp", "ecosysteem.tif", "signaalk_veen_bkvwk.shp")
 
 # In welke folders zitten de data?
 
-search_paths <- c(
-  "C:/R/NARA2026/scenarios/rivierbeek/data",
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -142,9 +143,9 @@ mapview(veen_verdroogd, col.region = "red", na.color = "transparent") + mapview(
 
 ### 3.1. Geschiktheidskaart
 
--   Meest waardevolle landbouw sparen: akker -\> vooral gras vernatten (code 301)
--   Aansluitend bij niet verdroogd veen in natuurgebied en in vernattingszone natuur
--   Landbouw wordt moeras (701) in oppervlakteveen en gras/bos (302 of 400) in ondiep veen
+- Meest waardevolle landbouw sparen: akker -\> vooral gras vernatten (code 301)
+- Aansluitend bij niet verdroogd veen in natuurgebied en in vernattingszone natuur
+- Landbouw wordt moeras (701) in oppervlakteveen en gras/bos (302 of 400) in ondiep veen
 
 ```{r geschiktheidskaart}
 
