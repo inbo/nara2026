@@ -39,5 +39,8 @@ rsconnect/
 scenarios/data
 scenarios/rivierbeek
 scenarios/herk_mombeek
-scenarios/kleinenete_R
+scenarios/kleinenete
+scenarios/dommel
+scenarios/dijle
+scenarios/ijzer
 scenarios/output_watersheds
