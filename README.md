@@ -2,7 +2,8 @@
 
 Scripts voor de analyses van het Natuurrapport 2026.
 
--\> zie folder `src`
+Voor de scripts van deel 3 (scenario's) -\> zie folder `scenarios`
+De scripts (.Rmd) staan in de subfolder `src`
 
 De .Rmd-bestanden die beginnen met een cijfer (01, 02, ...) zijn scripts die gebruikt worden om maatregelen uit de scenario's op kaart te zetten
 
