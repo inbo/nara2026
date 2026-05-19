@@ -27,7 +27,7 @@ library(leaflet)
 
 De data zitten in een map "data" onder de folder van het **studiegebied** (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– src -\> `08_landbouw_infiltratie.Rmd`
@@ -60,8 +60,8 @@ targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_infi
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -202,7 +202,7 @@ writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/scenarios/", stud
 
 # resultaat van script 08b_landbouw_drainage.Rmd inladen
 # aangepaste cellen voor verminderen van drainage hebben score 9998
-ecosysteem_dedrain <- rast(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"))
+ecosysteem_dedrain <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"))
 
 
 #//////////////////////////////////////////////
@@ -276,7 +276,7 @@ Het script maakt een ecosysteemkaart van het gebied, op basis van de originele e
 ```{r kaarten}
 
 # colormap voor de ecosysteemklassen inladen (geëxporteerd uit Arcmap)
-clr_data <- read.table("C:/R/NARA2026/scenarios/ecosysteemkaart_niv2_2022_v13.clr")
+clr_data <- read.table("C:/R/NARA2026/nara2026-git/scenarios/ecosysteemkaart_niv2_2022_v13.clr")
 named_colors <- rgb(clr_data$V2, clr_data$V3, clr_data$V4, maxColorValue = 255)
 names(named_colors) <- as.character(clr_data$V1)
 
