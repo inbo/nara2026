@@ -45,7 +45,7 @@ Signaalkaart vernatting (gebruik signaalkaart_2 = combinatie van nieuwe signaalk
 
 De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– src -\> `x6_vernattingscontouren.Rmd`
@@ -78,8 +78,8 @@ targets <- c("ecosysteem.tif", "gebied.shp", "aquifer_hcov.tif", "ksat_h_hcov.ti
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -508,7 +508,7 @@ contour_landb <- ifel(contour_landb > 0, 1, NA)
 
 # mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, col.regions = "darkred") + mapview(gebied, alpha.regions = 0)
 
-# writeRaster(contour, filename = str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_vernatting.tif"), overwrite = TRUE)
+# writeRaster(contour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_vernatting.tif"), overwrite = TRUE)
 
 
 ```
