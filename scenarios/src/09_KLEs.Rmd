@@ -1,0 +1,514 @@
+---
+title: "09_KLEs"
+author: "NARA"
+date: "2026-05-11"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(tidyverse)
+library(here)
+library(terra)
+library(sf)
+library(tidyterra)
+library(tools)
+library(readxl)
+library(igraph)
+library(viridis)
+library(mapview)
+library(leaflet) # Nodig voor colorFactor
+
+```
+
+## Inleiding
+
+Het onderstaande script berekent het aandeel kleine landschapselementen per landbouwcel van de ecosysteemkaart in elk scenario.
+
+1)  Daarvoor maken we eerst een kaart van de huidige kleine landschapselementen met een resolutie van 10x10m: we voegen een kaart van het aandeel verplichte **oeverzones** per cel en samen met een kaart van het aandeel **gras- en houtachtige kleine landschapselementen** in landbouwgebied (geen poelen en grachten). Die kaart schalen we op tot een resolutie van **1 ha**.
+
+2)  We berekenen het totale doeloppervlak aan KLE als 10% van het landbouwgebied, en het doeloppervlak van KLE in de prioritaire zones van elk scenario als 15% van het landbouwgebied in de prioritaire zones. Het verschil tussen doeloppervlak en huidige oppervlak is het nieuw in te vullen oppervlak per zone (prioritair en totaal).
+
+3)  Prioritaire zones vullen we eerst in: het huidige aandeel KLE blijft behouden als het boven de 15% ligt, de rest vullen we proportioneel aan (tot max 15%: (15% - huidig) \* schaalfactor) tot het totaal voor de prioritaire zone 15% bedraagt --\> nu voor de gehele zone, zou ook per afstromingsgebied/gele & oranje erosiezone apart berekend kunnen worden: halen we per deelzone de 15% --\> dan loopje nodig
+
+4)  Na de prioritaire zones vullen we de rest van het landbouwgebied op dezelfde manier proportioneel aan tot het totale doeloppervlak bereikt is.
+
+5)  De som van huidig en aanvullend aandeel KLE geeft een kaart van het totale aandeel KLE met een resolutie van 1 ha. Die vormen we terug om tot een kaart met een resolutie van 10x10m.
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `09_KLEs.Rmd`
+> |    \|—– herk_mombeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+- ecosysteem_2022.tif
+- oever_paars.shp -\> polygonen rivieren (wtz) van paarse waterlopen
+- oever_blauw_poly.shp -\> polygonen rivieren (wtz) van blauwe waterlopen
+- oever_blauw_lijn.shp -\> lijnen rivieren (wlas) van rest blauwe waterlopen waarvoor geen wtz-polygonen zijn
+- gebnit.shp -\> nitraatgebieden
+- habrl.shp -\> SBZ-gebieden
+- rbh.shp -\> ruimteboekhouding voor gebieden met groene gewestplanbestemming
+- gewascode.tif -\> kaart met de teeltcodes van landbouwpercelen
+- deel_3_reclass_gewascode_nit.xlsx -\> tabel die teeltcodes verbind met nitraatgevoeligheid (1 = niet-nitraatgevoelig)
+- KLE.shp -\> KLE-polygonen in landbouwgebied
+- hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
+- afstroming.tif -\> kaart met afstromingsgebied van natuurgebieden, 1 = afstromingsgebied (als elk afstromingsgebied een aparte berekening moet krijgen, moet dit een kaart worden met een cijfer per afstromingsgebied)
+- erosie.tif -\> kaart met de erosiegevoeligheidszones (groen, geel, oranje, rood, paars) (nog toe te voegen)
+
+```{r bestanden_folders}
+
+studiegebied <- "herk_mombeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("afstroming.tif", "ecosysteem_2022.tif", "ecosysteem.tif", "erosie.tif", "gebied.shp", "oever_paars.shp", "oever_blauw_poly.shp", "oever_blauw_lijn.shp", "gebnit.shp", "gewascode.tif", "habrl.shp", "hag.tif","KLE.shp", "rbh.shp", "deel_3_reclass_gewascode_nit.xlsx")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data_inladen}
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## 2. Oeverzones afbakenen
+
+Het onderstaande script berekent de oppervlakte van de beschermingsstroken langs oevers van rivieren. De [afstandsregels voor bemestingsvrije stroken en beschermingsstroken](https://www.vlm.be/nl/themas/waterkwaliteit/Mestbank/bemesting/aanwenden-van-mest/afstandsregels-tot-waterlopen/Paginas/default.aspx) bepalen de zone langs waterlopen waar geen meststoffen of pesticiden gebruikt mogen worden en waar er teeltbeperkingen zijn. We gebruiken in dit script enkel de regels voor teeltbeperkingen (1, 3 of 5 m breedte van de beschermingsstrook)
+
+De regels verschillen voor waterlopen uit de VHA (**blauwe** lijnen en polygonen) en overige waterlopen (**paarse** polygonen).
+
+- De kaarten van de waterlopen met aanduiding van de wettelijke breedtes van de oeverzone, komen van het open [dataportaal van landbouw](https://landbouwcijfers.vlaanderen.be/open-geodata-waterlagen-op-de-verzamelaanvraag) en kunnen in het [geoloket van landbouw](https://landbouwcijfers.vlaanderen.be/geoloket-landbouw) geraadpeegd worden. De dataset bestaat uit: twee polygonenbestanden (water_1m_fytovrij_1m_teelt_en_5_of_10m_mestvrij_2025_polygonen_2025-02-19.shp -\> korte naam = 'paars' en water_3m_fytovrij_1m_teelt_en_5_of_10m_mestvrij_2025_polygonen_2025-02-19.shp -\> korte naam = 'blauw_poly') en een lijnenbestand (water_3m_fytovrij_1m_teelt_en_5_of_10m_mestvrij_2025_lijnen_2025-02-19.shp -\> korte naam = 'blauw_lijn').
+- Daarnaast heb ik een polygonenbestand van **nitraatgebieden** (Gebnit.shp) met 4 gebiedstypes (veld GTOMSCH), een polygonenbestand met **habitatrichtlijngebienden** (habrl201301.shp) en een polygonenbestand met **ruimtelijke bestemmingen** (rbh met codes '01, '02', '03', '04', '05', '06', ...).
+- Ik heb ook een rasterbestand van het **landgebruik** (ecosysteem.tif).
+- Ik moet voor de rivieren een buffer definiëren op basis van hun ligging in de nitraatgebieden, VEN en SBZ.
+  - In een eerste stap moet het lijnenbestand (blauw_lijn) omgezet worden naar een polygonenbestand met breedte van 1m (buffer 0.5m).
+  - Vervolgens moeten de 3 polygonenbestanden samengevoegd worden tot 1 polygonenbestand met 1 veld dat de naam aangeeft (paars, blauw_lijn, blauw_poly).
+  - Vervolgens moet er een extra veld (oever) gecreëerd worden dat aangeeft hoe breed de buffer moet zijn, volgens deze regels:
+    - een **paarse** polygoon moet overal waarde 1 krijgen.
+    - Een **blauwe** lijn of polygoon binnen **SBZ, gebiedstype GTOMSCH 2 of 3 of groene bestemmingen** (rbh code '03', '04' of '05') moet waarde 5 krijgen. Tenzij het aangrenzende landbouwperceel niet-nitraatgevoelige teelten bevat. Dan wordt de standaardwaarde 3 gehanteerd. (zie correctie in deel 3 van het oeverzonescript)
+    - Een **blauwe** lijn of polygoon binnen gebiedstype GTOMSCH 0 of 1 en buiten SBZ en groene bestemmingen moeten waarde 3 krijgen.
+  - Als alle polygonen een waarde hebben, moeten de polygonen omgezet worden naar een raster op basis van het veld 'oever' = de nieuwe waarde en het raster moet dezelfde extent hebben als het raster 'ecosysteem'.
+
+```{r oeverzones deel 1}
+#////////////////////////////
+# Ecosysteem 2022 gebruiken
+#////////////////////////////
+
+ecosysteem <- ecosysteem_2022
+
+paars        <- oever_paars
+blauw_poly   <- oever_blauw_poly
+blauw_lijn   <- oever_blauw_lijn
+
+
+target_crs <- crs(ecosysteem)
+paars      <- st_transform(paars, target_crs)
+blauw_poly <- st_transform(blauw_poly, target_crs)
+blauw_lijn <- st_transform(blauw_lijn, target_crs)
+gebnit     <- st_transform(gebnit, target_crs)
+habrl      <- st_transform(habrl, target_crs)
+rbh        <- st_transform(rbh, target_crs)
+
+# Blauw_lijn omzetten naar polygoon (1m breedte = 0.5m buffer)
+blauw_lijn_poly <- st_buffer(blauw_lijn, dist = 0.5)
+
+# Bestanden samenvoegen met een identificatieveld
+paars$type <- "paars"
+blauw_poly$type <- "blauw_poly"
+blauw_lijn_poly$type <- "blauw_lijn"
+
+# Selecteer enkel het type veld en voeg samen (binden)
+rivieren <- rbind(
+  paars[, "type"],
+  blauw_poly[, "type"],
+  blauw_lijn_poly[, "type"]
+)
+
+# Omgevingsfactoren toevoegen via ruimtelijke joins
+# We kijken voor elke rivierpolygoon in welke zones ze ligt
+rivieren <- rivieren %>%
+  st_join(habrl %>% mutate(is_sbz = TRUE) %>% select(is_sbz)) %>%
+  st_join(gebnit %>% select(GTCODE)) %>%
+  st_join(rbh %>% select(rbh)) %>%
+  mutate(
+    is_sbz = ifelse(is.na(is_sbz), FALSE, TRUE),
+    is_groen = rbh %in% c("03", "04", "05")
+  )
+
+# Logica voor het veld 'oever' toepassen
+rivieren <- rivieren %>%
+  mutate(oever = case_when(
+    # Regel 1: Paars
+    type == "paars" ~ 1,
+    
+    # Regel 2: Blauw buiten VEN, maar in SBZ, GTOMSCH 2/3 of groene bestemming
+    (type %in% c("blauw_poly", "blauw_lijn")) & (is_sbz | GTCODE %in% c(2, 3) | is_groen) ~ 5,
+    
+    # Regel 3: Blauw in GTOMSCH 0/1 en GEEN SBZ/Groen
+    (type %in% c("blauw_poly", "blauw_lijn")) & (GTCODE %in% c(0, 1)) & !is_sbz & !is_groen ~ 3,
+    
+    TRUE ~ 0 # Fallback waarde
+  ))
+
+# Dubbele rijen verwijderen: Als een rivierpolygoon twee zones overlapt (bijv. precies op de grens van twee nitraatgebieden), maakt st_join twee kopieën van die polygoon.
+rivieren_uniek <- rivieren %>%
+  group_by(geometry) %>% # of gebruik een uniek ID veld
+  summarize(oever = max(oever, na.rm = TRUE)) %>%
+  st_cast("MULTIPOLYGON")
+
+
+```
+
+De polygonen van de rivieren moeten omgezet worden naar een rasterbestand dat gebruikt wordt om de cellen met een oeverzone in de ecosysteemkaart aan te duiden.
+
+We leggen daarvoor eerst een buffer van 10 m rond de polygonen (de resolutie van de ecosysteemkaart = 10 m).
+
+```{r oeverzones deel 2}
+
+# 1. Buffer van 10 meter aanmaken
+rivieren_buffer_10m <- st_buffer(rivieren_uniek, dist = 10)
+
+# 2. Bij overlappende buffers moet de hoogste 'oever' waarde behouden blijven
+rivieren_buffer_clean <- rivieren_buffer_10m %>%
+  arrange(oever) %>% # Laagste waarden eerst
+  group_by(geometry) %>% 
+  summarize(oever = max(oever, na.rm = TRUE)) %>%
+  st_make_valid()
+
+# 3. Verrasteren naar de exacte extent en resolutie van ecosysteem.tif
+rivieren_rast <- rasterize(
+  x = vect(rivieren_buffer_clean), # Omzetten naar terra-formaat
+  y = ecosysteem,                  # Het template raster
+  field = "oever",                 # De waarde die in de cellen komt
+  fun = "max",                     # Bij overlap de maximale oeverwaarde
+  background = NA                  # Cellen buiten de buffer worden NA (of kies 0)
+)
+
+mapview(rivieren_rast, na.color = "transparent")
+```
+
+Het rivierenraster heeft waardes 1, 3 of 5 voor de watercellen en NULL voor de niet-water cellen. In een volgende stap duiden we de cellen uit de ecosysteemkaart aan die een oeverzone hebben. Cellen uit rivierenraster die niet overlappen met cellen uit het raster ecosysteem die waarde 105, 801, 802, 901, 902 of 1001 hebben (= watercellen), moeten hun waarde (oever) behouden. Cellen uit het rivierenraster die wel overlappen met watercellen uit het rivierraster moeten waarde NULL krijgen. Daarna corrigeren we voor te grote oeverzones nabij niet-nitraatgevoelige teelten: waarde 5 wordt 3 op die plekken.
+
+```{r oeverzones deel 3}
+
+# Definieer de watercodes uit de ecosysteemkaart
+water_codes <- c(105, 801, 802, 901, 902, 1001)
+
+# Maak een masker van de watercellen
+# We maken een tijdelijk raster waarbij watercellen TRUE zijn
+is_water <- ecosysteem %in% water_codes
+
+# Pas de logica toe op het oever-raster
+# Als een cel in 'is_water' TRUE is, zetten we de waarde in het oever-raster op NA
+# Gebruik de 'mask' functie met 'maskvalues = TRUE'
+
+oever_rast <- mask(rivieren_rast, is_water, maskvalues = TRUE, updatevalue = NA)
+
+#mapview(oever_rast, na.color = "transparent")
+
+# Correctie: niet-nitraatgevoelige teelten aan VHA-waterlopen hebben een beschermingsstrook van 3 meter in plaats van 5
+
+tbl_gewas    <- deel_3_reclass_gewascode_nit
+reclass_gewas <- tbl_gewas %>% select(teeltcode, niet_nitraatgevoelig) %>% as.matrix()
+gewas_nit <- classify(x = gewascode, rcl = reclass_gewas, others = NA)
+
+oever_rast_fin <- ifel(gewas_nit == 1 & oever_rast == 5, 3, oever_rast)
+
+#/////////////////////////////////////////////////////////////////////////////////
+# Alternatief (anders worden oeverzones met waarde 5 buiten gewas_nit op NA gezet)
+#/////////////////////////////////////////////////////////////////////////////////
+oever_rast_fin <- oever_rast
+oever_rast_fin[gewas_nit == 1 & oever_rast == 5] <- 3
+
+verschil <- oever_rast - oever_rast_fin
+
+# mapview(gewas_nit, na.color = "transparent") + mapview(oever_rast_fin, na.color = "transparent") + mapview(oever_rast, col.region = rainbow, na.color = "transparent")
+
+# Uitgedrukt in aandeel KLE per cel
+oever_fractie_kle <- oever_rast_fin/10
+
+```
+
+## 3. Totaal aandeel KLE per ecosysteemcel bepalen
+
+```{r huidige opp KLE}
+
+# 1. DATA VOORBEREIDING
+# KLE inladen als Spat_vect voor snelle verrastering
+# Zorg dat de projectie (CRS) van de vector exact gelijk is aan het raster
+
+#///////////////////////////////////////////
+# eerst filteren dan verrasteren
+#///////////////////////////////////////////
+
+KLE_1 <- st_read(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/KLE.shp"))
+KLE_1 <- KLE_1 %>%
+  filter(subklasse != "bosrand")
+
+KLE <- vect(KLE_1)
+huidige_kle <- project(KLE, crs(ecosysteem))
+afstroming <- ifel(is.na(afstroming), 0, 1)
+
+# Klasse bosrand telt niet mee (grenzend aan natuur cf regels LUCAS)
+# huidige_kle <- huidige_kle %>%
+#   filter(subklasse != "bosrand")
+
+# Bereken de fractie KLE per 10m cel
+# We gebruiken 'extract' of 'rasterize' met de optie 'cover=TRUE'
+kle_fractie_10m <- rasterize(huidige_kle, ecosysteem, cover = TRUE)
+
+# Oeverzones toevoegen, waar overlap tussen oeverzone en KLE: maximumwaarde van de cel behouden
+kle_fractie_10m_tot <- mosaic(kle_fractie_10m, oever_fractie_kle, fun = "max")
+kle_fractie_10m_tot_01 <- ifel(!is.na(kle_fractie_10m_tot), kle_fractie_10m_tot, 0)
+
+# Enkel KLEs in landbouwgebied tellen mee
+landbouw_codes <- c(201, 202, 204, 205, 301) # geen agroforestry, nog uit te sluiten types?
+landbouw_masker <- ecosysteem %in% c(landbouw_codes)
+kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker
+
+# Aggregeren naar hectare (100m)
+huidige_fractie_ha <- aggregate(kle_fractie_10m_fin, fact = 10, fun = mean, na.rm = TRUE)
+
+#///////////////////////////////////////////
+# fun = max ipv mean voor categorische lagen
+#///////////////////////////////////////////
+landbouw_fractie_ha <- aggregate(landbouw_masker, fact = 10, fun = max, na.rm = TRUE)
+afstroming_ha <- aggregate(afstroming, fact = 10, fun = max, na.rm = TRUE)
+
+# 2. TOTAAL DOEL BEPALEN (in m2)
+
+# 2.1 in geheel landbouwgebied
+totaal_landbouw_opp <- global(landbouw_masker, "sum", na.rm = TRUE)$sum * 100
+totaal_doel_opp <- totaal_landbouw_opp * 0.10
+huidig_opp <- global(kle_fractie_10m_tot * landbouw_masker, "sum", na.rm = TRUE)$sum * 100
+tekort_totaal <- totaal_doel_opp - huidig_opp
+
+tekort_cellen <- round(tekort_totaal/100, 0)
+
+#Ter controle ook berekend op ha-versie: zelfde uitkomst
+# totaal_landbouw_opp2 <- global(landbouw_fractie_ha, "sum", na.rm = TRUE)$sum * 10000
+# totaal_doel_opp2 <- totaal_landbouw_opp2 * 0.10
+# landbouw_masker2 <- landbouw_fractie_ha > 0
+# huidig_opp2 <- global(huidige_fractie_ha * landbouw_masker2, "sum", na.rm = TRUE)$sum * 10000
+# extra_nodig_totaal2 <- totaal_doel_opp - huidig_opp2
+
+# 2.2 in het landbouwgebied dat in afstromingsgebied ligt
+# overal minstens 15% KLE per ha, of in totaal 15% in afstromingsgebied of 15% per afstromingsgebied?
+# in geval 1: deze stap is onnodig, 
+# Bij 3. wordt de code dan:
+# verschil <- 0.15 * landbouw_fractie_ha - huidige_fractie_ha
+# tekort_per_ha <- ifel(verschil < 0, 0, verschil)
+
+# verder gewerkt met opvullen tot een totaal van 15% KLE in afstromingsgebied
+# doel berekend op 10x10m cellen ligt lager dan doel berekend op ha cellen, vanwege grotere opp afstromingsgebied in ha-cellen
+# verder gewerkt met doel uit ha-cellen
+
+# afstroming_lb_mask <- ifel(landbouw_masker == 1 & !is.na(afstroming), 1, 0)
+# tot_afstroming_lb_opp <- global(afstroming_lb_mask, "sum", na.rm = TRUE)$sum * 100
+# afstroming_doel_opp <- tot_afstroming_lb_opp * 0.15
+# afstroming_huidig_opp <- global(kle_fractie_10m_tot * afstroming_lb_mask, "sum", na.rm = TRUE)$sum * 100
+# extra_nodig_afstroming <- afstroming_doel_opp - afstroming_huidig_opp
+
+# 3. PRIORITEIT: AFSTROOMGEBIED (15% DOEL) ---
+# Afstromingsgebieden aanvullen op ha-niveau: landbouwcellen die nog geen 15% KLE bevatten, opvullen tot 15%, totdat totale doelopp bereikt is. --> voorlopig enkel afstromingsgebied, moet afstromingsgebied en gele/oranje percelen worden (even vergeten...)
+
+# 1. Bereken doelopp
+landbouw_afstroom_masker <- (afstroming_ha > 0) & (landbouw_fractie_ha > 0)
+opp_landbouw_afstroom <- global(landbouw_fractie_ha * landbouw_afstroom_masker, "sum", na.rm = TRUE)$sum * 10000
+doel_opp_afstroom <- opp_landbouw_afstroom * 0.15
+huidig_opp_afstroom <- global(huidige_fractie_ha * landbouw_afstroom_masker, "sum", na.rm = TRUE)$sum * 10000
+
+# 2. Bereken het tekort voor het afstroomgebied
+tekort_totaal_afstroom <- doel_opp_afstroom - huidig_opp_afstroom
+
+# 3. Bereken potentieel in afstroomgebied
+# Identificeer hectares landbouw in afstroomgebied die minder dan 15% KLE hebben
+ruimte_tot_15_ha <- (0.15 * landbouw_fractie_ha) - huidige_fractie_ha
+
+potentieel_afstroom <- ifel(landbouw_afstroom_masker & (ruimte_tot_15_ha > 0), 
+                            ruimte_tot_15_ha, 
+                            0)
+
+# Bereken het totale beschikbare potentieel in m2
+totaal_potentieel_afstroom <- global(potentieel_afstroom, "sum", na.rm = TRUE)$sum * 10000
+
+
+# Verdeel tekort proportioneel over landbouwhectares met ruimte. Hoe groter het tekort, hoe meer KLE's erbij komen: we focussen de inspanningen op waar de achterstand het grootst is.
+
+if(tekort_totaal_afstroom > 0 && totaal_potentieel_afstroom > 0) {
+  factor_afstroom <- min(1, tekort_totaal_afstroom / totaal_potentieel_afstroom)
+  tekort_afstroom_fin <- potentieel_afstroom * factor_afstroom
+  
+  # Melding (optioneel)
+  if(tekort_totaal_afstroom > totaal_potentieel_afstroom) {
+    message("Let op: Het doel van 15% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 15%.")
+  }
+} else {
+  tekort_afstroom_fin <- ifel(landbouw_fractie_ha >= 0, 0, 0)
+}
+
+# Controle: is het hele tekort in afstroomgebied geplaatst? 
+geplaatst_afstroom <- global(tekort_afstroom_fin, "sum", na.rm = TRUE)$sum * 10000
+cat("Doel: ", tekort_totaal_afstroom, " m2\nGerealiseerd: ", geplaatst_afstroom, " m2")
+
+# Controle: halen we de 15% in het hele afstroomgebied?
+afstroom_nieuwe_fractie_ha <- huidige_fractie_ha*landbouw_afstroom_masker + tekort_afstroom_fin
+afstroom_nieuwe_opp_ha <- global(afstroom_nieuwe_fractie_ha, "sum", na.rm = TRUE)$sum * 10000
+cat("Doel: ", doel_opp_afstroom, " m2\nGerealiseerd: ", afstroom_nieuwe_opp_ha, " m2")
+
+# --- 4. REST VAN HET GEBIED (BUDGET INVULLEN TOT 10% TOTAAL) ---
+resterend_budget <- tekort_totaal - geplaatst_afstroom
+
+# Bereken potentieel in de rest van het gebied (tot max 10% per hectare)
+rest_masker <- (afstroming_ha == 0) & (landbouw_fractie_ha > 0)
+ruimte_tot_10_ha <- (0.10 * landbouw_fractie_ha) - huidige_fractie_ha
+potentieel_rest <- ifel(rest_masker & (ruimte_tot_10_ha > 0), ruimte_tot_10_ha, 0)
+
+#/////////////////////////
+# ifel probleem
+#////////////////////////
+potentieel_rest <- ifel(!is.na(rest_masker) & (ruimte_tot_10_ha > 0), ruimte_tot_10_ha, 0)
+
+
+
+totaal_potentieel_rest <- global(potentieel_rest, "sum", na.rm = TRUE)$sum * 10000
+
+if(resterend_budget > 0 && totaal_potentieel_rest > 0) {
+  factor_rest <- min(1, resterend_budget / totaal_potentieel_rest)
+  tekort_rest_fin <- potentieel_rest * factor_rest
+  # Melding (optioneel)
+  if(resterend_budget > totaal_potentieel_rest) {
+    message("Let op: Het doel van 10% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 10%.")
+  }
+} else {
+  tekort_rest_fin <- ifel(landbouw_fractie_ha >= 0, 0, 0)
+}
+# Controle: is het hele resterende budget in landbouwgebied geplaatst?
+geplaatst_rest <- global(tekort_rest_fin, "sum", na.rm = TRUE)$sum * 10000
+cat("Doel: ", resterend_budget, " m2\nGerealiseerd: ", geplaatst_rest, " m2")
+
+# --- 5. FINALE KAART ---
+landbouw_masker_ha <- landbouw_fractie_ha > 0
+nieuwe_fractie_ha <- huidige_fractie_ha *landbouw_masker_ha + tekort_afstroom_fin + tekort_rest_fin #landbouwmasker toepassen of de rest van de huidige fractie ook laten staan?
+
+# Omzetten naar 10m resolutie voor visualisatie
+scenario_10m <- resample(nieuwe_fractie_ha, ecosysteem, method = "near") # check: near of bilinear of toch beter disagg gebruiken?
+scenario_10m_landbouw <- mask(scenario_10m, landbouw_masker, maskvalues = 0, updatevalue = NA)
+mapview(scenario_10m_landbouw)
+
+# Controle: halen we de 10% in het hele landbouwgebied?
+totaal_nieuwe_opp_ha <- global(nieuwe_fractie_ha, "sum", na.rm = TRUE)$sum * 10000 # op basis van ha-cellen
+cat("Doel: ", totaal_doel_opp, " m2\nGerealiseerd: ", totaal_nieuwe_opp_ha, " m2")
+
+totaal_nieuwe_opp_m2 <- global(scenario_10m_landbouw, "sum", na.rm = TRUE)$sum * 100 # op basis van 100m2-cellen
+cat("Doel: ", totaal_doel_opp, " m2\nGerealiseerd: ", totaal_nieuwe_opp_m2, " m2")
+
+```
+
+## Visualisatie (nog aan te vullen)
+
+```{r visualisatie}
+library(ggplot2)
+library(tidyterra) # Voor ggplot ondersteuning van terra objecten
+library(munsell)   # Voor mooie kleuren
+
+# Maak een verschilkaart (wat voegen we toe?)
+verschil_kaart <- nieuwe_fractie_ha - huidige_fractie_ha*landbouw_masker_ha
+
+ggplot() +
+  # 1. De achtergrond (het huidige landgebruik in grijs)
+  geom_spatraster(data = landbouw_masker, aes(fill = factor(lyr.1)), alpha = 0.2) +
+  scale_fill_manual(values = c("1" = "grey80"), na.value = "transparent", guide = "none") +
+  
+  # 2. De nieuwe fractie KLE (hectare niveau)
+  new_scale_fill() +
+  geom_spatraster(data = nieuwe_fractie_ha) +
+  scale_fill_whitebox_c(
+    palette = "muted", 
+    labels = scales::percent,
+    n.breaks = 5,
+    guide = guide_colorbar(title = "Dichtheid KLE\n(per hectare)")
+  ) +
+  
+  # 3. De rand van het studiegebied en afstroomzones
+  geom_sf(data = afstroom_natuur, fill = NA, color = "blue", size = 0.5, linetype = "dashed") +
+  
+  theme_minimal() +
+  labs(
+    title = "Scenario-oefening: Toename Kleine Landschapselementen",
+    subtitle = "Prioriteit 15% in blauwe zones, globaal streefcijfer 10%",
+    caption = "Blauwe stippellijn = afstroomgebied natuur"
+  ) +
+  theme(legend.position = "right")
+
+```

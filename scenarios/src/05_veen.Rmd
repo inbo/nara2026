@@ -1,0 +1,157 @@
+---
+title: "05_veen"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(here)
+library(readxl)
+library(viridis)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(beepr)
+library(leaflet) # Nodig voor colorFactor
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |          \|—– grondwater
+> |          `signaalk_veen_bkvwk.shp`
+> |    \|—– src -\> `05_veen.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+-   gebied.shp -\> polygoone van het gebied (zonder buffer)
+-   signaalk_veen_bkvwk.shp -\> veenkaart INBO met vernattingsdoel
+-   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+
+```{r bestanden_folders}
+
+# Kies de bestanden die je nodig hebt
+
+targets <- c("gebied.shp", "ecosysteem.tif", "signaalk_veen_bkvwk.shp")
+
+# In welke folders zitten de data?
+
+search_paths <- c(
+  "C:/R/NARA2026/scenarios/rivierbeek/data",
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## 2. Verdroogde veengebieden
+
+We hebben twee opties om verdroogde veengebieden te selecteren:
+
+Optie 1: op basis van de **peilwijzigingsklasse** uit de signaalkaart -\> selectie van veencellen met een peilwijzigingsklasse \>= 3
+
+Optie 2: op basis van het **landgebruik** op de veengebieden -\> selectie van veencellen waar
+
+```{r verdroogd_veen}
+
+# 1. Rasteriseer de veenkaart
+veen <- rasterize(signaalk_veen_bkvwk, ecosysteem, field = "plwklss")
+
+# Optie 1 - signaalkaart vernatting
+veen_verdroogd  <- ifel(veen >= 3, 1, NA)
+
+# Optie 2 - landgebruik
+veen_01  <- ifel(veen >= 0, 1, NA)
+landbouw <- ifel(ecosysteem %in% c(201, 202, 203, 204, 205, 301), 1, NA)
+veen_verdroogd  <- veen_01 * landbouw # geen verdroogd veen in de Rivierbeek
+
+mapview(veen_verdroogd, col.region = "red", na.color = "transparent") + mapview(landbouw, col.region = "yellow", na.color = "transparent")
+```
+
+## 3. Alloceren veenherstel
+
+### 3.1. Geschiktheidskaart
+
+-   Meest waardevolle landbouw sparen: akker -\> vooral gras vernatten (code 301)
+-   Aansluitend bij niet verdroogd veen in natuurgebied en in vernattingszone natuur
+-   Landbouw wordt moeras (701) in oppervlakteveen en gras/bos (302 of 400) in ondiep veen
+
+```{r geschiktheidskaart}
+
+```
+
+### 3.2. Allocatie
+
+```{r allocatie}
+
+```

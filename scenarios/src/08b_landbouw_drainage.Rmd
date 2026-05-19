@@ -1,0 +1,414 @@
+---
+title: "08b_landbouw_drainage"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(tidyverse)
+library(here)
+library(readxl)
+library(viridis)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(beepr) # voor de grap
+library(qgisprocess)
+library(jsonlite)
+library(leaflet)
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het **studiegebied** (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `08b_landbouw_drainage.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden standaard gebruikt in elk script:
+
+- ecosysteem.tif -\> ecosysteemkaart 2022 van het gebied met buffer (extra 1500 rond studiegebied) -\> wordt gebruikt om alle rasterkaarten af te stemmen
+- gebied.shp -\> polygoon van het gebied
+
+Deze datasets zijn specifiek voor dit script:
+
+- ecosysteem_2022.tif -\> ecosysteemkaart 2022 zonder buffer
+- effect_stuw.tif -\> effectiviteit voor **stuwtjes** ifv aanpak droogte
+- impact_droogte_agrar.tif -\> impact droogte op landbouw in aantal droogtedagen in 2100 (effectenenimpacts_s0_droogteduurAgrarischDagen_hoog_2100_t2)
+
+Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
+
+```{r bestanden_folders}
+
+studiegebied <- "rivierbeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_stuw.tif", "impact_droogte_agrar.tif")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## 2. Geschiktheidskaart en doeloppervlakte
+
+De geschiktheidskaart wordt als volgt opgebouwd:
+
+- De **impactkaart** van het aantal droogtedagen (0-365) wordt herschaald van 0-1.
+- Om de totale **geschiktheidsscore** te berekenen, wordt de herschaalde impactkaart (0-1) opgeteld bij de scores van de **effectiviteitskaart** (0, 1, 2, 3, 4, 5).
+- Alleen **landbouwcellen** komen in aanmerking om stuwtjes te plaatsen te nemen. Hiervoor worden alle landbouwklassen uit de ecosysteemkaart geselecteerd. Grasland onder landbouwbeheer (301) worden in deze versie nog meegenomen, maar in de finale versie zou ik het houden op akkers (201-205).
+- Alleen de cellen met de **hoogste effectiviteit** voor stuwtjes worden meegenomen (4 = zeer goede condities en 5 = uitermate goede condities).
+- De finale geschiktheidskaart is de combinatie van de geschiktheidsscore en de niet-uitgesloten cellen.
+
+De **doeloppervlakte** voor maatregelen om de drainage te verminderen (`opp_dedrain`) wordt berekend als 25% van de oppervlakte van de geschikte cellen.
+
+```{r geschiktheidskaart}
+
+ecosysteem <- ecosysteem_2022
+impact_droogte <- impact_droogte_agrar
+
+# 1. Bereken de geschiktheidsscore op basis van de impact -> herschaal de impactkaart (0 - 365 naar 0 - 1)
+score_geschiktheid <- impact_droogte / 365
+
+# 2. Maskering: Alleen de toegestane ecosysteem-cellen en effectiviteit 4 & 5
+# Stap A: Selecteer ecosysteem 201 (annual crops)
+mask_ecosysteem <- ecosysteem %in% c(201)
+
+# Stap B: Selecteer effectiviteit 4 en 5
+mask_effectiviteit <- effect_stuw %in% c(4, 5)
+
+# Stap C: Combineer maskers
+finaal_masker <- mask_ecosysteem & mask_effectiviteit
+
+# 3. Pas het masker toe op de totaalscore
+# Cellen die niet aan de voorwaarden voldoen worden NA
+geschiktheidskaart <- mask(score_geschiktheid, finaal_masker, maskvalues = 0)
+
+# bereken de doeloppervlakte (25% van de geschikte cellen)
+counts <- freq(finaal_masker)
+opp_dedrain <- round(0.25 * counts[counts$value == 1, "count"], 0)
+```
+
+## 3. Alloceren van infiltratiemaatregelen
+
+De doeloppervlakte (`opp_dedrain`) wordt gealloceerd volgens de geschiktheid van de cellen (hoogste geschiktheid eerst). Alleen cellen met code 201 (annual crops) komen in aanmerking.
+
+***Opmerking**: wat met gedraineerde bossen (rabatten)?*
+
+De geselecteerde cellen krijgen code 9998 in de nieuwe kaart (`ecosysteem_aangepast`).
+
+```{r allocatie}
+
+# 1. Omzetten naar een data.frame met coördinaten
+# We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
+# Optie 1: zonder rekening te houden met eerder geplaatste infiltratiemaatregelen
+df <- as.data.frame(c(ecosysteem, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
+colnames(df) <- c("cell", "eco_code", "score")
+
+# Optie 2: cellen met infiltratiemaatregelen uitsluiten
+ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_infilt.tif"))
+df <- as.data.frame(c(ecosysteem_infilt, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
+colnames(df) <- c("cell", "eco_code", "score")
+
+# 2. De data sorteren
+# Verwijderen lege cellen en sorteren volgens aflopende geschiktheid
+df_subset <- df[!is.na(df$eco_code), ]
+df_subset <- df_subset %>% # Optie 2: niet op cellen die al ingenomen zijn voor infiltratiemaatregelen
+  filter(eco_code != 9999)
+df_sorted <- df_subset[order(-df_subset$score), ]
+
+# 3. De top n cellen (doeloppervlakte) selecteren en de code aanpassen
+# Zet de nieuwe code voor deze cellen op '9998' (9999 is voor infiltratie)
+nieuwe_code <- 9998 
+top_cellen_indices <- df_sorted$cell[1:opp_dedrain]
+
+# 4. De originele ecosysteemkaart aanpassen
+ecosysteem_dedrain <- deepcopy(ecosysteem_infilt) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
+ecosysteem_dedrain[top_cellen_indices] <- nieuwe_code
+
+writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
+```
+
+## 4. Kaart maken
+
+Het script maakt een ecosysteemkaart van het gebied, op basis van de originele ecosystemen of de aangepaste ecosysteemkaart.
+
+*Opmerking: de legende toont intervallen i.p.v. discrete klassen -\> 100.5-101.5 moet 101 zijn, 101.5-102.5 met 102 zijn, etc.*
+
+```{r kaarten}
+
+# colormap voor de ecosysteemklassen inladen (geëxporteerd uit Arcmap)
+clr_data <- read.table("C:/R/NARA2026/scenarios/ecosysteemkaart_niv2_2022_v13.clr")
+named_colors <- rgb(clr_data$V2, clr_data$V3, clr_data$V4, maxColorValue = 255)
+names(named_colors) <- as.character(clr_data$V1)
+
+# Kleur voor aangepaste cellen in ecosysteem_aangepast
+named_colors["9998"] <- "#FF00CC" # voor de nieuwe maatregelen
+named_colors["9999"] <- "#CCFF00" # voor infiltratie
+
+
+
+df_colors <- data.frame(
+  code = as.numeric(names(named_colors)),
+  hex  = as.vector(named_colors),
+  stringsAsFactors = FALSE
+)
+
+# Kies kaart: origineel (ecosysteem) of aangepaste versie (ecosysteem_dedrain)
+kaart <- ecosysteem_dedrain
+
+# aanwezige codes
+r_codes <- sort(unique(values(kaart)))
+r_codes <- na.omit(r_codes)
+
+# kleuren filteren
+df_use <- df_colors[df_colors$code %in% r_codes, ]
+
+# kleuren exact in volgorde van rastercodes
+df_use <- df_use[match(r_codes, df_use$code), ]
+
+
+cols <- df_use$hex
+
+# Klassegrenzen voor categorische waarden (anders beschouwt mapview de klassen als continue variabele)
+ats <- c(r_codes - 0.5, max(r_codes) + 0.5)
+
+
+mapview(
+  kaart,
+  col.regions = cols,
+  at = ats,
+  na.color = "transparent",
+  legend = TRUE
+)
+
+```
+
+## 5. Impact van maatregelen
+
+Drainage verlaagt de grondwaterstand tot een niveau dat geschikt is voor land- en bosbouw. Door die verlaging neemt de grondwatervoorraad in de bodem af. Onder niet-gedraineerde omstandigheden zou dit water langzaam via de bodem naar de valleien stromen, waar het instaat voor de voeding van rivieren. Het **basisdebiet** van de rivieren is hoofdzakelijk afhankelijk van deze trage grondwaterstroming.
+
+Door drainage wordt een deel van dat grondwater versneld afgevoerd via het grachtenstelsel. Hierdoor nemen piekdebieten toe en daalt het basisdebiet.
+
+![Figuur 1. Effect van drainage op het hydrogram van een rivier. Een dichter drainagenetwerk zorg voor een snellere stijging naar een hoger piekdebiet en een snellere daling naar een lager basisdebiet.](images/info_drainage-01.png){width="300"}
+
+- Stap 1: bereken verlies grondwatervoorraad (m³)
+- Stap 2: bereken effect op basisdebiet
+
+```{r impact_drainage}
+
+# Stap 1 - 
+
+
+# Oppervlakte met verminderde drainage
+area_ha <- opp_dedrain * 100 / 10000
+
+# Grondwaterstijging door verminderde drainage (m)
+gw_rise <- 0.5
+
+# Soil texture options:
+# "sand", "sandy_loam", "loam", "clay", "peat"
+soil_texture <- "loam"
+
+# Aantal dagen voor simulatie
+simulation_days <- 120
+
+
+# Specific yield (drainable porosity)
+# Recession constant k [1/day]
+soil_params <- data.frame(
+  soil = c("sand", "sandy_loam", "loam", "clay", "peat"),
+  Sy   = c(0.30, 0.22, 0.18, 0.08, 0.05),
+  k    = c(0.08, 0.05, 0.03, 0.01, 0.005)
+)
+
+params <- soil_params %>%
+  filter(soil == soil_texture)
+
+Sy <- params$Sy
+k  <- params$k
+
+cat("\nSelected soil:", soil_texture, "\n")
+cat("Specific yield:", Sy, "\n")
+cat("Recession constant:", k, "1/day\n")
+
+# ============================================================
+# 3. OPTIONAL DTM ANALYSIS
+# ============================================================
+
+if (!is.null(dtm_file)) {
+
+  dtm <- rast(dtm_file)
+
+  # Terrain slope
+  slope <- terrain(dtm, v = "slope", unit = "degrees")
+
+  mean_slope <- global(slope, "mean", na.rm = TRUE)[1,1]
+
+  cat("\nMean slope from DTM:", round(mean_slope,2), "degrees\n")
+
+  # Simple correction:
+  # Steeper terrain -> faster drainage response
+  slope_factor <- 1 + (mean_slope / 20)
+
+  k <- k * slope_factor
+
+  cat("Adjusted recession constant:", round(k,4), "1/day\n")
+}
+
+# ============================================================
+# 4. GROUNDWATER STORAGE CALCULATION
+# ============================================================
+
+# Convert area to m²
+area_m2 <- area_ha * 10000
+
+# Additional groundwater storage
+# V = A * dh * Sy
+
+storage_m3 <- area_m2 * gw_rise * Sy
+
+cat("\nAdditional groundwater storage:\n")
+cat(round(storage_m3,0), "m3\n")
+
+# ============================================================
+# 5. BASEFLOW MODEL
+# ============================================================
+
+# Linear reservoir model:
+# Q = k * S
+
+# Convert k from 1/day to 1/sec
+k_sec <- k / 86400
+
+# Initial baseflow
+Q0 <- k_sec * storage_m3
+
+cat("\nInitial baseflow increase:\n")
+cat(round(Q0,4), "m3/s\n")
+
+# ============================================================
+# 6. SIMULATE BASEFLOW RECESSION
+# ============================================================
+
+time_days <- seq(0, simulation_days, by = 1)
+
+# Exponential recession
+# Q(t) = Q0 * exp(-k*t)
+
+Q <- Q0 * exp(-k * time_days)
+
+results <- data.frame(
+  day = time_days,
+  baseflow_m3s = Q
+)
+
+# ============================================================
+# 7. PLOT HYDROGRAPH
+# ============================================================
+
+p <- ggplot(results, aes(day, baseflow_m3s)) +
+  geom_line(size = 1.2) +
+  labs(
+    title = "Simulated Baseflow Recession",
+    x = "Time (days)",
+    y = expression(Baseflow~(m^3/s))
+  ) +
+  theme_minimal()
+
+print(p)
+
+# ============================================================
+# 8. SUMMARY OUTPUT
+# ============================================================
+
+cat("\n================ SUMMARY ================\n")
+cat("Area:", area_ha, "ha\n")
+cat("Groundwater rise:", gw_rise, "m\n")
+cat("Soil texture:", soil_texture, "\n")
+cat("Specific yield:", Sy, "\n")
+cat("Storage increase:", round(storage_m3,0), "m3\n")
+cat("Initial baseflow increase:", round(Q0,4), "m3/s\n")
+cat("=========================================\n")
+
+# ============================================================
+# 9. OPTIONAL: SAVE RESULTS
+# ============================================================
+
+write.csv(results, "baseflow_simulation.csv", row.names = FALSE)
+
+cat("\nResults saved to: baseflow_simulation.csv\n")
+```

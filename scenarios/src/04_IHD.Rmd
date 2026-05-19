@@ -1,0 +1,392 @@
+---
+title: "04_IHD"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(here)
+library(readxl)
+library(viridis)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(beepr)
+library(leaflet) # Nodig voor colorFactor
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |          \|—– grondwater
+> |          `stat_sectors.shp`
+> |    \|—– src -\> `04_IHD.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+-   gebied.shp -\> polygoone van het gebied (zonder buffer)
+-   natdoel.tif -\>
+-   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+-   lu_niv2.tif -\> niveau 2 van het landgebruiksbestand
+-   publiek_owner.tif -\> kaart van publieke eigendommen (publieke eigenaar)
+
+```{r bestanden_folders}
+
+# Kies de bestanden die je nodig hebt
+
+targets <- c("gebied.shp", "ecosysteem.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp")
+
+# In welke folders zitten de data?
+
+search_paths <- c(
+  "C:/R/NARA2026/scenarios/rivierbeek/data",
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **lu_niv2** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$lu_niv2
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## 2. Aantal inwoners per statistische sector
+
+```{r bevolking_sector}
+
+# 1. Residentiële gebouwen masker maken
+# Code 101 EN residentieel == 1. De rest wordt NA.
+res_gebouwen <- (ecosysteem == 101) & (residentieel == 1)
+res_gebouwen[res_gebouwen == 0] <- NA 
+
+# 2. Bevolking koppelen aan sectoren
+stat_sectors <- stat_sectors %>%
+  left_join(bevolking_stat, by = "cd_sector") %>%
+  mutate(inwon = as.numeric(inwon))
+
+# 3. Totaal aantal residentiële pixels per volledige sector berekenen
+# We gebruiken 'sum' omdat de raster 1 is voor residentieel gebouw
+stat_sectors$pixels_totaal <- extract(res_gebouwen, vect(stat_sectors), fun = sum, na.rm = TRUE)[,2]
+
+# 4. Sectoren versnijden met het studiegebied (Clip)
+sectoren_clip <- st_intersection(stat_sectors, gebied)
+
+# 5. Aantal residentiële pixels in de versneden delen berekenen
+sectoren_clip$pixels_deel <- extract(res_gebouwen, vect(sectoren_clip), fun = sum, na.rm = TRUE)[,2]
+
+# 6. Bevolking pro rata berekenen
+sectoren_resultaat <- sectoren_clip %>%
+  mutate(
+    # Voorkom delen door nul als een sector geen gebouwen heeft
+    aandeel = ifelse(pixels_totaal > 0, pixels_deel / pixels_totaal, 0),
+    inwon_deel = inwon * aandeel
+  )
+
+# 7. Samenvoegen (Dissolve) per gemeente (CNIS5)
+gemeente_studiegebied <- sectoren_resultaat %>%
+  group_by(CNIS5) %>%
+  summarise(
+    inwoners_totaal = sum(inwon_deel, na.rm = TRUE),
+    do_union = TRUE # Dit versmelt de geometrieën
+  )
+
+# 8. Opslaan
+st_write(gemeente_studiegebied, "C:/R/NARA2026/scenarios/rivierbeek/gemeente_bevolking_studiegebied.shp")
+
+```
+
+## 3. Ontharding
+
+De vorige stap berekent hoeveel inwoners er per gemeente zijn in het studiegebied. Op basis daarvan wordt het onthardingsdoel bepaald voor het deel van de gemeente dat in het studiegebied ligt (1 m² per inwoner). Het onthardingsdoel wordt vertaald in een aantal cellen (10m x 10m) waarvan het landgebruik moet veranderen. Alleen cellen die op de ecosysteemkaart code 102 hebben (stedelijk verhard) en die geen spoorweg of baanweg zijn, komen in aanmerking voor ontharding.
+
+De te ontharden cellen worden geselecteerd op basis van een geschiktheidskaart.
+
+### 3.1. Geschiktheidskaart
+
+-   **Verharde cellen** die **geen wegen** zijn in **woonkernen** -\> alleen cellen die code 102 hebben in de ecosysteemkaart én NA in de wegenkaart én code 1 in de kernenkaart komen in aanmerking voor ontharding.
+-   De cellen worden bij voorkeur geselecteerd als ze eigendom zijn van een **lokale** (1), **regionale** (4) of **provinciale** overheid (9) of **OCMW** (5). Of indien het een **Publieke Levensbeschouwelijke Instelling** (8) is met een **onderwijs** (lu_niv2 = 35) of **zorgfunctie** (lu_niv2 = 33). De geschiktheid van de **andere publieke eigendommen** moet half zo groot zijn.
+-   De publieke cellen worden bij voorkeur geselecteerd als een van de volgende landgebruiksfuncties hebben (lu_niv2): **overige bebouwde percelen** (1), **sportterreinen** (6), **overige recreatie** (8), **gezondheidszorg** (33), **katoren&administratie** (34), **onderwijs** (35) of **overige diensten** (36). De andere scores in kaart lu_niv2 zijn niet geschikt.
+-   **Private cellen** met een onderwijsfunctie (35) zijn geschikt.
+-   De geschiktheid moet toenemen naarmate de **cluster** van aaneengesloten geschikte cellen groter is en de cluster compacter is (om langerekte bermen of wegen uit te sluiten).
+
+```{r geschiktheid}
+
+# 1. Harde randvoorwaarde (Masker)
+# Alleen 102 EN weg=1 EN kern=1
+masker <- (ecosysteem == 102) & (is.na(wegen)) & (kernen == 1)
+masker[masker == 0] <- NA
+
+
+# 2. Score op basis van publieke eigendommen
+# 1, 4, 5, 9 OF (8 EN lu is 33/35) = score 1
+
+score_owner <- ifel(lu_niv2 %in% c(33, 35), # scholen & zorg op 1
+                      1,
+                      # lokale, regionale, prov. overheid & ocmw op 1
+                      ifel((publiek_owner %in% c(1, 4, 5, 9)),
+                           1,
+                           # rest publiek op 0.5
+                           ifel(is.na(publiek_owner), 0, 0.5)))
+
+# 3. Score op basis van landgebruiksFunctie (lu_niv2)
+# Geschikt (1): 1, 6, 8, 33, 34, 35, 36. De rest is NIET geschikt (0).
+
+score_lu <- ifel((lu_niv2 %in% c(1, 6, 8, 33, 34, 35, 36)),
+                  1, 0)
+
+# 4. Gecombineerde Basis-geschiktheid
+basis_geschiktheid <- score_owner * score_lu * masker
+
+
+# 5. Cluster-analyse (Grootte en Compactheid)
+
+# 5.1. Clustergrootte
+# Groepeer aaneengesloten cellen (patches)
+clusters <- patches(basis_geschiktheid, directions = 8)
+
+# Bereken oppervlakte per cluster (aantal cellen)
+tab <- freq(clusters)
+cluster_size <- classify(clusters, tab[, c("value", "count")])
+
+# 5.1. Compactheid
+# Gebruik 'moving window' om de verhouding tussen oppervlakte en rand te schatten
+# Hoe meer buren van dezelfde cluster, hoe compacter.
+dichtheid <- focal(clusters, w = 3, fun = function(x) {
+  central_val <- x[5] # De 5e waarde in een 3x3 matrix is het midden
+  if(is.na(central_val)) return(NA)
+  sum(x == central_val, na.rm = TRUE) - 1 # -1 want we tellen de cel zelf niet mee
+})
+
+# 'dichtheid' geeft nu een score van 0 tot 8. 
+# 8 = midden in een blok (zeer compact), 1 = uiteinde van een lijn (niet compact).
+
+# Bereken de gemiddelde compactheid PER cluster
+compactheid_tabel <- zonal(dichtheid, clusters, fun = "mean", na.rm = TRUE)
+
+# Vertaal dit terug naar een kaart
+compactheid <- classify(clusters, compactheid_tabel)
+
+# 7. Finale Geschiktheidskaart
+# We combineren de basis-score met een wegingsfactor voor grootte en vorm
+# Je kan de gewichten hieronder aanpassen (bijv. log van de grootte)
+geschiktheid_combi <- basis_geschiktheid * log10(cluster_size + 1) * (compactheid + 1)
+
+geschiktheid <- ifel(geschiktheid_combi == 0, 1, geschiktheid_combi)
+
+
+# Opslaan
+# writeRaster(geschiktheid, "geschiktheidskaart_ontharding.tif", overwrite=TRUE)
+```
+
+### 3.2. Cellen alloceren
+
+Het onthardingsdoel per gemeente is 1 m² per inwoner. Als een gemeente 1000 inwoners heeft, moet er dus 1000 m² onthard worden = 10 cellen van 10x10m. Die 10 cellen moeten geplaatst worden op verharde cellen volgens hun geschiktheid.
+
+```{r allocatie}
+
+# 1. Rasteriseer de gemeentes (CNIS5 = code gemeente)
+gemeente_rast <- rasterize(gemeente_studiegebied, geschiktheid_final, field = "CNIS5")
+
+# 2. Maak een tabel met het doel per gemeente
+doelen <- gemeente_studiegebied %>%
+  st_drop_geometry() %>%
+  mutate(cel_doel = ceiling(inwoners_totaal / 100)) %>%
+  select(CNIS5, cel_doel)
+
+# 3. Initialiseer het resultaat-raster (leeg/0)
+ontharding_kaart <- geschiktheid
+ontharding_kaart[] <- 0
+
+# 4. Loop door elke gemeente om de beste cellen te 'selecteren'
+unieke_gemeentes <- unique(doelen$CNIS5)
+
+for (g in unieke_gemeentes) {
+  # Haal het doel voor deze gemeente op
+  streefcijfer <- doelen$cel_doel[doelen$CNIS5 == g]
+  
+  if (length(streefcijfer) == 0 || streefcijfer <= 0) next
+  
+  # Selecteer alle geschiktheidsscores binnen deze gemeente
+  # We gebruiken een masker op basis van de gemeente_rast
+  masker_gemeente <- gemeente_rast == g
+  
+  # Haal de waarden en hun cel-indices op
+  cell_indices <- which(values(masker_gemeente) == 1)
+  scores <- geschiktheid[cell_indices][,1]
+  
+  # Combineer index en score in een dataframe en filter op bruikbare cellen (>0)
+  df_selectie <- data.frame(idx = cell_indices, score = scores) %>%
+    filter(!is.na(score) & score > 0) %>%
+    arrange(desc(score)) # Sorteer van hoogste naar laagste geschiktheid
+  
+  # Selecteer de top-N cellen
+  aantal_te_selecteren <- min(nrow(df_selectie), streefcijfer)
+  
+  if (aantal_te_selecteren > 0) {
+    top_indices <- df_selectie$idx[1:aantal_te_selecteren]
+    # Markeer deze cellen in de resultaatkaart als 1 (ontharden)
+    ontharding_kaart[top_indices] <- 1
+  }
+}
+
+# 5. Opslaan en Visualiseren
+# writeRaster(ontharding_kaart, "onthardingskaart.tif", overwrite=TRUE)
+
+# Check: Hoeveel m2 wordt er in totaal onthard?
+totaal_cellen <- global(ontharding_kaart, "sum", na.rm=TRUE)
+print(paste("Totaal aantal ontharde cellen:", totaal_cellen))
+
+mapview(ontharding_kaart) + mapview(geschiktheid) + mapview(gemeente_studiegebied, zcol = "CNIS5")
+```
+
+## 4. Afkoppeling gebouwen
+
+We willen inschatten hoe ...
+
+Gebouwen met minstens 100 m² tuin of een perceelgrootte van minstens 120 m² zijn verplicht om bij nieuwbouw of grondige verbouwing een infiltratievoorziening aan te leggen. We selecteren alle bebouwde cellen die grenzen aan een of meerdere niet-bebouwde cellen. Aangezien een rastercel 100 m² is, gaan we ervan uit dat we daarmee de gebouwen selecteren waarvoor de verplichting geldt. Cellen met code 101 in de ecosysteemkaart zijn gebouwen, cellen met codes \>= 103 zijn niet-bebouwde cellen.
+
+### 4.1. Huidige toestand
+
+We veronderstellen dat het regenwater van gebouwen (code 101) die binnen een zone vallen met riolering (riolering.shp) wordt afgevoerd naar de riolering en niet infiltreert in de bodem.
+
+Binnen deze groep verfijnen we het aantal gebouwen waarvan het regenwater niet infiltreert op basis van het percentage nieuwbouw. We gaan er daarbij vanuit dat nieuwe gebouwen sinds 2014 voorzien zijn van een infiltratievoorziening (verplichting in gewestelijke hemelwaterverordening). Infiltratievoorzieningen bij renovaties zijn slechts verplicht sinds 2023 en worden niet mee in rekening gebracht. Tussen 2014 en 2024 kwamen er 117000 gebouwen bij. Dat is 4% van het gebouwenbestand in 2024. We gaan ervan uit dat die **4%** geldig is voor zowel gebieden met als zonder riolering.
+
+**Opmerking**: 4% is waarschijnlijk een overschatting omdat niet alle nieuwbouw voorzien kan worden van een infiltratievoorziening.
+
+### 4.2. Scenario's
+
+Het aantal gebouwen waarvan het regenwater infiltreert verhogen we in scenario 1 en 2 op basis van de huidige renovatiesnelheid.
+
+In 2024 waren er 2.7 miljoen gebouwen in Vlaanderen ([Statbel](https://statbel.fgov.be/nl/themas/bouwen-wonen/gebouwenpark#news)). Jaarlijks (2024) worden in Vlaanderen ongeveer 20000 renovatievergunningen uitgereikt (residentieel en niet-residentieel -\> zie [Statbel](https://statbel.fgov.be/nl/themas/bouwen-wonen/bouwvergunningen)). Dat is ongeveer 0.75% van het gebouwenbestand per jaar (of 3 per 1000 inwoners). Dat betekent dat tussen 2024 en 2050 ruwweg **19%** van de gebouwen gerenoveerd wordt. We gaan ervan uit dat die gebouwen voldoen aan de hemelwaterverordening van 2023 en een infiltratievoorziening installeren.
+
+**Opmerking**: De Vlaamse langetermijnrenovatiestrategie voor gebouwen 2050 stelt als doel dat jaarlijks **3%** van de gebouwen gerenoveerd moet worden. Dat is **78%** van de gebouwen tegen 2050.-\> sluit eerder aan bij het maximalistisch scenario (3).
+
+*Rapport VLARIO: Om de huidige overstromingsveiligheid te behouden voor een terugkeerperiode van 20 jaar, is een afkoppeling (liefst ontharding, of anders afkoppeling van de riolering) van verharde oppervlakken nodig van 35% tegen 2050 en 53% tegen 2100.*
+
+**Opmerking**: omdat een groot deel van het regenwater herbruikt wordt (toiletspoeling, wassen), zal dat deel niet infiltreren en toch afspoelen via de riolering. Op basis van de dagelijkse neerslag, een hemelwaterput van 5000 l, een dakoppervlak van 125 m² en een gemiddeld regenwatergebruik van 100 l per dag (zie [VLARIO-rapport](https://www.vlario.be/site/files/downloads/Rapport-VLARIO-Impact-klimaatverandering-op-rioleringen.pdf)), wordt de infiltratie geschat op **65% van de jaarlijkse neerslag** (= overloopvolume van de hemelwaterput).
+
+Scenario's:
+
+-   scenario 1: 23% extra infiltratie van bebouwde oppervlakte (4% huidige toestand + 19% trend tot 2050) **random** verdeeld over de bebouwde cellen (met tuin en riolering)
+-   scenario 2: 23% van bebouwde oppervlakte verdeeld over de bebouwde cellen (idem sc 1) die het **meest geschikt zijn voor infiltratie**
+-   scenario 3: 100% van bebouwde oppervlakte (idem sc 1)
+
+```{r afkoppeling}
+
+# 1. Maak binair masker van bebouwde en onbebouwde cellen
+# Bebouwd (101) krijgt waarde 1, de rest NA
+bebouwd <- ifel(ecosysteem == 101, 1, NA)
+
+# Niet-verhard (>= 103) krijgt waarde 1, de rest NA
+niet_verhard <- ifel(ecosysteem >= 103, 1, NA)
+
+# 2. Identificeer de cellen die grenzen aan niet-verharde cellen
+# We kijken in een 3x3 window rondom elke bebouwde cel.
+# Als er minstens één niet-bebouwde buur is, telt de focal functie dit op.
+randen_masker <- focal(niet_verhard, w = 3, fun = "sum", na.rm = TRUE)
+# Selecteer alleen cellen die bebouwd zijn én grenzen aan niet-verhard (> 0)
+bebouwd_tuin <- mask(bebouwd, randen_masker, maskvalues = NA, updatevalue = NA)
+
+
+# Selecteer de gebouwpixels die in een gebied met riolering liggen
+bebouwd_riool <- mask(bebouwd, riolering)
+
+# combineer gebouw met riolering en tuin = potentieel infiltratie
+bebouwd_infiltratie <- bebouwd_riool * bebouwd_tuin
+
+mapview(bebouwd, col.region = "red", na.color = "transparent") + mapview(bebouwd_riool, col.region = "blue", na.color = "transparent") + mapview(bebouwd_tuin, col.region = "green", na.color = "transparent") + mapview(bebouwd_infiltratie, col.region = "yellow", na.color = "transparent")
+
+# Doelstelling scenario's
+infiltratie_n <- freq(bebouwd_infiltratie) %>% pull() # aantal bebouwde cellen met tuin
+infiltratie_doel <- round(infiltratie_n * 0.23, 0) # 4% reeds afgekoppeld + 19% trend
+
+# 3. Willekeurige selectie
+# Haal de indices op van alle cellen die aan de criteria voldoen
+cel_nummers <- cells(bebouwd_infiltratie)
+
+# Kies een random aantal
+n_samples <- infiltratie_doel 
+
+# Controleer of we genoeg cellen hebben, anders nemen we alles
+if(length(cel_nummers) > n_samples) {
+  random_cel_nummers <- sample(cel_nummers, n_samples)
+} else {
+  random_cel_nummers <- cel_nummers
+}
+
+# Maak een leeg raster en vul de random cellen
+infiltratie_sc <- rast(ecosysteem)
+values(infiltratie_sc) <- NA
+infiltratie_sc[random_cel_nummers] <- 1
+
+mapview(infiltratie_sc, na.color = "transparent")
+
+# 5. Resultaat opslaan of bekijken
+# writeRaster(infiltratie_sc, "infiltratie_sc.tif", overwrite = TRUE)
+```

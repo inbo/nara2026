@@ -1,0 +1,514 @@
+---
+title: "x6_vernattingscontouren"
+author: "NARA"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(gstat)
+library(tidyverse)
+library(readxl)
+library(tools)     # om de bestanden in te lezen
+library(lwgeom) # Om polygonen te splitsen
+library(exactextractr) # C++ gebaseerde tool om statistieken per polygoon te bereken (voor sneller dan terra::extract)
+
+library(qgisprocess)
+library(jsonlite)
+library(networkD3)
+library(htmlwidgets)
+library(whitebox)
+
+library(mapview)
+
+```
+
+De methode berekent de grondwaterstand rond percelen die vernat moeten worden om de natuurdoelen te realiseren.
+
+Drempelwaarde waarboven de grondwaterstand te hoog wordt om nog aan landbouw te doen: `x m`
+
+Signaalkaart vernatting (gebruik signaalkaart_2 = combinatie van nieuwe signaalkaart natuurdoelen en veenkaart INBO)
+
+## Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x6_vernattingscontouren.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- ecosysteem.tif -\> ecosysteemkaart 2022 van het gebied met buffer
+- aquifer_hcov.tif -\> diepte tot bovenkant eerste aquitard (zie script `x5_hcov_lagen_combineren`)
+- ksat_h_hcov.tif -\> gewogen gemiddeld ksat_h van de ondergrond tot top aquitard (zie script `x5_hcov_lagen_combineren`)
+- dhm.tif -\> dhm van het gebied
+- glg.tif -\> glg van het gebied
+- textuur.tif -\> textuur bodemkaart
+- rivieren_dhm.tif -\> dhm van de rivieren in het gebied
+- vha.shp -\> rivieren
+- signaalkaart.shp -\> signaalkaart vernatting op basis van de natuurdoelenkaart en de INBO-veenkaart (zie ArcGIS-script `kaarten_r_scenarios_studiegebied`). Het ArcGIS-script voegt het veld 'klasse' toe en berekent de scores 'zn', 'n', v' en 'd' (**z**eer **n**at, **n**at, **v**ochtig en **d**roog).
+
+```{r bestanden_folders}
+
+studiegebied <- "rivierbeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("ecosysteem.tif", "gebied.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif", "glg.tif", "textuur.tif", "rivieren_dhm.tif", "vha.shp", "signaalkaart.shp")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+### Datalagen klaarmaken
+
+```{r data_klaarmaken}
+
+# Vectoren
+rivieren <- vha %>% st_make_valid() %>% st_transform(st_crs(ecosysteem))
+
+rivier_buffers <- st_buffer(rivieren, dist = 1)
+rivier_buffer <- st_union(rivier_buffers)
+
+percelen <- signaalkaart %>% st_transform(st_crs(ecosysteem)) %>% 
+  st_make_valid() %>%
+  st_cast("POLYGON") %>%
+  st_difference(rivier_buffer) %>%
+  st_collection_extract("POLYGON") %>%
+  mutate(FID = row_number())
+
+# Rasters
+dtm_r          <- dhm
+ksat_r         <- ksat_h_hcov
+aquitard_top_r <- aquifer_hcov
+bodem_r        <- textuur
+riv_dhm_r      <- rivieren_dhm
+glg_r          <- glg
+
+glg_r[is.na(glg_r)] <- 0 # water is NA in raster -> gelijkstellen aan 0 (= maaiveld)
+```
+
+## Vernatting percelen
+
+De signaalkaart bestaat uit honderden polygonen waarvan de gewenste stijghoogte om het natuurdoel te realiseren vaak verschilt voor naburige polygonen. Dat leidt vaak tot onlogische streefpeilen op het terrein. Door technische ingrepen zoals drainagegrachten of stuwen kunnen percelen wel hydrologisch van elkaar geïsoleerd worden, maar in de praktijk worden herstelmaatregelen meestal uitgevoerd voor grotere zones waarin de hoogste grondwaterpeilen bepalend zijn.
+
+Om die grotere zones af te bakenen moeten we naburige polygonen groeperen die min of meer in eenzelfde hydrologisch zone liggen. In de vorige stap werden de polygonen al opgeslitst met de **rivieren**. Naburige polygonen die op een andere oever van een waterloop liggen, beschouwen we dus als hydrologisch gescheiden. Vervolgens delen we de percelen op in klassen op basis van de gewenste stijghoogte en hun hoogteligging en groeperen we polygonen die tot dezelfde klassen behoren.
+
+Door te werken met klassen ipv de exacte stijghoogte of hoogteligging verliezen we informatie, maar kunnen we meer logische zones voor vernatting afbakenen.
+
+- Stap 1: de percelen worden gegroepeerd op basis van de **peilklasse** (zeer nat, nat, vochtig, droog) en de **hoogteligging** van het perceel.
+- Stap 2: voor de gegroepeerde polygonen wordt de gemiddelde stijghoogte berekend op basis van de glg-kaart.
+  - Aan elk van de peilklassen wordt een gemiddelde stijghoogte toegekend:
+    - zeer natte percelen (zn) -\> 0.125 m onder maaiveld
+    - natte percelen (n) -\> 0.375 m
+    - vochtige percelen (v) -\> 0.85 m
+    - droge percelen (d) -\> 1.2 m
+  - Op basis van de huidige glg per polygoon wordt vervolgens het verschil met het gewenste peilniveau berekend.
+
+```{r percelen, echo=FALSE}
+
+# Stap 1: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
+# meest voorkomende hoogteklasse per perceel
+dtm_klass <- floor(dtm_r / 0.5) * 0.5 # dtm reclassen in stappen van 0.5 m
+percelen$h_klasse <- exact_extract(dtm_klass, percelen, 'mode')
+
+percelen_final <- percelen %>%
+  filter(klasse != "d") %>% # geen peilverhoging voor droge percelen
+  group_by(klasse, h_klasse) %>%
+  summarize(geometry = st_union(geometry), .groups = "drop") %>%
+  st_make_valid() %>%
+  st_collection_extract("POLYGON") %>%
+  st_cast("POLYGON") %>%
+  mutate(id = row_number())
+
+# Peilwijziging berekenen
+
+# Stap 2: Gewenste stijghoogte berekenen via de glg-laag
+percelen_final <- percelen_final %>%
+  dplyr::filter(as.numeric(st_area(.)) > 0) %>% # verwijder lege polygons
+  mutate(streefpeil = recode_values(klasse,
+                                 "zn" ~ 0.125,
+                                 "n"  ~ 0.375,
+                                 "v"  ~ 0.85,
+                                 "d"  ~ 1.2
+  ))
+
+ext_waarden <- exact_extract(glg_r, percelen_final, 'median')
+
+percelen_final$huidige_glg <- exact_extract(glg_r, percelen_final, 'median')
+percelen_final <- percelen_final %>%
+  mutate(peilwijziging = pmax(0, huidige_glg - streefpeil))
+
+```
+
+## Contouren
+
+Formule:
+
+$\Delta h(x)=\Delta h0*e^{-\frac{x}{\lambda}}$
+
+- Met $\Delta h(x)$ de grondwaterstijging op een afstand x van de te vernatten polygoon
+- $\Delta h0$ de gewenste stijghoogte in de polygoon
+- $\lambda$ de spreidingslengte (m) = de afstand waarover een peilverhoging merkbaar is, berekend als $\lambda=\sqrt{T*c}$
+  - T de transmissiviteit = $D*k_{sat}$, met *D* de dikte (m) en *k~sat~* de **horizontale** geleidbaarheid (m²/d) van de watervoerende laag
+  - *c* de verticale weerstand = $\frac{d}{k_v}$, met *d* de dikte van de deklaag (\~2 m) en *k~v~* de **verticale** doorlatendheid van de bodem
+
+De volgende stappen worden doorlopen:
+
+- Stap 1: Reduceren van het aantal polygonen om de berekening vlotter te laten verlopen -\> filteren op minimale stijging en minimale oppervlakte
+- Stap 2: Kaarten van de modelparameters maken
+- Stap 3: Hydrologische zones afbakenen met de rivieren als barrières
+- Stap 4: Berekening van de nieuwe glg op basis van de stijghoogte rond de polygonen -\> toepassen formules per polygoon en resultaten van alle polygonen integreren
+- Stap 5: Afbakenen van de zones waarbinnen de grondwaterstand te hoog is voor landbouw en bebouwing = vernattingscontouren
+
+```{r reduceren_poly}
+
+#//////////////////////////////////////////////////////////
+# Stap 1: Reduceren aantal polygonen (selectie en dissolve)
+#//////////////////////////////////////////////////////////
+
+# voeg naburige (rakende) polygonen samen en wijs de grootste peilwijziging toe
+# Selecteer percelen met peilwijziging > 0.01 m en oppervlakte > 1 ha
+
+filter_opp <- 5000 # m²
+filter_peil <- 0.01 # m
+
+# Optie 1 - eenvoudig: samenvoegen en selecteren
+
+percelen_union <- percelen_final %>%
+  st_union() %>%
+  st_cast("POLYGON") %>%
+  st_as_sf() %>%
+  mutate(cluster_id = row_number()) %>%
+  select(cluster_id)
+
+# Peilwijzigingen van originele polygonen toevoegen en grootste waarde nemen
+percelen_union_id <- st_join(percelen_final, percelen_union)
+
+percelen_select <- percelen_union_id %>%
+  group_by(cluster_id) %>%
+  summarise(
+    peilwijziging = max(peilwijziging, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(peilwijziging > filter_peil)
+
+percelen_select$area <- st_area(percelen_select)
+percelen_select_opp <- percelen_select %>%
+  filter(as.numeric(area) > filter_opp)
+
+
+# Optie 2 - complexer: kleine clusteren en toevoegen aan grote (houdt meer detail over)
+
+percelen_bis <- percelen_final %>%
+  st_make_valid() %>%
+  mutate(area_orig = as.numeric(st_area(.)),
+         orig_id = row_number())
+
+klein <- percelen_bis %>% filter(area_orig < filter_opp)
+groot <- percelen_bis %>% filter(area_orig >= filter_opp)
+
+# Kleine polygonen clusteren
+# We groeperen kleine polygonen die elkaar fysiek raken
+# Gebruik een mini-buffer om micro-gaten te overbruggen
+klein_union <- st_union(st_buffer(klein, 0.05)) %>% 
+  st_cast("POLYGON") %>% 
+  st_as_sf() %>%
+  mutate(cluster_id = row_number())
+
+# Koppel de originele data terug aan de clusters om attributen te bepalen
+# We willen de attributen van de grootste polygoon binnen elk cluster
+klein_met_cluster <- st_join(klein, klein_union)
+
+klein_clusters_final <- klein_met_cluster %>%
+  group_by(cluster_id) %>%
+  # Selecteer de rij met de grootste oppervlakte binnen het cluster
+  slice_max(area_orig, n = 1, with_ties = FALSE) %>%
+  # Voer de fysieke geometrie-union uit voor het hele cluster
+  summarise(across(-geometry, first), .groups = "drop") %>%
+  mutate(area_cluster = as.numeric(st_area(.))) %>%
+  st_make_valid()
+
+# Nieuwe clusters herevalueren (clusters >= 5000m² worden 'groot'
+clusters_nu_groot <- klein_clusters_final %>% filter(area_cluster >= filter_opp)
+clusters_nog_klein <- klein_clusters_final %>% filter(area_cluster < filter_opp)
+
+# Maak de nieuwe set met grote polygonen
+groot_totaal <- bind_rows(
+  groot %>% mutate(type = "origineel_groot"),
+  clusters_nu_groot %>% mutate(type = "cluster_geworden_groot")
+) %>% 
+  mutate(groot_id = row_number(),
+         area_for_match = as.numeric(st_area(.)))
+
+# Overgebleven kleine polygonen bij grote voegen
+
+# Zoek buren in de uitgebreide grote set
+intersections <- st_intersects(st_buffer(clusters_nog_klein, 0.1), groot_totaal)
+
+clusters_nog_klein$target_groot_id <- sapply(seq_len(nrow(clusters_nog_klein)), function(i) {
+  indices <- intersections[[i]]
+  if (length(indices) > 0) {
+    # Kies de buur uit groot_totaal met de grootste oppervlakte
+    best_neighbor_idx <- indices[which.max(groot_totaal$area_for_match[indices])]
+    return(groot_totaal$groot_id[best_neighbor_idx])
+  } else {
+    return(NA) # Geen buur gevonden (eilandje)
+  }
+})
+
+# Samenvoegen
+
+# Bereid de grote polygonen voor
+groot_prep <- groot_totaal %>% 
+  mutate(merge_id = groot_id) %>%
+  select(-groot_id, -area_for_match)
+
+# Bereid de kleine clusters voor die een match hebben
+klein_prep <- clusters_nog_klein %>% 
+  filter(!is.na(target_groot_id)) %>%
+  mutate(merge_id = target_groot_id) %>%
+  select(-cluster_id, -area_cluster, -target_groot_id)
+
+# Voeg samen
+totaal_voor_dissolve <- bind_rows(groot_prep, klein_prep)
+
+# Dissolve
+percelen_select_opp <- totaal_voor_dissolve %>%
+  group_by(merge_id) %>%
+  summarise(geometry = st_union(geometry),
+            across(everything(), first), 
+            .groups = "drop") %>%
+  st_as_sf() %>%
+  st_cast("MULTIPOLYGON") %>%
+  st_make_valid() %>%
+  filter(peilwijziging > filter_peil)
+
+
+```
+
+```{r contouren, echo=FALSE}
+
+#///////////////////////////////////////////////////////
+# Stap 2: parameterkaarten berekenen (ksat_v, T, omega)
+#///////////////////////////////////////////////////////
+
+# verticale ksat via textuur bodemkaart
+ksat_v <- c(
+  "G" = 10, "Z" = 1, "S" = 0.4, "P" = 0.15, "L" = 0.08,
+  "V" = 0.05, "M" = 0.03, "X" = 0.1, "A" = 0.01, "E" = 0.001, "U" = 0.0001)
+
+rat <- cats(bodem_r)[[1]] # Raster Attribute Table
+names(rat) <- c("value", "textuur")
+
+# Functie om ksat voor combinaties van textuurklassen (bv. U-A-S) te berekenen
+calc_k <- function(t_string) {
+  parts <- str_split(t_string, "-")[[1]]
+  vals <- ksat_v[parts] # aanpassen voor h of v
+  return(mean(vals, na.rm = TRUE))
+}
+
+ksat_values <- rat %>%
+  rowwise() %>%
+  mutate(ksat_waarde = calc_k(textuur)) %>%
+  ungroup()
+
+ksat_v_r <- classify(bodem_r, ksat_values[, c("value", "ksat_waarde")])
+
+# verticale weerstand c = d / (Ksat_v_r)
+d <- 2 # 2 m dikte bodem
+omega <- d / ksat_v_r
+
+# T (transmissiviteit (m2/d))
+# Begrens de aquiferdikte tot 20m om de transmissiviteit niet te groot te maken
+aquifer_20m <- clamp(aquitard_top_r, lower = 0, upper = 20)
+
+transmis <- ksat_r * (aquifer_20m + 0.1) # klein getal bij optellen om niet 0 te worden
+
+#///////////////////////////////////////
+# Stap 3: hydrologische zones afbakenen
+#///////////////////////////////////////
+
+# hydrologische regio's afbakenen om rivieren als barrières voor de distance-procedure te gebruiken (directions = 4 is niet beschikbaar in gridDist, maar wel in patches)
+
+rivieren_vect <- vect(rivieren)
+
+riv_mask <- rasterize(rivieren_vect, ref_raster, field = 1, touches = TRUE) # touches = True -> om ervoor te zorgen dat de riviercellen elkaar altijd aan een zijkant raken 
+riv_mask[riv_mask != 1] <- NA
+
+# Niet-riviercellen = 1, riviercellen = NA
+nonriv <- riv_mask
+nonriv <- classify(nonriv, cbind(NA, 0)) # alle niet-riviercellen op 0
+nonriv <- classify(nonriv, cbind(1, NA)) # alle riviercellen op NA
+
+# Maak hydrologische regio’s (4-connectivity → geen diagonale doorgang)
+region_r <- patches(nonriv, directions = 4)
+
+
+#///////////////////////////////
+# Stap 4: Berekening nieuwe glg
+#///////////////////////////////
+
+# 1. Om rekentijd te besparen -> beperk de berekening voor een afstand van 200 m rond de polygonen
+
+percelen_vect <- vect(percelen_select_opp)
+percelen_vect <- project(percelen_vect, crs(ref_raster))
+
+buff_params <- buffer(percelen_vect, 200)
+percelen_select_opp$Tavg <- extract(transmis, buff_params, fun = mean, na.rm = TRUE)[,2]
+omega_avg <- extract(omega, buff_params, fun = mean, na.rm = TRUE)[,2]
+percelen_select_opp$lambda <- sqrt(percelen_select_opp$Tavg * omega_avg)
+
+# 2. Loop over de verschillende polygonen om de stijging te berekenen en
+# update de huidige glg met de stijghoogtes
+
+# Initialiseer het resultaatraster (start met huidige GLG)
+glg_globaal <- glg_r 
+
+for (i in 1:nrow(percelen_select_opp)) {
+  
+  # 1. Haal parameters op
+  delta_h_i <- percelen_select_opp$peilwijziging[i]
+  lambda_i <- percelen_select_opp$lambda[i]
+  
+  if (is.na(lambda_i) || is.na(delta_h_i) || lambda_i <= 0) next
+  
+  # 2. Lokaal analysevenster afbakenen (4 * lambda)
+  max_dist <- max(500, 4 * lambda_i)
+  perceel_i <- percelen_vect[i]
+  analysevenster <- ext(perceel_i) + max_dist
+  
+  # 3. Crop de rasters
+  glg_lokaal <- crop(glg_r, analysevenster)
+  reg_lokaal <- crop(region_r, analysevenster)
+  target_r <- ifel(reg_lokaal > 0, 0, NA)
+  
+  mask <- ifel(target_r == 0, 1, target_r) # masker om rivieren in te branden
+  
+  # 4. Bereken de afstand rond de polygoon met rivieren als barrière 
+  # Geef cellen van de polygoon waarde 1
+  # update = TRUE zorgt ervoor dat we het bestaande raster aanpassen
+  target_r <- rasterize(perceel_i, target_r, update = TRUE, field = 1)
+  
+  target_r <- target_r * mask # brand de rivieren er terug in
+  
+  dist_r <- gridDist(target_r, target = 1)
+  
+  # 5. Bereken de lokale stijging
+  stijging_lokaal <- delta_h_i * exp(-dist_r / lambda_i)
+  stijging_lokaal[is.na(stijging_lokaal)] <- 0
+
+  # 6. Bereken nieuwe lokale GLG
+  glg_result_lokaal <- glg_lokaal - stijging_lokaal
+  glg_result_lokaal[glg_result_lokaal < 0] <- 0
+
+  # 7. Update globale raster met mosaic en min()
+  glg_patch <- crop(glg_globaal, glg_result_lokaal)
+  glg_updated <- min(glg_patch, glg_result_lokaal, na.rm = TRUE)
+  glg_globaal <- mosaic(glg_globaal, glg_updated, fun = "min")
+  
+  if (i %% 10 == 0) cat("Voortgang:", i, "/", nrow(percelen_select_opp), "\n")
+}
+
+
+#////////////////////////////////////////
+# Stap 5: Afbakening vernattingscontouren
+#////////////////////////////////////////
+
+# Cellen die ongeschikt zijn voor akkerbouw (glg < 1 m)
+glg_landbouw_na <- ifel(glg_globaal > 1, NA, 1)
+glg_landbouw_voor <- ifel(glg_r > 1, NA, 1)
+
+
+glg_dif <- (glg_r - glg_globaal)
+contour <- ifel(glg_dif > 0, 1, NA)
+contour_landb <- glg_dif * glg_landbouw_na
+contour_landb <- ifel(contour_landb > 0, 1, NA)
+
+# mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, col.regions = "darkred") + mapview(gebied, alpha.regions = 0)
+
+# writeRaster(contour, filename = str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_vernatting.tif"), overwrite = TRUE)
+
+
+```

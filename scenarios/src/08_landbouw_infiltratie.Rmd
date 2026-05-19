@@ -1,0 +1,335 @@
+---
+title: "08a_landbouw_infiltratie"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(tidyverse)
+library(here)
+library(readxl)
+library(viridis)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(beepr) # voor de grap
+library(qgisprocess)
+library(jsonlite)
+library(leaflet)
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het **studiegebied** (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `08_landbouw_infiltratie.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden standaard gebruikt in elk script:
+
+- ecosysteem.tif -\> ecosysteemkaart 2022 van het gebied met buffer (extra 1500 rond studiegebied) -\> wordt gebruikt om alle rasterkaarten af te stemmen
+- gebied.shp -\> polygoon van het gebied
+
+Deze datasets zijn specifiek voor dit script:
+
+- ecosysteem_2022.tif -\> ecosysteemkaart 2022 zonder buffer
+- effect_infilt.tif -\> effectiviteit voor infiltratiepoelen ifv aanpak droogte
+- impact_droogte_agrar.tif -\> impact droogte op landbouw in aantal droogtedagen in 2100 (effectenenimpacts_s0_droogteduurAgrarischDagen_hoog_2100_t2)
+
+Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
+
+```{r bestanden_folders}
+
+studiegebied <- "rivierbeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_infilt.tif", "impact_droogte_agrar.tif")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## 2. Geschiktheidskaart en doeloppervlakte
+
+De geschiktheidskaart wordt als volgt opgebouwd:
+
+- De **impactkaart** van het aantal droogtedagen (0-365) wordt herschaald van 0-1.
+- Om de totale **geschiktheidsscore** te berekenen, wordt de herschaalde impactkaart (0-1) opgeteld bij de scores van de **effectiviteitskaart** (0, 1, 2, 3, 4, 5).
+- Alleen **landbouwcellen** komen in aanmerking om infiltratiemaatregelen te nemen. Hiervoor worden alle landbouwklassen uit de ecosysteemkaart geselecteerd. Grasland onder landbouwbeheer (301) worden in deze versie nog meegenomen, maar in de finale versie zou ik het houden op akkers (201-205).
+- Alleen de cellen met de **hoogste effectiviteit** voor infiltratiepoelen worden meegenomen (4 = zeer goede condities en 5 = uitermate goede condities).
+- De finale geschiktheidskaart is de combinatie van de geschiktheidsscore en de niet-uitgesloten cellen.
+
+De **doeloppervlakte** voor infiltratiemaatregelen (`opp_infilt`) wordt berekend als 25% van de oppervlakte van de geschikte cellen.
+
+```{r geschiktheidskaart}
+
+ecosysteem <- ecosysteem_2022
+impact_droogte <- impact_droogte_agrar
+
+# 1. Bereken de geschiktheidsscore op basis van de impact -> herschaal de impactkaart (0 - 365 naar 0 - 1)
+score_geschiktheid <- impact_droogte / 365
+
+# 2. Maskering: Alleen de toegestane ecosysteem-cellen en effectiviteit 4 & 5
+# Stap A: Selecteer ecosysteem 201 (annual crops)
+mask_ecosysteem <- ecosysteem %in% c(201)
+
+# Stap B: Selecteer effectiviteit 4 en 5
+mask_effectiviteit <- effect_infilt %in% c(4, 5)
+
+# Stap C: Combineer maskers
+finaal_masker <- mask_ecosysteem & mask_effectiviteit
+
+# 3. Pas het masker toe op de totaalscore
+# Cellen die niet aan de voorwaarden voldoen worden NA
+geschiktheidskaart <- mask(score_geschiktheid, finaal_masker, maskvalues = 0)
+
+# bereken de doeloppervlakte (25% van de geschikte cellen)
+counts <- freq(finaal_masker)
+opp_infilt <- round(0.25 * counts[counts$value == 1, "count"], 0)
+```
+
+## 3. Alloceren van infiltratiemaatregelen
+
+De doeloppervlakte (`opp_infilt`) wordt gealloceerd volgens de geschiktheid van de cellen (hoogste geschiktheid eerst). Alleen cellen met code 201 (annual crops) komen in aanmerking.
+
+De geselecteerde cellen krijgen code 9999 in de nieuwe kaart (`ecosysteem_aangepast`).
+
+```{r allocatie}
+
+# 1. Omzetten naar een data.frame met coördinaten
+# We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
+df <- as.data.frame(c(ecosysteem, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
+colnames(df) <- c("cell", "eco_code", "score")
+
+# 2. De data sorteren
+# We verwijderen eerst rijen die niet in onze doellijst staan (indien van toepassing)
+df_subset <- df[!is.na(df$eco_code), ]
+df_sorted <- df_subset[order(-df_subset$score), ]
+
+# 3. De top n cellen (doeloppervlakte) selecteren en de code aanpassen
+# Zet de nieuwe code voor deze cellen op '9999'
+nieuwe_code <- 9999 
+top_cellen_indices <- df_sorted$cell[1:opp_infilt]
+
+# 4. De originele ecosysteemkaart aanpassen
+ecosysteem_infilt <- deepcopy(ecosysteem)
+ecosysteem_infilt[top_cellen_indices] <- nieuwe_code
+
+writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_infilt.tif"), overwrite = TRUE)
+```
+
+### 3.1. Combineren met kaart verminderen drainage
+
+***Opmerking**: er worden aparte geschiktheidskaarten gemaakt voor infiltratie en verminderde drainage op basis van score 4 en 5 van de effectiviteitskaarten. Bij de combinatie van de aangepaste landgebruikskaart primeert infiltratie op verminderde drainage. We zouden ze ook kunnen combineren op basis van de hoogste geschiktheid: waar de geschiktheid het hoogst is voor infiltratie, primeert infiltratie en waar die het hoogst is voor verminderde drainage, primeert dedrainage.*
+
+*Alternatief: cellen voor verminderde drainage plaatsen op locaties waar nog geen infiltratiemaatregelen genomen zijn. Dat heeft als gevolg dat er cellen geselecteerd worden met een lage effectiviteit voor stuwtjes.*
+
+```{r combi_dedrain}
+
+# resultaat van script 08b_landbouw_drainage.Rmd inladen
+# aangepaste cellen voor verminderen van drainage hebben score 9998
+ecosysteem_dedrain <- rast(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"))
+
+
+#//////////////////////////////////////////////
+# Optie 1: Combineren -> infiltratie wint altijd
+#//////////////////////////////////////////////
+
+# kaarten combineren
+# Eerst kopie nemen van ecosysteem_infilt
+ecosysteem_combi <- ecosysteem_infilt
+
+# Cellen die zowel geschikt zijn voor infiltratie als verminderde drainage
+overlap <- (!is.na(ecosysteem_infilt) & ecosysteem_infilt == 9999) & 
+              (!is.na(ecosysteem_dedrain) & ecosysteem_dedrain == 9998)
+
+# Conditie die alleen geschikt zijn voor verminderde drainage
+alleen_dedrain <- (!is.na(ecosysteem_dedrain) & ecosysteem_dedrain == 9998) & 
+                      (is.na(ecosysteem_infilt) | ecosysteem_infilt != 9999)
+
+# Vervang de waarden in de gecombineerde kaart op basis van de condities
+ecosysteem_combi[overlap] <- 9997
+ecosysteem_combi[alleen_dedrain] <- 9998
+
+freq(ecosysteem_combi)
+# Veel overlap:
+# 9997  -> 59018
+# 9998  -> 9659
+# 9999  -> 76024
+
+
+#///////////////////////////////////////////////////////
+# Optie 2: combineren op basis van hoogste effectiviteit
+#///////////////////////////////////////////////////////
+
+# 1. Eerst kaart maken van winnende effectiviteit (9999 voor infiltratie en 9998 voor stuwtjes)
+infilt_temp <- ifel(is.na(effect_infilt), -1, effect_infilt)
+stuw_temp <- ifel(is.na(effect_stuw), -1, effect_stuw)
+
+effect_combi <- effect_infilt * NA
+
+# logisch raster (infiltratie primeert bij gelijke effectiviteit)
+infilt_wint <- infilt_temp >= stuw_temp
+stuw_wint <- stuw_temp > infilt_temp
+
+# kaart hoogste effectiviteit: 9999 voor infiltratie, 9998 voor stuwtjes
+effect_combi[infilt_wint] <- 9999
+effect_combi[stuw_wint] <- 9998
+
+# 2. Dan kaart van winnende effectiviteit gebruiken om ecosysteemkaarten te combineren
+
+ecosysteem_combi <- ecosysteem_infilt
+
+# Cellen die zowel geschikt zijn voor infiltratie als verminderde drainage maar waar de effectiviteit voor dedrainage hoger is
+overlap_dedrain <- (!is.na(ecosysteem_infilt) & ecosysteem_infilt == 9999) &
+  (!is.na(ecosysteem_dedrain) & ecosysteem_dedrain == 9998) &
+  (!is.na(effect_combi) & effect_combi == 9998)
+
+# Conditie die alleen geschikt zijn voor verminderde drainage
+alleen_dedrain <- (!is.na(ecosysteem_dedrain) & ecosysteem_dedrain == 9998) & 
+                      (is.na(ecosysteem_infilt) | ecosysteem_infilt != 9999)
+
+ecosysteem_combi[overlap_dedrain] <- 9998
+ecosysteem_combi[alleen_dedrain] <- 9998
+```
+
+## 4. Kaart maken
+
+Het script maakt een ecosysteemkaart van het gebied, op basis van de originele ecosystemen of de aangepaste ecosysteemkaart.
+
+***Opmerking**: de legende toont intervallen i.p.v. discrete klassen -\> 100.5-101.5 moet 101 zijn, 101.5-102.5 met 102 zijn, etc.*
+
+```{r kaarten}
+
+# colormap voor de ecosysteemklassen inladen (geëxporteerd uit Arcmap)
+clr_data <- read.table("C:/R/NARA2026/scenarios/ecosysteemkaart_niv2_2022_v13.clr")
+named_colors <- rgb(clr_data$V2, clr_data$V3, clr_data$V4, maxColorValue = 255)
+names(named_colors) <- as.character(clr_data$V1)
+
+# Kleur voor aangepaste cellen in ecosysteem_aangepast
+named_colors["9999"] <- "#CCFF00" # voor infiltratie
+named_colors["9998"] <- "#FF00CC" # voor verminderde drainage
+named_colors["9997"] <- "#00FFEC" # voor de combinatie (bij optie 1)
+
+
+df_colors <- data.frame(
+  code = as.numeric(names(named_colors)),
+  hex  = as.vector(named_colors),
+  stringsAsFactors = FALSE
+)
+
+# Kies kaart: origineel (ecosysteem) of aangepaste versie (ecosysteem_infilt)
+kaart <- ecosysteem_combi
+
+# aanwezige codes
+r_codes <- sort(unique(values(kaart)))
+r_codes <- na.omit(r_codes)
+
+# kleuren filteren
+df_use <- df_colors[df_colors$code %in% r_codes, ]
+
+# kleuren exact in volgorde van rastercodes
+df_use <- df_use[match(r_codes, df_use$code), ]
+
+
+cols <- df_use$hex
+
+# Klassegrenzen voor categorische waarden (anders beschouwt mapview de klassen als continue variabele)
+ats <- c(r_codes - 0.5, max(r_codes) + 0.5)
+
+
+mapview(
+  kaart,
+  col.regions = cols,
+  at = ats,
+  na.color = "transparent",
+  legend = TRUE
+)
+
+```
+
+## 5. Impact van maatregelen
+
+Literatuur over de effecten van maatregelen op infiltratie:
+
+- VMM -\> [Kosteneffectiviteitsanalyse van proactieve droogtemaatregelen in Vlaanderen](https://vmm.vlaanderen.be/publicaties/kosteneffectiviteitsanalyse-van-proactieve-droogtemaatregelen-in-Vlaanderen): rapport + Excel-rekenmodule
+- [Waterradar](https://waterradar.be/graphs?drainage_depth=100&drainage_base=50&distance=12&open_day_PGD=4&crop_type=Bloemkool&soil_type=Leem&variable=RECHARGE) -\> rekenmodule om effect van peilgestuurde drainage op diepe infiltratie in te schatten
+  - Over alle teelten en textuurklassen heen: gemiddeld **38 mm/jaar extra infiltratie**
+- Paper -\> [How does soil structure affect water infiltration? A meta-data systematic review](https://www.sciencedirect.com/science/article/pii/S016719872200263X?lastTeaserUserQuery=what%20is%20the%20relation%20between%201%25%20increase%20of%20SOC%20and%20the%20infiltration%20rate%3F#sec0015)
+  - Effect van bodemkoolstof (SOC -\> 1% SOM = 0.5% SOC) op infiltratie: $log(Inf)=1.47+1.52*MWD-0.49*SOC+0.014*leem$
+- paper -\> [Reassessment of the hydrologic soil group for runoff modelling](https://www.sciencedirect.com/science/article/abs/pii/S0167198721001045#sec0105)
+  - Effect van bodemkoolstof (SOM) op $CN = 46*leem^{0.068}*(10-SOM)^{0.211}$ -\> +1% SOC = **CN +/- 2 eenheden lager**

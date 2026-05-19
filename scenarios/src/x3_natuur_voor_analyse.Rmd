@@ -1,0 +1,359 @@
+---
+title: "x3_natuur_voor_analyse"
+author: "NARA"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(gstat)
+library(tidyverse)
+library(readxl)
+library(tools)     # om de bestanden in te lezen
+library(qgisprocess)
+library(jsonlite)
+
+library(mapview)
+
+```
+
+## Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x3_hydrologische_zones.Rmd`
+> |    \|—– herk_mombeek
+> |          \|—– data -\>
+
+### Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+-   gebied.shp -\> polygoon van het gebied (zonder buffer)
+-   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+-   dhm_tif -\> hoogtekaart
+-   toekomstlaag.shp -\> polygonen natuurdoelen
+-   deel_3_reclass_natdoel.xlsx -\> tabel met codes
+-   vha.shp -\> waterlopen (nodig voor barrière bij interpolatie)
+-   veenbkvwk.shp -\> veenkaart INBO (bodem + bwk)
+-   habrl.shp -\> habitatrichtlijngebieden
+
+```{r bestanden_folders}
+
+studiegebied <- "herk_mombeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("gebied.shp", "ecosysteem.tif", "veenbkvwk.shp", "toekomstlaag.shp", "deel_3_reclass_natdoel.xlsx", "habrl.shp")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## Polygonen grondwaterafhankelijke natuurdoelen
+
+Polygonen van natuurdoelen met grondwaterafhankelijek vegetaties.
+
+-   Stap 1 - **combineren** van percelen met natuurdoelen tot aaneenlsuitende polygonen -\> buffer + dissolve
+-   Stap 2 - selectie van percelen met **GWATES**. Alleen habitatcodes die meer dan 30% van de polygoon bedekken, tellen mee.
+-   Stap 3 - **selectie van polygonen** uit stap 1 die GWATES bevatten
+-   Stap 4 - alleen percelen met een **oppervlakte** die groot genoeg is (xx ha).
+-   Stap 5 - combineer de polygonen met de **SBZ-H-gebieden**
+
+```{r gwates}
+
+veen <- st_intersection(veenbkvwk, gebied)
+
+#//////////////////////////////////////////////
+# Stap 1 - combineren percelen met natuurdoelen
+#//////////////////////////////////////////////
+
+# Stel de afstand in (bijv. 50 meter) om gaten tussen percelen te overbruggen
+buffer_afstand <- 50 
+
+toekomst_grouped <- toekomstlaag %>%
+  st_buffer(dist = buffer_afstand) %>%
+  st_union() %>%            # dissolve
+  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+  st_as_sf() %>%                       
+  mutate(cluster_id = row_number())    # Geef elke cluster een uniek nummer
+
+# Krimp de buffer weer in om de oorspronkelijke vorm van de gecombineerde percelen te benaderen
+toekomst_grouped <- st_buffer(toekomst_grouped, dist = -buffer_afstand)
+
+# Veenlaag toevoegen (union toekomstlaag met veen)
+toekomst_veen <- st_union(toekomst_grouped, veen) %>% 
+  st_union() %>%
+  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+  st_as_sf() %>%                       
+  mutate(cluster_id = row_number())
+
+#///////////////////////////////////////////
+# Stap 2 - selectie van percelen met GWATES
+#///////////////////////////////////////////
+
+tbl_gwates <- deel_3_reclass_natdoel
+
+# Natuurdoelen koppelen aan tabel en alleen gwates-doelen overhouden
+
+# Tabel transformeren voor koppeling en alleen habitats met  > 30% bedekking selecteren
+percelen_df <- as.data.frame(toekomstlaag) %>%
+  mutate(ID_perceel = row_number()) %>%
+  pivot_longer(
+    cols = starts_with("HAB"), 
+    names_to = "HAB_nr", 
+    values_to = "HAB_type"
+  ) %>%
+  # Match de bedekkingsgraad (pHAB) bij het juiste HAB_type
+  mutate(p_nr = sub("HAB", "pHAB", HAB_nr)) %>%
+  rowwise() %>%
+  mutate(bedekking = get(p_nr)) %>%
+  filter(bedekking > 30) # Criterium: alleen bedekkingsgraad > 30% telt mee
+
+# Koppel met de gwates-tabel
+percelen_scores <- percelen_df %>%
+  left_join(tbl_gwates, by = c("HAB_type" = "hab1")) %>%
+  group_by(ID_perceel) %>%
+  # Kies per perceel het vegetatietype met de laagste tolerantie
+  summarise(gwates = max(gwates, na.rm = TRUE),) %>%
+  mutate(across(starts_with("gwates"), ~ ifelse(is.infinite(.), NA, .))) %>% # inf op NA zetten
+  filter(gwates >= 1)
+
+# Voeg scores terug toe aan de vector data
+gwates <- merge(toekomstlaag, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+
+# Veen toevoegen
+gwates_veen <- st_union(gwates, veen) %>% 
+  st_union() %>%
+  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+  st_as_sf() %>%                       
+  mutate(cluster_id = row_number())
+
+#//////////////////////////////////////////////////
+# Stap 3 - Minimaal 10% overlap met gwates of veen
+#/////////////////////////////////////////////////
+
+# We berekenen de oppervlakte van de overlap per cluster
+toekomst_veen$area_total <- st_area(toekomst_veen)
+
+# Bereken de overlap met gwates en veen
+intersections <- st_intersection(toekomst_veen, st_union(gwates_veen)) %>%
+  mutate(area_overlap = st_area(.)) %>%
+  st_drop_geometry() %>%
+  group_by(cluster_id) %>%
+  summarise(area_overlap = sum(area_overlap))
+
+# Voeg informatie samen en bereken het percentage
+selection_gwates_veen <- toekomst_veen %>%
+  left_join(intersections, by = "cluster_id") %>%
+  mutate(
+    area_overlap = ifelse(is.na(area_overlap), 0, area_overlap),
+    perc_overlap = as.numeric(area_overlap / area_total)
+  ) %>%
+  filter(perc_overlap >= 0.10)
+
+mapview(selection_gwates_veen)
+
+#//////////////////////////////////////////
+# Stap 4 - Oppervlakte > 1 ha (10.000 m²)
+#//////////////////////////////////////////
+
+# Minstens 10 ha groot
+selection_opp <- selection_gwates_veen %>%
+  filter(as.numeric(area_total) > 100000)
+
+
+#//////////////////////////////////////////
+# Stap 5 - union met SBZ-H
+#//////////////////////////////////////////
+
+habrl <- st_transform(habrl, st_crs(selection_opp))
+
+selection_final <- st_union(selection_opp, habrl) %>%
+  st_union() %>%
+  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+  st_as_sf() %>%                       
+  mutate(cluster_id = row_number(), area = round(st_area(.),1))
+  
+
+mapview(gebied, col.regions = "lightgrey") + mapview(selection_gwates_veen, col.regions = "blue") + mapview(selection_final, col.regions = "red") + mapview(habrl, col.regions = "pink", alpha.regions = 0.4) + mapview(veen, col.regions = "brown4")
+
+```
+
+## Wegschrijven als afzonderlijke polygonen
+
+```{r polygonen, echo=FALSE}
+
+dir_data <- "C:/R/NARA2026/scenarios/herk_mombeek/shapes_natuur"
+
+# 1 shapefile met meerdere polygonen
+file_name <- paste0("herkmombeek_polygons", ".shp")
+
+writeVector(vect(selection_final), file.path(dir_data, file_name), overwrite = TRUE)
+
+# 1 shapefile per polygoon
+
+selection_final_vect <- vect(selection_final)
+## Loop through each individual polygon and save it
+for (i in seq_len(nrow(selection_final_vect))) {
+
+  # Extract the single polygon
+  single_poly <- selection_final_vect[i, ]
+
+  # Construct a filename (e.g., polygon_1.shp, polygon_2.shp)
+  file_name <- paste0("polygon_", i, ".shp")
+
+  # Write to disk
+  writeVector(single_poly, file.path(dir_data, file_name), overwrite = TRUE)
+}
+```
+
+## REM
+
+```{r rem}
+
+dhm_10m <- resample(dhm, ecosysteem, method = "bilinear")
+
+# 2. Polygonen omzetten naar punten (vertices)
+# We halen de hoekpunten op om de lokale hoogtevariatie te vangen
+percelen_pts <- st_cast(percelen_final, "POINT")
+percelen_pts <- st_point_on_surface(percelen_final)
+
+# 3. DTM waarden toekennen aan de punten
+percelen_pts$z <- terra::extract(dhm, vect(percelen_pts))[, 2]
+
+# Verwijder punten met NA waarden (buiten raster bereik)
+percelen_pts <- percelen_pts %>%
+  drop_na(z)
+
+# 4. Interpolatie van het referentievlak
+# We gebruiken Inverse Distance Weighting (IDW)
+# Gebruik QGIS
+qgis_search_algorithms(
+  algorithm = "idw")
+
+# Argumenten controleren van algoritme
+qgis_show_help("gdal:gridinversedistancenearestneighbor") 
+
+qgis_show_help("grass:v.surf.idw") 
+
+qgis_result <- qgis_run_algorithm(
+  "gdal:gridinversedistancenearestneighbor",
+  INPUT = percelen_pts,
+  Z_FIELD = "z",
+  POWER = 2,
+  RADIUS = 500,
+  MAX_POINTS = 50,
+  MIN_POINTS = 2
+)
+
+
+vha_rast <- rasterize(vect(vha), ecosysteem, field = 1)
+resultaat <- ifel(is.na(vha_rast), 1, NA)
+
+
+qgis_result <- qgis_run_algorithm(
+  "grass:v.surf.idw",
+  INPUT = percelen_pts,
+  Z_FIELD = "z",
+  POWER = 2,
+  RADIUS = 500,
+  MAX_POINTS = 50,
+  MIN_POINTS = 2
+)
+
+
+interpol <- qgis_as_terra(qgis_result$OUTPUT)
+
+
+interpol_10m <- resample(interpol, ecosysteem, method = "bilinear")
+crs(interpol_10m) <- crs(dhm_10m)
+rem <- dhm_10m - interpol_10m
+
+mapview(rem) + mapview(percelen_final)
+
+# 6. Selecteer zones lager of gelijk aan referentie (<= 0)
+rem_lager <- ifel(rem <= 0, 1, NA)
+
+mapview(rem_lager) + mapview(percelen_final)
+
+```
+
+## Titel

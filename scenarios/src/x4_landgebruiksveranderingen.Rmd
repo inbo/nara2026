@@ -1,0 +1,339 @@
+---
+title: "x4_landgebruiksveranderingen"
+author: "NARA"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(gstat)
+library(tidyverse)
+library(readxl)
+library(tools)     # om de bestanden in te lezen
+library(qgisprocess)
+library(jsonlite)
+library(networkD3)
+library(htmlwidgets)
+
+library(mapview)
+
+```
+
+## Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x4_landgebruiksveranderingen.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+-   gebied.shp -\> polygoon van het gebied (zonder buffer)
+-   ecosysteem_2013.tif -\> ecosysteemkaart 2013 van het gebied (FLEA)
+-   ecosysteem_2022.tif -\> ecosysteemkaart 2022 van het gebied (FLEA)
+-   deel_3_reclass_lu.xlsx -\> tabel met codes voor de reclass van de ecosysteemkaarten
+
+```{r bestanden_folders}
+
+studiegebied <- "rivierbeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("ecosysteem.tif" , "gebied.shp", "ecosysteem_2013.tif", "ecosysteem_2022.tif", "deel_3_reclass_lu.xlsx")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## Tabel voor sankey aanmaken
+
+-   Optie 1: dataset met de bruto-veranderingen
+
+-   Optie 2: dataset met de netto-veranderingen
+
+```{r tabel, echo=FALSE}
+
+r2013 <- ecosysteem_2013
+r2022 <- ecosysteem_2022
+reclass_table <- deel_3_reclass_lu
+
+# 2. Reclassify voorbereiden
+# terra::classify heeft een matrix nodig met [oude_waarde, nieuwe_waarde]
+rcl_matrix <- reclass_table %>% 
+  select(code, lu_reduct) %>% 
+  as.matrix()
+
+r2013_recl <- classify(r2013, rcl_matrix)
+r2022_recl <- classify(r2022, rcl_matrix)
+
+# 3. Kruistabel maken (Land Use Change Matrix)
+# 'c(r2013, r2022)' combineert ze tot 2 layers; 'crosstab' telt de combinaties
+change_matrix <- crosstab(c(r2013_recl, r2022_recl), long = TRUE)
+
+# Kolomnamen opschonen naar jouw wens
+colnames(change_matrix) <- c("code_2013", "code_2022", "area")
+
+sankey_data <- change_matrix
+
+#///////////////////////////////////////
+# Optie 1: de bruto-veranderingen
+#///////////////////////////////////////
+
+bruto_data <- sankey_data
+
+
+#///////////////////////////////////////
+# Optie 2: alleen de netto-veranderingen
+#///////////////////////////////////////
+
+netto_data <- sankey_data %>%
+  # Stap A: Maak een unieke ID voor elk paar, ongeacht de richting
+  # We sorteren de codes zodat (100, 200) en (200, 100) hetzelfde paar worden
+  mutate(
+    p1 = pmin(code_2013, code_2022),
+    p2 = pmax(code_2013, code_2022),
+    pair_id = paste(p1, p2, sep = "_")
+  ) %>%
+  # Stap B: Bereken de netto verandering per paar
+  group_by(pair_id) %>%
+  summarise(
+    # We berekenen de balans: (stroom van laag naar hoog) - (stroom van hoog naar laag)
+    # Stel: p1=100, p2=200. Dan berekenen we: (100->200) - (200->100)
+    netto_waarde = sum(ifelse(code_2013 == p1, area, -area)),
+    p1 = first(p1),
+    p2 = first(p2),
+    .groups = 'drop'
+  ) %>%
+  # Stap C: Zet de negatieve waarden om in de juiste richting
+  mutate(
+    code_2013 = ifelse(netto_waarde > 0, p1, p2),
+    code_2022 = ifelse(netto_waarde > 0, p2, p1),
+    area = abs(netto_waarde)
+  ) %>%
+  # Stap D: Verwijder rijen waar de netto stroom 0 is of waar bron/doel hetzelfde zijn
+  filter(area > 0, code_2013 != code_2022) %>%
+  select(code_2013, code_2022, area)
+
+#///////////////////////////////////////////////////////////////
+# Optie 2b: netto-veranderingen als stromen, totalen in de nodes
+#///////////////////////////////////////////////////////////////
+
+total_2013 <- sankey_data %>%
+  group_by(code = code_2013) %>%
+  summarise(value_2013 = sum(area))
+
+total_2022 <- sankey_data %>%
+  group_by(code = code_2022) %>%
+  summarise(value_2022 = sum(area))
+
+stabiel <- sankey_data %>%
+  filter(code_2013 == code_2022) %>%
+  select(code_2013, code_2022, area)
+
+# Stabiele oppervlaktes toevoegen aan netto-veranderingen
+netto_data_2 <- bind_rows(netto_data, stabiel)
+
+
+```
+
+## Sankeydiagram maken
+
+```{r sankey, echo=FALSE}
+
+# Kies netto of bruto-data
+
+data <- netto_data_2
+
+data <- data %>% # water niet meenemen (de wtz-laag bevat fouten)
+  filter(code_2013 != 800 & code_2022 != 800)
+
+
+# Controleer kolomnamen en pas aan indien nodig
+colnames(data) <- c("from", "to", "area")
+
+# 2. Landgebruik labels
+landgebruik_labels <- c(
+  "100" = "verhard",
+  "200" = "akker",
+  "300" = "grasland",
+  "400" = "bos",
+  "500" = "heide_duin",
+  "700" = "wetland",
+  "800" = "water"
+)
+
+# 3. Landgebruik kleuren
+landgebruik_colors <- c(
+  "verhard" = "#FF4500",
+  "akker" = "#FFD700",
+  "grasland" = "#7CFC00",
+  "bos" = "#228B22",
+  "heide_duin" = "#DA70D6",
+  "wetland" = "#20B2AA",
+  "water" = "#1E90FF",
+  "stable" = "rgba(0,0,0,0)" # kleur voor stabiele stromen
+)
+
+
+data <- data %>%
+  mutate(
+    from_name = landgebruik_labels[as.character(from)],
+    to_name   = landgebruik_labels[as.character(to)]
+  )
+
+# 3. Maak nodes (2 kolommen: 2013 en 2022)
+nodes_2013 <- unique(data$from_name)
+nodes_2022  <- unique(data$to_name)
+
+nodes <- data.frame(
+  name = c(paste0("2013: ", nodes_2013),
+           paste0("2022: ", nodes_2022)),
+  landgebruik = c(nodes_2013, nodes_2022)  # dit gebruiken we voor kleur
+)
+
+# 4. Links: kleurstabiel of veranderend
+links <- data %>%
+  mutate(
+    source = match(paste0("2013: ", from_name), nodes$name) - 1,
+    target = match(paste0("2022: ", to_name), nodes$name) - 1,
+    group  = ifelse(from_name == to_name, "stable", from_name)
+  ) %>%
+  select(source, target, area, group)
+
+# 5. Sankey-diagram
+sankey <- sankeyNetwork(
+  Links = links,
+  Nodes = nodes,
+  Source = "source",
+  Target = "target",
+  Value = "area",
+  NodeID = "name",
+  LinkGroup = "group",
+  NodeGroup = "landgebruik",
+  fontSize = 14,
+  nodeWidth = 30,
+  width = 400,   # breedte in pixels
+  height = 400,  # hoogte in pixels
+  sinksRight = TRUE,
+  colourScale = JS(
+    paste0(
+      'd3.scaleOrdinal().domain(["',
+      paste(names(landgebruik_colors), collapse='","'),
+      '"]).range(["',
+      paste(landgebruik_colors, collapse='","'),
+      '"])'
+    )
+  )
+)
+
+sankey <- htmlwidgets::onRender(sankey, 'function(el, x) {
+  var cols_x = this.sankey.nodes().map(d => d.x).filter((v, i, a) => a.indexOf(v) === i).sort(function(a, b){return a - b});
+    var labels = ["2013", "2022"];
+    cols_x.forEach((d, i) => {
+      d3.select(el).select("svg")
+        .append("text")
+        .attr("x", d)
+        .attr("y", 12)
+        .text(labels[i])
+        .attr("font-family", "verdana");
+    })
+  }
+')
+
+sankey
+
+# Labels weglaten
+
+sankey <- htmlwidgets::onRender( # labels nodes weglaten
+  sankey,
+  '
+  function(el,x){
+    d3.select(el).selectAll(".node text").style("fill", "rgba(0,0,0,0)");
+  }
+  '
+)
+
+sankey
+```
+
+## 

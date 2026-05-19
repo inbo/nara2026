@@ -1,0 +1,229 @@
+---
+title: "06_beekherstel"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(stplanr) # Voor centerline extractie
+library(dplyr)
+library(here)
+library(readxl)
+library(viridis)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(beepr)
+library(leaflet) # Nodig voor colorFactor
+library(qgisprocess)
+library(jsonlite)
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `06_beekherstel.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+-   gebied.shp -\> polygoon van het gebied (zonder buffer)
+-   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+-   rivier_poly.shp -\> polygonen rivieren (wtz)
+
+```{r bestanden_folders}
+
+# Kies de bestanden die je nodig hebt
+
+targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "rivier_test.shp")
+
+# In welke folders zitten de data?
+
+search_paths <- c(
+  "C:/R/NARA2026/scenarios/rivierbeek/data",
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## 2. Selectie deelgebieden
+
+Baken de zones af voor beekherstel
+
+-   Sc 1: meandergordel alleen thv doelen vis indien niet in conflict met terrestrische doelen + thv doelen 3260, 6120, 3270 + thv kerngebied bever
+
+-   Sc 2: meandergordel alleen thv doelen vis + thv doelen 3260, 6120, 3270 + thv bever
+
+-   Sc 3: overal meandergordel met natuur langs natuurlijke waterlopen (KRW)
+
+```{r afbakening}
+
+
+# Buffer rond riviersegmenten met visdoelen en bever (recht uiteinde)
+
+
+# Verwijder SBZ-polygonen waar natuurdoelen conflicteren met overstromingen
+
+
+# Maak selectie van polygonen van rivieren voor volgende stap
+rivier_poly
+```
+
+## 3. Breedte corridor
+
+Harman, W., R. Starr, M. Carter, K. Tweedy, M. Clemmons, K. Suggs, C. Miller. 2012. [A Function-Based Framework for Stream Assessment and Restoration Projects](https://www.spk.usace.army.mil/Portals/12/documents/regulatory/pdf/A_Function-Based_Framework.pdf). US Environmental Protection Agency, Office of Wetlands, Oceans, and Watersheds, Washington, DC EPA 843-K-12-006.
+
+-   Entrenchment Ratio (ER) for C and E Stream Types **\> 2.2** (ER = floodprone width/bankfull width)
+
+-   The minimum meander width ratio for meandering streams (C and E stream types) is between 3.0 and 3.5; this ratio is required to create a sinuosity of at least 1.2, the most common break point between meandering and non-meandering streams. If a straightened stream is eroding on both banks and readjusting its pattern, the bankfull width (measured from the aerial) can be multiplied by **3.5** (conservatively) to estimate the amount of lateral erosion that will likely occur.
+
+-   Bufer width (vegetation): minstens 15 feet (\~**4.6 m**)
+
+Vermont DEC River Management Program - [Defining River Corridors](https://dec.vermont.gov/sites/dec/files/wsm/rivers/docs/rv_definingrcfactsheet.pdf):
+
+-   Where rivers are assessed as being in equilibrium and the lateral extent of their meanders create a belt width that is at or near the “**6 times channel width**” relationship, then corridors are drawn as two roughly parallel lines, following down the valley and capturing the extent of existing meanders. If the river slope and sinuosity have been modified, the corridor is drawn using 3 channel widths either side of a meander centerline or 6 channel widths out from the toe of the valley if the river is presently flowing less than 3 channel widths from the toe
+
+Besluit: de criteria van Harman et al. (3.5 x breedte + 4.5 m) en Vermont (6 x breedte) leveren min of meer dezelfde grootteorde op voor de zone die belangrijk is voor rivierprocessen. De breedte van de functionele overstromingszone (2.2 x breedte) en de riviercorridor voor analyse van vrijstromendheid (2 x breedte) liggen lager. Als middenweg opteren we voor de benadering van Hartman et al.:
+
+`corridor = 3.5 x rivierbreedte + 4.5 m`
+
+-\> **delen door 2** om zone langs beide kanten van de rivier af te bakenen.
+
+```{r corridor}
+
+# 1. Breedte uit rivier_poly
+
+rivier_poly_select <- rivier_poly
+
+ext_poly <- ext(rivier_poly_select)
+raster_template <- rast(ext_poly, resolution = 2, crs = crs(rivier_poly_select))
+
+rivier_raster <- rasterize(rivier_poly_select, raster_template, field = NA, background = 1)
+
+dist_to_bank <- distance(rivier_raster)
+
+rivier_dist <- mask(dist_to_bank, ifel(is.na(rivier_raster), 1, NA))
+
+focal_max <- focal(rivier_dist, w = 11, fun = max, na.rm = TRUE, na.policy = "omit")
+
+breedte <- focal_max * 2
+
+corridor <- (3.5 * breedte + 4.5)/2
+
+# Alloceer de waarde van de riviercellen aan de dichtstbijgelegen niet-riviercellen
+# Gebruik QGIS
+# Argumenten controleren van algoritme
+qgis_show_help("grass:r.grow.distance") 
+
+qgis_result <- qgis_run_algorithm(
+  "grass:r.grow.distance",
+  input = corridor,
+  "-m" = 1, # 1 = output in meters
+  metric = 0 # 0 = eulidean distance
+)
+
+allocatie <- qgis_as_terra(qgis_result$value)
+allocatie <- round(allocatie, digits = 1)
+
+dist_from_river <- distance(ifel(is.na(rivier_raster), 1, NA))
+
+allocatie_sync <- resample(allocatie, dist_from_river, method = "near")
+
+buffer <- ifel(allocatie_sync >= dist_from_river, 1, NA)
+
+
+# 2. Rivieren uit ecosysteemkaart halen
+
+# 2.1. Snapping & Resampling
+# We gebruiken 'resample' met de 'near' (nearest neighbor) methode.
+# Dit dwingt de 2m-pixels om precies binnen de 10m-pixelgrenzen te vallen.
+# We zorgen ook dat de resolutie exact 2m blijft (mocht die licht afwijken).
+buffer_snap <- resample(buffer, ecosysteem, method = "near")
+
+# 2.2. Aggregatie -> 5 x 5 = 25 cellen = resolutie 10 m
+buffer_count <- aggregate(buffer_snap, fact = 5, fun = "sum", na.rm = TRUE)
+
+# 5. Combineren
+land_mask <- !(ecosysteem %in% c(801, 1001)) # alleen niet-riviercellen
+
+buffer_sync <- resample(buffer_count, ecosysteem, method = "near") %>%
+  project(land_mask, method = "near")
+
+
+herstelzone <- ifel(land_mask & buffer_sync > 12, 1, NA)
+
+
+mapview(herstelzone)
+
+```
+
+## 

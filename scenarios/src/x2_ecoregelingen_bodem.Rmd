@@ -1,0 +1,284 @@
+---
+title: "x2_ecoregelingen_bodem"
+author: "NARA"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(tidyverse)
+library(readxl)
+library(tools)     # om de bestanden in te lezen
+
+library(mapview)
+library(pheatmap)
+
+```
+
+## Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x2_ecoregelingen_bodem.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+-   gebied.shp -\> polygoon van het gebied (zonder buffer)
+-   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+-   lbgp_2024.shp -\> landbouwgebruikspercelen versie 2024 (open data landbouw)
+-   lbgp.xlsx -\> tabel met codes
+
+```{r bestanden_folders}
+
+# Kies de bestanden die je nodig hebt
+
+targets <- c("gebied.shp", "ecosysteem.tif", "lbgp_2024.shp", "lbgp.xlsx")
+
+# In welke folders zitten de data?
+
+search_paths <- c(
+  "C:/R/NARA2026/scenarios/rivierbeek/data",
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+## Matrix ecoregelingen
+
+We maken eerst een overzicht van de ecoregelingen en hun codes.
+
+```{r tabel-ecoregelingen}
+
+tabel <- lbgp %>%
+  # 1. Filter op rijen die GEEN komma bevatten in de kolom ECOR
+  # De '!' staat voor 'niet', grepl zoekt naar de komma
+  filter(!grepl(",", ECOR)) %>%
+  
+  # 2. Selecteer en hernoem de kolommen
+  select(code = ECOR, beschrijving = ECOR_LB) %>%
+  
+  # 3. Opschonen: spaties verwijderen
+  mutate(across(everything(), str_trim)) %>%
+  
+  # 4. Dubbelingen verwijderen (elke unieke code maar één keer)
+  distinct(code, .keep_all = TRUE) %>%
+  
+  # 5. Sorteren
+  arrange(code)
+
+
+```
+
+Ecoregelingen kunnen gecombineerd worden. Om zicht te krijgen op welke ecoregelingen vaak gecombineerd worden, maken we een matrix die aangeeft welke combinaties voorkomen en hoe vaak ze voorkomen.
+
+Het Excelbestand 'lgbp.xlsx' bevat de unieke combinaties van ecoregelingen die voorkomen in de kaart 'lgbp_2024.shp'. De combinaties zijn gescheiden door komma's.
+
+```{r matrix}
+
+# We splitsen de tekst in kolom 'ECOR' op de komma
+# Dit levert een lijst op waarbij elke regel een vector van codes is
+codes_list <- strsplit(as.character(lbgp$ECOR), ",")
+
+# Unieke codes bepalen voor de labels van de matrix
+all_unique_codes <- sort(unique(unlist(codes_list)))
+
+# Een binaire matrix maken (regels vs codes)
+# We maken een matrix waarbij een 1 staat als een code in een rij voorkomt
+binary_matrix <- t(sapply(codes_list, function(x) {
+  all_unique_codes %in% x
+}))
+
+# Zet om naar numeriek (0/1) en geef de kolommen namen
+binary_matrix <- matrix(as.numeric(binary_matrix), ncol = length(all_unique_codes))
+colnames(binary_matrix) <- all_unique_codes
+
+# De co-occurrence matrix berekenen
+# Door de getransponeerde matrix met zichzelf te vermenigvuldigen,
+# tel je hoe vaak combinaties samen voorkomen.
+co_occurrence_matrix <- t(binary_matrix) %*% binary_matrix
+
+
+# Kleurenpallet voor de matrix
+my_colors <- rev(heat.colors(100))
+
+# Kopie maken van de matrix
+plot_matrix <- co_occurrence_matrix
+
+# De heatmap tekenen met het palet
+pheatmap(plot_matrix, 
+         color = my_colors,
+         main = "Ecoregelingen",
+         display_numbers = TRUE, 
+         number_format = "%.0f",
+         cluster_rows = FALSE, 
+         cluster_cols = FALSE,
+         angle_col = 45)
+
+```
+
+## Selectie percelen studiegebied
+
+Lbgp_2024 bijknippen met polygoon studiegebied.
+
+-   In een eerste fase selecteren we alleen percelen met ecoregelingen die gericht zijn op het verhogen van bodemkoolstofgehalte ("OCS", "OCM", "OCH", "OCC").
+
+-   In een tweede fase selecteren we binnen de eerste groep de ecoregelingen die op akkers worden toegepast (MOB, PA, PK, TEN en TED).
+
+```{r selectie}
+
+percelen <- st_intersection(lbgp_2024, gebied) %>%
+    select(GWSCOD_H, ECOR)
+
+#////////////////////////////
+# Selectie 1 - bodemkoolstof
+#////////////////////////////
+
+# De codes definiëren waarop we willen filteren
+gezochte_codes <- c("OCS", "OCM", "OCH", "OCC")
+
+# 4. Een zoekpatroon maken
+# We maken er "OCS|OCM|OCH|OCC" van (de | staat voor 'OF')
+zoekpatroon <- paste(gezochte_codes, collapse = "|")
+
+# 5. De selectie maken
+# grepl zoekt naar het patroon binnen de tekst van de kolom ECOR
+selectie_percelen <- percelen[grepl(zoekpatroon, percelen$ECOR), ]
+
+mapview(selectie_percelen, zcol = "ECOR", legend = TRUE, layer.name = "Ecoregelingen", alpha.regions = 0.6)
+
+
+# 1. Een nieuwe kolom 'hoofdgroep' aanmaken
+selectie_percelen <- selectie_percelen %>%
+  mutate(
+    # substr() neemt een deel van de tekst
+    # we gebruiken sub() met een regex om alles na de eerste komma te verwijderen
+    eerste_code = sub(",.*", "", ECOR),
+    hoofdgroep = substr(eerste_code, 1, 2)
+  )
+
+
+
+#///////////////////////////
+# Selectie 2 - zonder gras
+#//////////////////////////
+
+# 1. Definieer de toegestane sets
+codes_koolstof <- c("OCS", "OCM", "OCH", "OCC")
+
+codes_extra <- c("MOB", "PA", "PK", "TEN", "TED")
+alle_toegestane_codes <- c(codes_koolstof, codes_extra)
+
+# 2. Filter de percelen
+selectie_percelen_2 <- selectie_percelen %>%
+  # We splitsen de string tijdelijk naar een lijst van losse codes
+  mutate(temp_list = strsplit(as.character(ECOR), ",")) %>%
+  rowwise() %>%
+  filter(
+    # Voorwaarde 1: Er moet minstens één code uit de doelgroep inzitten
+    any(temp_list %in% codes_koolstof) &
+    # Voorwaarde 2: ALLE codes in de lijst moeten in de 'toegestane' verzameling zitten
+    all(temp_list %in% alle_toegestane_codes)
+  ) %>%
+  ungroup() %>%
+  select(-temp_list) # Verwijder de hulpkolom
+
+# mapview(selectie_percelen_2, 
+#         zcol = "ECOR", 
+#         legend = TRUE,
+#         layer.name = "ecoregeling")
+
+mapview(percelen, col.regions = "yellow3") + mapview(selectie_percelen_2, col.regions = "red")
+```
+
+## Percentage met ecoregelingen voor bodemkoolstof
+
+Welk percentage van de landbouwgebruikspercelen maakt gebruik van een ecoregeling voor het verhogen van het bodemkoolstofgehalte?
+
+```{r percentage}
+
+oppervlakte_totaal <- sum(st_area(percelen))
+oppervlakte_selectie <- sum(st_area(selectie_percelen_2))
+
+# Bereken het percentage
+percent <- (oppervlakte_selectie / oppervlakte_totaal) * 100
+```
+
+Oppervlakte = **`r round(percent, 1)`** %
+
+![Figuur 1. Luchtfoto van een vallei.](images/196113.jpg)

@@ -1,0 +1,214 @@
+---
+title: "x5_hcov_lagen_combineren"
+author: "NARA"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 3
+    number_sections: true
+    theme: united
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(gstat)
+library(tidyverse)
+library(readxl)
+library(tools)     # om de bestanden in te lezen
+library(qgisprocess)
+library(jsonlite)
+
+library(mapview)
+
+```
+
+## Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x5_hcov_lagen_combineren.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
+
+### Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+- ecosysteem.tif -\> wordt standaard geladen voor afstemming crs en extent kaarten
+- rivierb_buf.shp -\> polygoon van het gebied (met buffer)
+- ecosysteem_2022.tif -\> ecosysteemkaart 2022 van het gebied (FLEA)
+- tabel_hcov.xlsx -\> tabel met eigenschappen van de hcov-eenheden (k, textuur, aquifer/aquitard)
+
+De dataset met de kaarten van de hcov-lagen staat in de folder `C:/R/NARA2026/basiseenheden`. Deze kaarten worden apart ingeladen.
+
+```{r bestanden_folders}
+
+studiegebied <- "rivierbeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("ecosysteem.tif" , "rivierb_buf.shp", "ecosysteem_2022.tif", "tabel_hcov.xlsx")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/scenarios/data"
+)
+
+```
+
+### Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data, message=FALSE, warning=FALSE }
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
+  }
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
+
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
+
+### Datalagen HCOV inladen
+
+```{r hcov}
+
+working_dir <- "C:/R/NARA2026/basiseenheden"
+
+aquifer_info <- tabel_hcov %>%
+  mutate(is_aquifer = ifelse(aqui == "aquifer", 1, 0))
+
+clip_poly <- rivierb_buf
+
+# 2. RASTERS LADEN EN STACKEN
+# We laden Top (t), Dikte (d) en wijzen K en Type toe
+units <- unique(aquifer_info$eenheid)
+top_list <- list()
+thick_list <- list()
+k_ras_list <- list()
+type_ras_list <- list()
+
+for (u in units) {
+  file_t <- file.path(working_dir, u, paste0(u, "_t_clip.tiff"))
+  file_d <- file.path(working_dir, u, paste0(u, "_d_clip.tiff"))
+  
+  if (file.exists(file_t)) {
+    r_t <- rast(file_t) %>% crop(clip_poly)
+    r_d <- rast(file_d) %>% crop(clip_poly)
+    
+    # Haal info uit Excel
+    info <- filter(aquifer_info, eenheid == u)
+    
+    top_list[[u]]   <- r_t
+    thick_list[[u]] <- r_d
+    k_ras_list[[u]] <- init(r_t, info$kh) # kies k_val, kh of kv uit tabel -> gebruik kh voor berekening van de transmissiviteit van de watervoerende laag (vernatting)
+    type_ras_list[[u]] <- init(r_t, info$is_aquifer)
+  }
+}
+
+# Combineer alles in één grote stack
+# Volgorde: Top_1, Dikte_1, K_1, Type_1, Top_2, Dikte_2, K_2, Type_2, ...
+full_stack <- rast(c(top_list, thick_list, k_ras_list, type_ras_list))
+
+# 3. PIXEL-WISE ANALYSE
+# Deze functie wordt op elke pixel uitgevoerd - delen door 4 omdat we 4 informatielagen hebben (top_list, Thick_list, k_ras_list en type_ras_list)
+analyze_stack <- function(v) {
+  n_layers <- length(v) / 4
+  tops   <- v[1:n_layers]
+  diks   <- v[(n_layers+1):(2*n_layers)]
+  ks     <- v[(2*n_layers+1):(3*n_layers)]
+  types  <- v[(3*n_layers+1):(4*n_layers)]
+  
+  # Sorteer lagen van boven naar beneden op basis van de Top-waarde
+  order_idx <- order(tops, decreasing = TRUE)
+  
+  total_D  <- 0
+  total_kD <- 0
+  
+  for (i in order_idx) {
+    if (is.na(types[i]) || types[i] == 0) {
+      break # Stop bij de eerste aquitard of als er geen data is
+    }
+    total_D  <- total_D + diks[i]
+    total_kD <- total_kD + (diks[i] * ks[i])
+  }
+  
+  total_D_cor <- total_D + 0.1 # kleine correctie voor D = 0
+  avg_k <- if(total_D_cor > 0) total_kD / total_D_cor else NA
+  return(c(total_D_cor, avg_k))
+}
+
+result_ras <- app(full_stack, analyze_stack)
+names(result_ras) <- c("totale_dikte_aquifer", "gemiddelde_ksat")
+
+# 4. MASKEREN EN OPSLAAN
+if (st_crs(clip_poly) != st_crs(result_ras)) {
+  clip_poly <- st_transform(clip_poly, st_crs(result_ras))
+  message("CRS aangepast naar Lambert 72 (EPSG:31370)")
+}
+result_ras <- mask(result_ras, clip_poly)
+
+mapview(result_ras$totale_dikte_aquifer)
+
+mapview(result_ras$gemiddelde_ksat)
+
+writeRaster(result_ras$totale_dikte_aquifer, str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/aquifer_hcov.tif"), overwrite = TRUE)
+
+writeRaster(result_ras$gemiddelde_ksat, str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/ksat_h_hcov.tif"), overwrite = TRUE)
+```

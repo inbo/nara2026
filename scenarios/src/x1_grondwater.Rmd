@@ -1,0 +1,155 @@
+---
+title: "x1_Grondwater"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(tidyverse)
+library(beepr)
+library(mapview)
+
+```
+
+Het script berekent de grondwaterstand op basis van de head-waarden van de verschillende grondwatersystemen.
+
+## 1. Data inladen en klaarmaken
+
+Zet de shapefiles van de **vier grondwatersystemen** in de folder "data/grondwater".
+
+Je hebt een **polygoon van het gebied** nodig om de shapefiles van de grondwatersystemen bij te knippen.
+
+Je hebt ook een **rasterbestand** nodig dat gebruikt wordt om de resolutie van het finale raster te bepalen en het finale raster te snappen. Je gebruikt best de ecosysteemkaart van FLEA.
+
+```{r data, message=FALSE, warning=FALSE }
+
+path <- "C:/R/NARA2026/scenarios/data/grondwater"
+
+files <- c(str_c(path,"/", "head_BLKS.shp"), str_c(path,"/", "head_CKS.shp"), str_c(path,"/", "head_CVS.shp"), str_c(path,"/", "head_MS.shp"))
+
+# Polygoon van het gebied om de shapes van de grondwatersystemen bij te knippen
+gebied_path <- "C:/R/NARA2026/scenarios/rivierbeek/data/gebied.shp"
+
+# Raster om het finale raster op te snappen en dezelfde resolutie te gebruiken. Ik gebruik het raster van de ecosysteemkaart van FLEA
+raster_path <- "C:/R/NARA2026/scenarios/rivierbeek/data/ecosysteem.tif"
+
+# Laad de template en het studiegebied
+template <- rast(raster_path)
+gebied <- st_read(gebied_path)
+
+gebied <- st_transform(gebied, crs(template))
+
+```
+
+## 2. Kaarten verwerken
+
+### 2.1. Shapes bijknippen en grondwaterstand van hoogste niet-lege laag nemen
+
+De shapes worden bijgeknipt met de polygoon van het studiegebied. Vervolgens wordt de eerste niet-lege waarde van elke cel genomen. De opeenvolgende lagen van het grondwatersysteem zitten in de verschillende kolommen van de shapefiles: kolom `LayIdx_0` is de bovenste laag, `LayIdx_1` de volgende, etc.. De eerste niet-lege laag vind je via de functie `coalesce` (dplyr).
+
+```{r functie_shapes}
+
+# Functie voor bijsnijden polygonen en extractie grondwaterstand
+get_top_head_clipped <- function(shp_path, filter_geom) {
+  cat("Verwerken van:", shp_path, "\n")
+  
+  # Lees shapefile (en zorg dat CRS matcht met filter)
+  shp <- st_read(shp_path)
+  shp <- st_transform(shp, st_crs(filter_geom))
+  
+  # Ruimtelijke filter: selecteer enkel relevante polygonen
+  shp_clipped <- shp[st_filter(shp, filter_geom), ]
+  
+  if (nrow(shp_clipped) == 0) {
+    message("Geen data in dit gebied voor ", shp_path)
+    return(NULL)
+  }
+  
+  # Bepaal de bovenste laag (eerste kolom die niet NA is)
+  lay_cols <- grep("LayIdx_", names(shp_clipped), value = TRUE)
+  lay_cols <- lay_cols[order(as.numeric(gsub("LayIdx_", "", lay_cols)))]
+  
+  # Gebruik coalesce voor de eerste niet-lege waarde
+  shp_clipped$top_head <- do.call(coalesce, as.list(st_drop_geometry(shp_clipped[lay_cols])))
+  
+  return(shp_clipped %>% select(top_head))
+}
+
+```
+
+### 2.1. Verrasteren en overlappende grondwatersystemen
+
+De polygonen worden verrasterd en gesnapt op het ecosysteemraster. Op plaatsen waar twee grondwatersystemen overlappen, wordt de gemiddelde grondwaterstand genomen (`final_result`).
+
+Het script bevat een laatste stap om het resultaat te smoothen met een Gauss-filter. Omdat de originele polygonen van de shapefiles een veelvoud van vierkanten van 250m x 250m zijn, gebruik ik een venster van 25 x 25 cellen. Je kan de smooth-stap ook overslaan en het ruwe resultaat in het infiltratiescript verder bewerken (ilter + depressies vullen).
+
+```{r verrasteren}
+
+# Rasterisatie proces
+raster_list <- list()
+
+for (f in files) {
+  shp_subset <- get_top_head_clipped(f, gebied)
+  
+  if (!is.null(shp_subset)) {
+    # Het template wordt gebruikt om het finale raster te snappen
+    # We gebruiken fun = max voor het geval een polygoon kleiner is dan een pixel
+    r <- rasterize(shp_subset, template, field = "top_head", fun = max)
+    raster_list[[f]] <- r
+  }
+}
+
+# Combineren van de verschillende systemen
+if (length(raster_list) > 0) {
+  all_rasters <- rast(raster_list)
+  
+  # Neem de hoogste grondwaterstand bij overlap
+  final_gw <- app(all_rasters, fun = mean, na.rm = TRUE)
+  
+  # Maskeren en bijsnijden tot het gebied
+  # 'mask' zet waarden buiten het gebied op NA
+  # 'crop' snijdt de witte randen (extensie) weg tot de bounding box van 'gebied'
+  final_result <- final_gw %>% 
+    mask(gebied) %>% 
+    crop(gebied)
+  
+  # Smoothen van het resultaat (optioneel)
+  # De originele polygonen van de shapefiles zijn een veelvoud van vierkanten van 250m x 250m
+  # n = 25 betekent een invloedsfeer van 250 meter bij 10m resolutie
+  n <- 25 
+  sigma <- 5 # De 'breedte' van de klokcurve. Hoe hoger, hoe vloeiender.
+  
+  # Maak een Gaussian gewichtenmatrix
+  f_mat <- focalMat(final_result, d = sigma * res(final_result)[1], type = "Gauss")
+  
+  final_smoothed <- focal(final_result, 
+                          w = f_mat, 
+                          fun = sum, # Bij focalMat gebruik je 'sum' omdat de gewichten al genormaliseerd zijn
+                          na.rm = TRUE)
+  
+  # Optioneel: Maskeer opnieuw met het gebied om te voorkomen dat 
+  # de smoothing "uitloopt" buiten de grenzen van je shapefile.
+  final_smoothed_masked <- mask(final_smoothed, gebied)
+  
+  cat("Succes!")
+  beep(3)
+} else {
+  stop("Geen data gevonden in de opgegeven shapefiles.")
+}
+```
+
+## 3. Kaart maken en wegschrijven
+
+```{r kaart}
+
+mapview(final_smoothed_masked, col.region = rainbow, na.color = "transparent")
+
+# 7. Opslaan
+writeRaster(final_smoothed_masked, "grondwater_gesnapt_smooth.tif", overwrite = TRUE)
+```
