@@ -11,7 +11,7 @@ editor_options:
 library(sf)
 library(terra)
 library(stplanr) # Voor centerline extractie
-library(dplyr)
+library(tidyverse)
 library(here)
 library(readxl)
 library(viridis)
@@ -42,12 +42,15 @@ De volgende datasets worden gebruikt:
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
 - ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
 - rivier_poly.shp -\> polygonen rivieren (wtz)
+- vha.shp -\>
 
 ```{r bestanden_folders}
 
+studiegebied <- "rivierbeek"
+
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "rivier_test.shp")
+targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "vha.shp")
 
 # In welke folders zitten de data?
 
@@ -139,6 +142,8 @@ rivier_poly
 
 ## 3. Breedte corridor
 
+**A. Literatuur**
+
 Harman, W., R. Starr, M. Carter, K. Tweedy, M. Clemmons, K. Suggs, C. Miller. 2012. [A Function-Based Framework for Stream Assessment and Restoration Projects](https://www.spk.usace.army.mil/Portals/12/documents/regulatory/pdf/A_Function-Based_Framework.pdf). US Environmental Protection Agency, Office of Wetlands, Oceans, and Watersheds, Washington, DC EPA 843-K-12-006.
 
 - Entrenchment Ratio (ER) for C and E Stream Types **\> 2.2** (ER = floodprone width/bankfull width)
@@ -151,32 +156,51 @@ Vermont DEC River Management Program - [Defining River Corridors](https://dec.ve
 
 - Where rivers are assessed as being in equilibrium and the lateral extent of their meanders create a belt width that is at or near the “**6 times channel width**” relationship, then corridors are drawn as two roughly parallel lines, following down the valley and capturing the extent of existing meanders. If the river slope and sinuosity have been modified, the corridor is drawn using 3 channel widths either side of a meander centerline or 6 channel widths out from the toe of the valley if the river is presently flowing less than 3 channel widths from the toe
 
-Besluit: de criteria van Harman et al. (3.5 x breedte + 4.5 m) en Vermont (6 x breedte) leveren min of meer dezelfde grootteorde op voor de zone die belangrijk is voor rivierprocessen. De breedte van de functionele overstromingszone (2.2 x breedte) en de riviercorridor voor analyse van vrijstromendheid (2 x breedte) liggen lager. Als middenweg opteren we voor de benadering van Hartman et al.:
+**B. Besluit**
+
+de criteria van Harman et al. (3.5 x breedte + 4.5 m) en Vermont (6 x breedte) leveren min of meer dezelfde grootteorde op voor de zone die belangrijk is voor rivierprocessen. De breedte van de functionele overstromingszone (2.2 x breedte) en de riviercorridor voor analyse van vrijstromendheid (2 x breedte) liggen lager. Als middenweg opteren we voor de benadering van Hartman et al.:
 
 `corridor = 3.5 x rivierbreedte + 4.5 m`
 
--\> **delen door 2** om zone langs beide kanten van de rivier af te bakenen.
+**C. Stappenplan**
+
+- Stap 1: Breedte van de rivier bepalen:
+  - Rivierpolygonen verrasteren (2m voor voldoende detail) -\> rivieren = NA, rest = 1
+  - Afstand binnen rivierraster tot de oevers berekenen en maximale afstand in omgeving nemen (\~de afstand tussen het midden van de rivier en de oever)
+  - Breedte = 2 keer de afstand tot het centrum -\> `breedte_rivier`
+- Stap 2: Breedte van de meanderzone bepalen -\> formule toespassen en delen door 2 om de zone langs beide kanten van de rivier af te bakenen -\> `breedte_gordel`
+- Stap 3: Meanderzone afbakenen
+  - De berekende breedte van de meanderzone van de riviercellen uitsmeren naar de cellen rond de rivier -\> elke cel rond de rivier heeft een waarde voor de breedte van de meandergordel (`allocatie`)
+  - De afstand van elke niet-riviercel tot de rivier berekenen -\> `dist_rivier`
+  - Cellen waarvoor de afstand (`dist_rivier`) kleiner dan of gelijk is aan de breedte van de meandergordel (`allocatie`), vallen binnen de meandergordel -\> `gordel`
+- Stap 4: riviercellen verwijderen uit de meandergordel -\> `herstelzone`
 
 ```{r corridor}
 
-# 1. Breedte uit rivier_poly
+# Stap 1 - Breedte uit rivier_poly
 
 rivier_poly_select <- rivier_poly
 
 ext_poly <- ext(rivier_poly_select)
+
+# Verrasteren naar raster 2x2 m om voldoende detail te behouden (10 x 10m is te grof)
 raster_template <- rast(ext_poly, resolution = 2, crs = crs(rivier_poly_select))
 
 rivier_raster <- rasterize(rivier_poly_select, raster_template, field = NA, background = 1)
 
-dist_to_bank <- distance(rivier_raster)
+dist_oever <- distance(rivier_raster)
 
-rivier_dist <- mask(dist_to_bank, ifel(is.na(rivier_raster), 1, NA))
+dist_oever_rivier <- mask(dist_oever, ifel(is.na(rivier_raster), 1, NA))
 
-focal_max <- focal(rivier_dist, w = 11, fun = max, na.rm = TRUE, na.policy = "omit")
+dist_max <- focal(dist_oever_rivier, w = 11, fun = max, na.rm = TRUE, na.policy = "omit")
 
-breedte <- focal_max * 2
+breedte_rivier <- dist_max * 2
 
-corridor <- (3.5 * breedte + 4.5)/2
+# Stap 2 - Breedte van de meanderzone
+
+breedte_gordel <- (3.5 * breedte_rivier + 4.5)/2
+
+# Stap 3 - Meanderzone afbakenen
 
 # Alloceer de waarde van de riviercellen aan de dichtstbijgelegen niet-riviercellen
 # Gebruik QGIS
@@ -185,7 +209,7 @@ qgis_show_help("grass:r.grow.distance")
 
 qgis_result <- qgis_run_algorithm(
   "grass:r.grow.distance",
-  input = corridor,
+  input = breedte_gordel,
   "-m" = 1, # 1 = output in meters
   metric = 0 # 0 = eulidean distance
 )
@@ -193,32 +217,21 @@ qgis_result <- qgis_run_algorithm(
 allocatie <- qgis_as_terra(qgis_result$value)
 allocatie <- round(allocatie, digits = 1)
 
-dist_from_river <- distance(ifel(is.na(rivier_raster), 1, NA))
+dist_rivier <- distance(ifel(is.na(rivier_raster), 1, NA))
 
-allocatie_sync <- resample(allocatie, dist_from_river, method = "near")
+allocatie_sync <- resample(allocatie, dist_rivier, method = "near")
 
-buffer <- ifel(allocatie_sync >= dist_from_river, 1, NA)
+gordel <- ifel(allocatie_sync >= dist_rivier, 1, NA)
 
 
-# 2. Rivieren uit ecosysteemkaart halen
+# Stap 4 - riviercellen verwijderen uit de meandergordel
 
-# 2.1. Snapping & Resampling
-# We gebruiken 'resample' met de 'near' (nearest neighbor) methode.
-# Dit dwingt de 2m-pixels om precies binnen de 10m-pixelgrenzen te vallen.
-# We zorgen ook dat de resolutie exact 2m blijft (mocht die licht afwijken).
-buffer_snap <- resample(buffer, ecosysteem, method = "near")
-
-# 2.2. Aggregatie -> 5 x 5 = 25 cellen = resolutie 10 m
-buffer_count <- aggregate(buffer_snap, fact = 5, fun = "sum", na.rm = TRUE)
-
-# 5. Combineren
 land_mask <- !(ecosysteem %in% c(801, 1001)) # alleen niet-riviercellen
 
-buffer_sync <- resample(buffer_count, ecosysteem, method = "near") %>%
+gordel_10m <- resample(gordel, ecosysteem, method = "modal") %>%
   project(land_mask, method = "near")
 
-
-herstelzone <- ifel(land_mask & buffer_sync > 12, 1, NA)
+herstelzone <- ifel(land_mask & gordel_10m, 1, NA)
 
 
 mapview(herstelzone)
