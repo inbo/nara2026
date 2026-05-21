@@ -33,7 +33,7 @@ library(mapview)
 
 De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-> | C:/R/NARA2026/scenarios
+> | C:/R/NARA2026/nara2026-git/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– src -\> `x3_hydrologische_zones.Rmd`
@@ -44,28 +44,29 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 
 De volgende datasets worden gebruikt:
 
--   gebied.shp -\> polygoon van het gebied (zonder buffer)
--   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
--   dhm_tif -\> hoogtekaart
--   toekomstlaag.shp -\> polygonen natuurdoelen
--   deel_3_reclass_natdoel.xlsx -\> tabel met codes
--   vha.shp -\> waterlopen (nodig voor barrière bij interpolatie)
--   veenbkvwk.shp -\> veenkaart INBO (bodem + bwk)
--   habrl.shp -\> habitatrichtlijngebieden
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+- dhm_tif -\> hoogtekaart
+- toekomstlaag.shp -\> polygonen natuurdoelen
+- deel_3_reclass_natdoel.xlsx -\> tabel met codes
+- vha.shp -\> waterlopen (nodig voor barrière bij interpolatie)
+- veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
+- habrl.shp -\> habitatrichtlijngebieden
+- deel_3_reclass_natdoel.xlsx -\>
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleinenete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "ecosysteem.tif", "veenbkvwk.shp", "toekomstlaag.shp", "deel_3_reclass_natdoel.xlsx", "habrl.shp")
+targets <- c("gebied.shp", "ecosysteem.tif", "veen1970_poly.shp", "toekomstlaag.shp", "deel_3_reclass_natdoel.xlsx", "habrl.shp")
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -131,15 +132,15 @@ list2env(data_list_ok, envir = .GlobalEnv)
 
 Polygonen van natuurdoelen met grondwaterafhankelijek vegetaties.
 
--   Stap 1 - **combineren** van percelen met natuurdoelen tot aaneenlsuitende polygonen -\> buffer + dissolve
--   Stap 2 - selectie van percelen met **GWATES**. Alleen habitatcodes die meer dan 30% van de polygoon bedekken, tellen mee.
--   Stap 3 - **selectie van polygonen** uit stap 1 die GWATES bevatten
--   Stap 4 - alleen percelen met een **oppervlakte** die groot genoeg is (xx ha).
--   Stap 5 - combineer de polygonen met de **SBZ-H-gebieden**
+- Stap 1 - **combineren** van percelen met natuurdoelen tot aaneenlsuitende polygonen -\> buffer + dissolve
+- Stap 2 - selectie van percelen met **GWATES**. Alleen habitatcodes die meer dan 30% van de polygoon bedekken, tellen mee.
+- Stap 3 - **selectie van polygonen** uit stap 1 die GWATES bevatten
+- Stap 4 - alleen percelen met een **oppervlakte** die groot genoeg is (xx ha).
+- Stap 5 - combineer de polygonen met de **SBZ-H-gebieden**
 
 ```{r gwates}
 
-veen <- st_intersection(veenbkvwk, gebied)
+veen <- st_intersection(veen1970_poly, gebied)
 
 #//////////////////////////////////////////////
 # Stap 1 - combineren percelen met natuurdoelen
@@ -159,10 +160,22 @@ toekomst_grouped <- toekomstlaag %>%
 toekomst_grouped <- st_buffer(toekomst_grouped, dist = -buffer_afstand)
 
 # Veenlaag toevoegen (union toekomstlaag met veen)
-toekomst_veen <- st_union(toekomst_grouped, veen) %>% 
-  st_union() %>%
-  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
-  st_as_sf() %>%                       
+# toekomst_veen <- st_union(toekomst_grouped, veen) %>% 
+#   st_union() %>%
+#   st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+#   st_as_sf() %>%                       
+#   mutate(cluster_id = row_number())
+
+# terra-versie (sneller dan sf)
+v_toekomst <- vect(toekomst_grouped) # eerst spatvectors van maken voor terra
+v_veen <- vect(veen)
+
+v_samen <- rbind(v_toekomst, v_veen)
+v_dissolved <- aggregate(v_samen) # Aggregate = de terra-versie van st_union()
+v_exploded <- disagg(v_dissolved) # Disagg = de terra-versie van st_cast("POLYGON")
+
+# terug naar sf en voeg je ID toe
+toekomst_veen <- st_as_sf(v_exploded) %>%
   mutate(cluster_id = row_number())
 
 #///////////////////////////////////////////
@@ -200,10 +213,21 @@ percelen_scores <- percelen_df %>%
 gwates <- merge(toekomstlaag, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
 
 # Veen toevoegen
-gwates_veen <- st_union(gwates, veen) %>% 
-  st_union() %>%
-  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
-  st_as_sf() %>%                       
+# gwates_veen <- st_union(gwates, veen) %>% 
+#   st_union() %>%
+#   st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+#   st_as_sf() %>%                       
+#   mutate(cluster_id = row_number())
+
+# terra-versie
+v_gwates <- vect(gwates)
+v_veen <- vect(veen)
+
+v_samen <- rbind(v_gwates, v_veen)
+v_dissolved <- aggregate(v_samen)
+v_exploded <- disagg(v_dissolved)
+
+gwates_veen <- st_as_sf(v_exploded) %>%
   mutate(cluster_id = row_number())
 
 #//////////////////////////////////////////////////
@@ -229,8 +253,6 @@ selection_gwates_veen <- toekomst_veen %>%
   ) %>%
   filter(perc_overlap >= 0.10)
 
-mapview(selection_gwates_veen)
-
 #//////////////////////////////////////////
 # Stap 4 - Oppervlakte > 1 ha (10.000 m²)
 #//////////////////////////////////////////
@@ -246,12 +268,26 @@ selection_opp <- selection_gwates_veen %>%
 
 habrl <- st_transform(habrl, st_crs(selection_opp))
 
-selection_final <- st_union(selection_opp, habrl) %>%
-  st_union() %>%
-  st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
-  st_as_sf() %>%                       
-  mutate(cluster_id = row_number(), area = round(st_area(.),1))
-  
+# selection_final <- st_union(selection_opp, habrl) %>%
+#   st_union() %>%
+#   st_cast("POLYGON") %>%    # Splits de 'multi-polygon' op in losse clusters
+#   st_as_sf() %>%                       
+#   mutate(cluster_id = row_number(), area = round(st_area(.),1))
+
+# terra-versie
+v_selection <- vect(selection_opp)
+v_habrl <- vect(habrl)
+
+v_samen <- rbind(v_selection, v_habrl)
+v_dissolved <- aggregate(v_samen)
+v_exploded <- disagg(v_dissolved)
+
+# 5. Zet terug naar sf en voeg de kolommen toe
+selection_final <- st_as_sf(v_exploded) %>%
+  mutate(cluster_id = row_number(), area = round(st_area(.), 1))
+
+selection_final <- selection_final %>%
+  st_filter(gebied, .predicate = st_intersects)
 
 mapview(gebied, col.regions = "lightgrey") + mapview(selection_gwates_veen, col.regions = "blue") + mapview(selection_final, col.regions = "red") + mapview(habrl, col.regions = "pink", alpha.regions = 0.4) + mapview(veen, col.regions = "brown4")
 
@@ -261,10 +297,10 @@ mapview(gebied, col.regions = "lightgrey") + mapview(selection_gwates_veen, col.
 
 ```{r polygonen, echo=FALSE}
 
-dir_data <- "C:/R/NARA2026/scenarios/herk_mombeek/shapes_natuur"
+dir_data <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/shapes_natuur")
 
 # 1 shapefile met meerdere polygonen
-file_name <- paste0("herkmombeek_polygons", ".shp")
+file_name <- paste0(str_c(studiegebied, "_polygons"), ".shp")
 
 writeVector(vect(selection_final), file.path(dir_data, file_name), overwrite = TRUE)
 
@@ -284,76 +320,3 @@ for (i in seq_len(nrow(selection_final_vect))) {
   writeVector(single_poly, file.path(dir_data, file_name), overwrite = TRUE)
 }
 ```
-
-## REM
-
-```{r rem}
-
-dhm_10m <- resample(dhm, ecosysteem, method = "bilinear")
-
-# 2. Polygonen omzetten naar punten (vertices)
-# We halen de hoekpunten op om de lokale hoogtevariatie te vangen
-percelen_pts <- st_cast(percelen_final, "POINT")
-percelen_pts <- st_point_on_surface(percelen_final)
-
-# 3. DTM waarden toekennen aan de punten
-percelen_pts$z <- terra::extract(dhm, vect(percelen_pts))[, 2]
-
-# Verwijder punten met NA waarden (buiten raster bereik)
-percelen_pts <- percelen_pts %>%
-  drop_na(z)
-
-# 4. Interpolatie van het referentievlak
-# We gebruiken Inverse Distance Weighting (IDW)
-# Gebruik QGIS
-qgis_search_algorithms(
-  algorithm = "idw")
-
-# Argumenten controleren van algoritme
-qgis_show_help("gdal:gridinversedistancenearestneighbor") 
-
-qgis_show_help("grass:v.surf.idw") 
-
-qgis_result <- qgis_run_algorithm(
-  "gdal:gridinversedistancenearestneighbor",
-  INPUT = percelen_pts,
-  Z_FIELD = "z",
-  POWER = 2,
-  RADIUS = 500,
-  MAX_POINTS = 50,
-  MIN_POINTS = 2
-)
-
-
-vha_rast <- rasterize(vect(vha), ecosysteem, field = 1)
-resultaat <- ifel(is.na(vha_rast), 1, NA)
-
-
-qgis_result <- qgis_run_algorithm(
-  "grass:v.surf.idw",
-  INPUT = percelen_pts,
-  Z_FIELD = "z",
-  POWER = 2,
-  RADIUS = 500,
-  MAX_POINTS = 50,
-  MIN_POINTS = 2
-)
-
-
-interpol <- qgis_as_terra(qgis_result$OUTPUT)
-
-
-interpol_10m <- resample(interpol, ecosysteem, method = "bilinear")
-crs(interpol_10m) <- crs(dhm_10m)
-rem <- dhm_10m - interpol_10m
-
-mapview(rem) + mapview(percelen_final)
-
-# 6. Selecteer zones lager of gelijk aan referentie (<= 0)
-rem_lager <- ifel(rem <= 0, 1, NA)
-
-mapview(rem_lager) + mapview(percelen_final)
-
-```
-
-## Titel
