@@ -187,7 +187,7 @@ colnames(df) <- c("cell", "eco_code", "score")
 # Verwijderen lege cellen en sorteren volgens aflopende geschiktheid
 df_subset <- df[!is.na(df$eco_code), ]
 df_subset <- df_subset %>% # Optie 2: niet op cellen die al ingenomen zijn voor infiltratiemaatregelen
-  filter(eco_code != 9999)
+  dplyr::filter(eco_code != 9999)
 df_sorted <- df_subset[order(-df_subset$score), ]
 
 # 3. De top n cellen (doeloppervlakte) selecteren en de code aanpassen
@@ -199,7 +199,7 @@ top_cellen_indices <- df_sorted$cell[1:opp_dedrain]
 ecosysteem_dedrain <- deepcopy(ecosysteem_infilt) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
 ecosysteem_dedrain[top_cellen_indices] <- nieuwe_code
 
-writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
+# writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
 ```
 
 ## 4. Kaart maken
@@ -266,6 +266,10 @@ Door drainage wordt een deel van dat grondwater versneld afgevoerd via het grach
 ![Figuur 1. Effect van drainage op het hydrogram van een rivier. Een dichter drainagenetwerk zorg voor een snellere stijging naar een hoger piekdebiet en een snellere daling naar een lager basisdebiet.](images/info_drainage-01.png){width="300"}
 
 - Stap 1: bereken verlies grondwatervoorraad (m³)
+  - 1a - Bereken grondwaterstijging
+    - Maak kaart van beoogde grondwaterstand op basis van drainagedieptes Staes (-1 m voor akkers, -0.5 voor grasland)
+    - Maak verschilkaart met ghg die gebaseerd is op de drainageklassen van de bodemkaart -\> verschil = **grondwaterstijging bij dedrainage**
+  - 1b -
 - Stap 2: bereken effect op basisdebiet
 
 ```{r impact_drainage}
@@ -277,11 +281,13 @@ Door drainage wordt een deel van dat grondwater versneld afgevoerd via het grach
 area_ha <- opp_dedrain * 100 / 10000
 
 # Grondwaterstijging door verminderde drainage (m)
-gw_rise <- 0.5
+# Optioneel: 
+#
+gw_rise <- 0.3
 
 # Soil texture options:
 # "sand", "sandy_loam", "loam", "clay", "peat"
-soil_texture <- "loam"
+soil_texture <- "sandy_loam"
 
 # Aantal dagen voor simulatie
 simulation_days <- 120
@@ -296,7 +302,7 @@ soil_params <- data.frame(
 )
 
 params <- soil_params %>%
-  filter(soil == soil_texture)
+  dplyr::filter(soil == soil_texture)
 
 Sy <- params$Sy
 k  <- params$k
@@ -305,29 +311,6 @@ cat("\nSelected soil:", soil_texture, "\n")
 cat("Specific yield:", Sy, "\n")
 cat("Recession constant:", k, "1/day\n")
 
-# ============================================================
-# 3. OPTIONAL DTM ANALYSIS
-# ============================================================
-
-if (!is.null(dtm_file)) {
-
-  dtm <- rast(dtm_file)
-
-  # Terrain slope
-  slope <- terrain(dtm, v = "slope", unit = "degrees")
-
-  mean_slope <- global(slope, "mean", na.rm = TRUE)[1,1]
-
-  cat("\nMean slope from DTM:", round(mean_slope,2), "degrees\n")
-
-  # Simple correction:
-  # Steeper terrain -> faster drainage response
-  slope_factor <- 1 + (mean_slope / 20)
-
-  k <- k * slope_factor
-
-  cat("Adjusted recession constant:", round(k,4), "1/day\n")
-}
 
 # ============================================================
 # 4. GROUNDWATER STORAGE CALCULATION
@@ -341,9 +324,6 @@ area_m2 <- area_ha * 10000
 
 storage_m3 <- area_m2 * gw_rise * Sy
 
-cat("\nAdditional groundwater storage:\n")
-cat(round(storage_m3,0), "m3\n")
-
 # ============================================================
 # 5. BASEFLOW MODEL
 # ============================================================
@@ -354,8 +334,11 @@ cat(round(storage_m3,0), "m3\n")
 # Convert k from 1/day to 1/sec
 k_sec <- k / 86400
 
-# Initial baseflow
-Q0 <- k_sec * storage_m3
+# Initial baseflow 
+storage_init <- 100 * storage_m3
+
+Qinit <- k_sec * storage_init
+Q0 <- k_sec * (storage_init + storage_m3)
 
 cat("\nInitial baseflow increase:\n")
 cat(round(Q0,4), "m3/s\n")
@@ -391,24 +374,5 @@ p <- ggplot(results, aes(day, baseflow_m3s)) +
 
 print(p)
 
-# ============================================================
-# 8. SUMMARY OUTPUT
-# ============================================================
 
-cat("\n================ SUMMARY ================\n")
-cat("Area:", area_ha, "ha\n")
-cat("Groundwater rise:", gw_rise, "m\n")
-cat("Soil texture:", soil_texture, "\n")
-cat("Specific yield:", Sy, "\n")
-cat("Storage increase:", round(storage_m3,0), "m3\n")
-cat("Initial baseflow increase:", round(Q0,4), "m3/s\n")
-cat("=========================================\n")
-
-# ============================================================
-# 9. OPTIONAL: SAVE RESULTS
-# ============================================================
-
-write.csv(results, "baseflow_simulation.csv", row.names = FALSE)
-
-cat("\nResults saved to: baseflow_simulation.csv\n")
 ```
