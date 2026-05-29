@@ -26,6 +26,10 @@ library(progress)
 
 ```
 
+## Overzicht en opzet
+
+Het script berekent de combineerbaarheid van de natuurdoelen (Toekomstlaag ANB, versie 2025) met overstromingen vanuit rivieren (fluviaal), door intense neerslag (pluviaal) en door beveractiviteit.
+
 ## 1. Data inladen en klaarmaken
 
 De data zitten in een map "data" onder de folder van het **studiegebied** (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
@@ -43,8 +47,10 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 De volgende datasets worden gebruikt:
 
 - toekomstlaag.shp -\> polygonen natuurdoelen
-- waterdiepte_t100.tif -\> waterdiepte toekomstig klimaat t100
+- waterdiepte_t100.tif -\> waterdiepte toekomstig klimaat t100 (download via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m)
 - overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
+- rem.tif -\> relative elevation model = relatieve hoogte van de vallei tov de waterhoogte in een waterloop. Geeft een benadering van de overstromingsvlakte van de rivier bij afwezigheid van dijken.
+  - -\> zie ArcGIS-model `floodplain_rem`
 
 ```{r bestanden_folders}
 
@@ -120,9 +126,9 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 list2env(data_list_ok, envir = .GlobalEnv)
 ```
 
-## 2. Bepaal combineerbaarheid
+## 2. Combineerbaarheid met overstromingen
 
-De combineerbaarheid van de natuurdoelen met overstromingen wordt bepaald op basis van de waterdiepte bij een overstroming met terugkeerperiode van 100 jaar (t100) onder het toekomstig klimaat (2050). De tolerantiescores (0 = niet tolerant -\> 3 = tolerant) zijn afkomstig uit de studie van De Nocker. De tabel `overstromingstolerantie_habitats_gis` geeft tolerantiescores voor winter- (w) en zomeroverstromingen (z) bij verschillende dieptes (d \< 20 cm, d tussen 20 en 50 cm en d \> 50 cm). De meeste De Nocker-types kunnen aan meerdere habitattypes gekoppeld worden en omgekeerd. Voor habitattypes die meerdere De Nocker-types hebben, werd voor elke kolom (seizoen & diepte) een hoogste en laagste waarde bepaald op basis van het meest en minst gevoelige type. Bijvoorbeeld:
+De combineerbaarheid van de natuurdoelen met overstromingen wordt bepaald op basis van de waterdiepte bij een overstroming met terugkeerperiode van 100 jaar (**t100**) onder het **toekomstig klimaat** (2050). De tolerantiescores (0 = niet tolerant -\> 3 = tolerant) zijn afkomstig uit de studie van De Nocker. De tabel `overstromingstolerantie_habitats_gis` geeft tolerantiescores voor winter- (w) en zomeroverstromingen (z) bij verschillende dieptes (d \< 20 cm, d tussen 20 en 50 cm en d \> 50 cm). De meeste De Nocker-types kunnen aan meerdere habitattypes gekoppeld worden en omgekeerd. Voor habitattypes die meerdere De Nocker-types hebben, werd voor elke kolom (seizoen & diepte) een hoogste en laagste waarde bepaald op basis van het meest en minst gevoelige type. Bijvoorbeeld:
 
 - wd20 = tolerantie voor een **winter**overstroming met waterdiepte minder dan **20 cm**, op basis van het **meest tolerante** vegetatietype
 - minzd50 = tolerantie voor een **zomer**overstroming met waterdiepte meer dan **50 cm**, op basis van het **minst tolerante** vegetatietype
@@ -201,7 +207,46 @@ writeRaster(combineerbaarheid_t100, "combineerbaarheid_t100.tif", overwrite = TR
 
 ```
 
-## 3. Afbakenen zones met zelfde waterdiepte
+## 3. Combineerbaarheid met beveractiviteit
+
+Om de combineerbaarheid van de natuurdoelen met overstromingen door beveractiviteit te bepalen, hanteren we dezelfde uitgangsprincipes als die voor de opmaak van de indicatorkaart combineerbaarheid vegetatie met overstromingen door bever uit het soortbeschermingsprogramma ([Bijlage SBP bever](https://ecopedia.s3.eu-central-1.amazonaws.com/pdfs/soortenbeschermingsprogramma_bever.pdf) en [kaart](https://natuurenbos.vlaanderen.be/sites/default/files/documenten/indicatorkaart_combineerbaarheid_vegetatie_met_overstromingen_door_bever.pdf)). Daarbij wordt gebruik gemaakt van de combineerbaarheidsscores uit [De Nocker (2007)](https://pureportal.inbo.be/files/5836757/DeNocker_etal_2007_MultifunctionaliteitOverstromingsgebiedenSamenvatting.pdf) voor een **langdurige** overstroming (\> 14 dagen) tijdens de vegetatieperiode (**zomer**) met een overstromingsdiepte van **meer dan 20 cm**.
+
+Score combineerbaarheid: 0 = dik probleem; 3 = geen probleem
+
+```{r bever}
+
+# percelen_df uit de vorige analyse
+
+# Koppel de tolerantiescores uit Excel
+percelen_scores_bever <- percelen_df %>%
+  left_join(tbl_tolerantie, by = c("HAB_type" = "habitat")) %>%
+  group_by(ID_perceel) %>%
+  # Kies per perceel het vegetatietype met de laagste tolerantie
+  summarise(
+    min_z20d50 = min(minz20d50, na.rm = TRUE), # cf score SBP
+    z20d50 = min(z20d50, na.rm = TRUE), # max. tolerantiescore zomer
+    min_w20d50 = min(minw20d50, na.rm = TRUE) # min. tolerantiescore winter
+  ) %>%
+  mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
+
+# Voeg scores terug toe aan de vector data
+percelen_final <- merge(percelen, percelen_scores_bever, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+
+# 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
+target_res <- 10
+r_base <- rast(ext(ecosysteem), resolution = target_res, crs = crs(ecosysteem))
+
+# Rasteriseer de tolerantiescores naar 10x10m
+r_z20d50   <- rasterize(percelen_final, r_base, field = "min_z20d50")
+r_w20d50   <- rasterize(percelen_final, r_base, field = "min_w20d50")
+r_z20d50_max   <- rasterize(percelen_final, r_base, field = "z20d50")
+
+plot(r_z20d50_max)
+```
+
+## 4. Afbakenen zones met zelfde waterdiepte
+
+Clusteren van cellen met eenzelfde waterdiepte
 
 ```{r zones}
 
