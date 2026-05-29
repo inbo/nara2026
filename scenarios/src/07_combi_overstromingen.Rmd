@@ -47,7 +47,8 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 De volgende datasets worden gebruikt:
 
 - toekomstlaag.shp -\> polygonen natuurdoelen
-- waterdiepte_t100.tif -\> waterdiepte toekomstig klimaat t100 (download via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m)
+- overstromingsdiepte_t100_flu_plu.tif -\> waterdiepte voor fluviale en pluviale overstromingen bij toekomstig klimaat t100 (basiskaarten via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m). Voor combinatie fluviale en pluviale kaarten: zie ArcGIS-model `floodplain_rem`
+  - De pluviale overstromingsgevaarkaart wordt gebruikt om de overstromingszones van de kleinere waterlopen in kaart te brengen. Om alleen de overstromingscellen mee te nemen die grenzen aan een waterloop, wordt een costdistance-analyse vanuit de waterlopen uitgevoerd, waarbij de niet-verstroomde cellen een barrière vormen. Geïsoleerde overstromingszones die alleen via afspoeling overstromen, worden zo uitgesloten.
 - overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
 - rem.tif -\> relative elevation model = relatieve hoogte van de vallei tov de waterhoogte in een waterloop. Geeft een benadering van de overstromingsvlakte van de rivier bij afwezigheid van dijken.
   - -\> zie ArcGIS-model `floodplain_rem`
@@ -59,7 +60,7 @@ studiegebied <- "rivierbeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem.tif", "toekomstlaag.shp", "waterdiepte_t100.tif", "overstromingstolerantie_habitats_gis.xlsx")
+targets <- c("ecosysteem.tif", "toekomstlaag.shp", "overstromingsdiepte_t100_flu_plu.tif", "dhm.tif", "vha.shp", "overstromingstolerantie_habitats_gis.xlsx")
 
 # In welke folders zitten de data?
 
@@ -149,7 +150,7 @@ Stappen:
 # Data hernoemen
 percelen <- toekomstlaag
 tbl_tolerantie <- overstromingstolerantie_habitats_gis
-waterdiepte <- waterdiepte_t100
+waterdiepte <- overstromingsdiepte_t100_flu_plu
 
 # 1. Tabel transformeren voor koppeling
 # We maken een 'long' format om makkelijker te filteren en te matchen
@@ -190,17 +191,19 @@ r_wd20   <- rasterize(percelen_final, r_base, field = "min_wd20")
 r_w20d50 <- rasterize(percelen_final, r_base, field = "min_w20d50")
 r_w50d   <- rasterize(percelen_final, r_base, field = "min_w50d")
 
-# 4. Overstromingsdiepte aggregeren naar 10x10m
-# We nemen de maximale diepte binnen een 10x10 cel voor een veilige inschatting
-waterdiepte_10m <- aggregate(waterdiepte, fact = 5, fun = max) 
-waterdiepte_10m <- resample(waterdiepte_10m, r_base)
 
-# 4.2. Bereken de combineerbaarheid
-combineerbaarheid <- ifel(waterdiepte_10m < 20, r_wd20,
-                 ifel(waterdiepte_10m >= 20 & waterdiepte_10m <= 50, r_w20d50,
-                  ifel(waterdiepte_10m > 50, r_w50d, NA)))
+# 4. Bereken de combineerbaarheid
+combineerbaarheid <- ifel(waterdiepte < 20, r_wd20,
+                 ifel(waterdiepte >= 20 & waterdiepte <= 50, r_w20d50,
+                  ifel(waterdiepte > 50, r_w50d, NA)))
 
-combineerbaarheid_t100 <- mask(combineerbaarheid, waterdiepte_10m)
+combineerbaarheid_t100 <- mask(combineerbaarheid, waterdiepte)
+
+# 0 = niet combineerbaar - 3 = combineerbaar
+# Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
+combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, 2)
+
+mapview(combineerbaarheid_t100)
 
 # Opslaan van het resultaat
 writeRaster(combineerbaarheid_t100, "combineerbaarheid_t100.tif", overwrite = TRUE)
@@ -210,6 +213,12 @@ writeRaster(combineerbaarheid_t100, "combineerbaarheid_t100.tif", overwrite = TR
 ## 3. Combineerbaarheid met beveractiviteit
 
 Om de combineerbaarheid van de natuurdoelen met overstromingen door beveractiviteit te bepalen, hanteren we dezelfde uitgangsprincipes als die voor de opmaak van de indicatorkaart combineerbaarheid vegetatie met overstromingen door bever uit het soortbeschermingsprogramma ([Bijlage SBP bever](https://ecopedia.s3.eu-central-1.amazonaws.com/pdfs/soortenbeschermingsprogramma_bever.pdf) en [kaart](https://natuurenbos.vlaanderen.be/sites/default/files/documenten/indicatorkaart_combineerbaarheid_vegetatie_met_overstromingen_door_bever.pdf)). Daarbij wordt gebruik gemaakt van de combineerbaarheidsscores uit [De Nocker (2007)](https://pureportal.inbo.be/files/5836757/DeNocker_etal_2007_MultifunctionaliteitOverstromingsgebiedenSamenvatting.pdf) voor een **langdurige** overstroming (\> 14 dagen) tijdens de vegetatieperiode (**zomer**) met een overstromingsdiepte van **meer dan 20 cm**.
+
+Alleen natuurdoelen die in een overstroombaar deel van een waterloop liggen (t100), worden in rekening gebracht om te vermijden dat locaties waar geen bevers voorkomen ook als niet-combineerbaar beoordeeld worden.
+
+**Opmerking**: t100 of REM gebruiken om zones af te bakenen waar bevers kunnen voorkomen? t100 houdt rekening met het huidige waterbeheer (incl. aanwezigheid dijken), terwijl REM kijkt naar wat onder water kan staan als het water in een waterloop stijgt tot maximaal 0.8 m boven oever.
+
+![Figuur 1. Rood = t100, blauw = REM](images/t100_rem.png){width="300"}
 
 Score combineerbaarheid: 0 = dik probleem; 3 = geen probleem
 
@@ -241,7 +250,17 @@ r_z20d50   <- rasterize(percelen_final, r_base, field = "min_z20d50")
 r_w20d50   <- rasterize(percelen_final, r_base, field = "min_w20d50")
 r_z20d50_max   <- rasterize(percelen_final, r_base, field = "z20d50")
 
-plot(r_z20d50_max)
+# Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
+
+combineerbaar_bever <- ifel(r_z20d50_max <= 1, 1, 2)
+
+# Alleen natuur in overstroombare valleien in rekening brengen
+combineerbaar_bever_t100 <- mask(combineerbaar_bever, waterdiepte)
+
+
+plot(combineerbaar_bever_t100)
+
+mapview(combineerbaarheid_t100) + mapview(combineerbaar_bever_t100)
 ```
 
 ## 4. Afbakenen zones met zelfde waterdiepte
@@ -252,53 +271,82 @@ Clusteren van cellen met eenzelfde waterdiepte
 
 intolerant <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
 
-
 r_tol <- intolerant
-r_diepte <- waterdiepte_10m
+r_dhm <- dhm
 
 # 2. Identificeer unieke clusters van niet-tolerante cellen
 # Patches groepeert aangrenzende cellen met waarde 1
 clusters <- patches(r_tol, directions = 8, zeroAsNA = TRUE)
 
-# 3. Bepaal de maximale diepte van de niet-tolerante cellen per cluster
-# We gebruiken de zones van de clusters om de diepte-statistieken te halen
-max_diepte_per_cluster <- zonal(r_diepte, clusters, fun = "max", na.rm = TRUE)
+vha_terra <- vect(vha)
+celgrootte <- res(dhm)[1]
+rivieren_buffer <- buffer(vha_terra, width = celgrootte / 2)
+rivieren_raster <- rasterize(rivieren_buffer, dhm, touches = TRUE, field = 1, background = NA)
 
-# 4. De "Droogval" Logica
-# We maken een kopie van het diepteraster om het resultaat in op te slaan
-resultaat <- clusters
+overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
+rivier_barriere <- ifel(is.na(rivieren_raster), 0, NA)
 
-# Dit is de kritieke stap: we kijken welke cellen 'stroomopwaarts' of 
-# op gelijke hoogte liggen qua waterdiepte t.o.v. de bronclusters.
-# Omdat clusters verschillende dieptes kunnen hebben, doen we dit per cluster:
+mask <- ifel(is.na(rivier_barriere) | is.na(overstroombaar_barriere), NA, 0)
 
-cluster_ids <- unique(clusters)[,1]
-id <- 1
+# clusters opkuisen door rivieren uit te knippen en clusters < 5 cellen te verwijderen
+clusters_clean <- clusters + rivier_barriere
 
-for(id in cluster_ids) {
-  # Haal de referentiediepte voor dit specifieke cluster
-  drempel_diepte <- max_diepte_per_cluster[max_diepte_per_cluster$patches == id, 2]
+f <- freq(clusters_clean)
+clusters_clean[clusters_clean %in% f$value[f$count < 5]] <- NA
+
+
+cluster_stats <- zonal(dhm, clusters_clean, fun = "mean", na.rm = TRUE)
+
+# Maak er een handige opzoekvector van: c("ID" = hoogte)
+hoogte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
+
+
+# Cluster ID's verzamelen
+cluster_ids <- as.character(names(hoogte_lookup))
+cluster_ids <- cluster_ids[cluster_ids != "0"] # Verwijder eventuele achtergrondcellen
+
+distance_resultaten <- list()
+
+# Loop door de clusters
+for (id in cluster_ids) {
+  cat("Verwerken van cluster:", id, "\n")
   
-  # Maak een masker van alle cellen die potentieel droogvallen (diepte <= drempel)
-  potentieel_droog <- r_diepte <= drempel_diepte
+  # 1. Haal de vooraf berekende hoogte direct op (0 milliseconden)
+  hoogte <- hoogte_lookup[id]
+  if (is.na(hoogte)) next
   
-  # We selecteren enkel de cellen die verbonden zijn met het huidige cluster (id)
-  # Maak een tijdelijk raster met alleen het huidige broncluster
-  bron_cluster <- clusters == id
+  # 2. Startpunt definiëren
+  start_cluster <- clusters_clean == as.integer(id)
+  start_cluster <- ifel(start_cluster, 1, NA) 
   
-  # Vind alle cellen verbonden met dit cluster binnen het 'potentieel_droog' masker
-  verbonden_masker <- patches(potentieel_droog, directions = 8, zeroAsNA = TRUE)
+  # dhm > hoogte -> barriere voor distance-analyse 
+  is_te_hoog <- dhm > hoogte
+  barriere_hoogte <- classify(is_te_hoog, rcl = matrix(c(0, 0, 1, NA), ncol = 2, byrow = TRUE))
   
-  # Welke patch-ID in het verbonden_masker overlapt met ons bron_cluster?
-  overlappende_id <- unique(mask(verbonden_masker, bron_cluster))[,1]
-  overlappende_id <- overlappende_id[!is.na(overlappende_id)]
+  # Voeg alle barrières samen met cover
+  geupdatet_masker <- mask(barriere_hoogte, mask, maskvalues = NA, updatevalue = NA)  
   
-  # Voeg deze cellen toe aan het eindresultaat
-  resultaat[verbonden_masker == overlappende_id] <- id
+  input_grid <- cover(start_cluster, geupdatet_masker)
+
+  # Crop de input naar de zone die er werkelijk toe doet
+  # Dit voorkomt dat gridDist rekent op de lege 90% van je kaart
+  focal_area <- trim(input_grid) 
+  
+  # Voer de distance-analyse uit op de gecropte zone
+  dist_focal <- gridDist(focal_area, target = 1)
+  
+  # Breid het resultaat weer uit naar de originele kaartgrootte
+  dist_cluster <- extend(dist_focal, dhm)
+  
+  # Sla het resultaat op
+  distance_resultaten[[id]] <- dist_cluster
 }
 
 
-mapview(potentieel_droog)
+# Resultaten combineren
+raster_multilaag <- rast(distance_resultaten)
 
+eindkaart_min_afstand <- app(raster_multilaag, fun = "min", na.rm = TRUE)
 
+clusters_verbonden <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
 ```
