@@ -38,16 +38,16 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 
 De volgende datasets worden gebruikt:
 
--   stat_sectors.shp -\> kaart van de statistische sectoren
--   bevolking_stat.xlsx -\> inwonersaantal per statistische sector
--   gebied.shp -\> polygoone van het gebied (zonder buffer)
--   ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
--   residentieel.tif -\> kaart van het residentieel gebied (selectie niv. 2 landgebruiksbestand)
--   wegen.tif -\> kaart van de verrasterde wegbaan en spoorbaan (GRB)
--   kernen.tif -\> kaart van de kernen
--   lu_niv2.tif -\> niveau 2 van het landgebruiksbestand
--   publiek_owner.tif -\> kaart van publieke eigendommen (publieke eigenaar)
--   riolering.shp -\> kaart van de gebieden met riolering
+- stat_sectors.shp -\> kaart van de statistische sectoren
+- bevolking_stat.xlsx -\> inwonersaantal per statistische sector
+- gebied.shp -\> polygoone van het gebied (zonder buffer)
+- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
+- residentieel.tif -\> kaart van het residentieel gebied (selectie niv. 2 landgebruiksbestand)
+- wegen.tif -\> kaart van de verrasterde wegbaan en spoorbaan (GRB)
+- kernen.tif -\> kaart van de kernen
+- lu_niv2.tif -\> niveau 2 van het landgebruiksbestand
+- publiek_owner.tif -\> kaart van publieke eigendommen (publieke eigenaar)
+- riolering.shp -\> kaart van de gebieden met riolering
 
 ```{r bestanden_folders}
 
@@ -174,11 +174,11 @@ De te ontharden cellen worden geselecteerd op basis van een geschiktheidskaart.
 
 ### 3.1. Geschiktheidskaart
 
--   **Verharde cellen** die **geen wegen** zijn in **woonkernen** -\> alleen cellen die code 102 hebben in de ecosysteemkaart én NA in de wegenkaart én code 1 in de kernenkaart komen in aanmerking voor ontharding.
--   De cellen worden bij voorkeur geselecteerd als ze eigendom zijn van een **lokale** (1), **regionale** (4) of **provinciale** overheid (9) of **OCMW** (5). Of indien het een **Publieke Levensbeschouwelijke Instelling** (8) is met een **onderwijs** (lu_niv2 = 35) of **zorgfunctie** (lu_niv2 = 33). De geschiktheid van de **andere publieke eigendommen** moet half zo groot zijn.
--   De publieke cellen worden bij voorkeur geselecteerd als een van de volgende landgebruiksfuncties hebben (lu_niv2): **overige bebouwde percelen** (1), **sportterreinen** (6), **overige recreatie** (8), **gezondheidszorg** (33), **katoren&administratie** (34), **onderwijs** (35) of **overige diensten** (36). De andere scores in kaart lu_niv2 zijn niet geschikt.
--   **Private cellen** met een onderwijsfunctie (35) zijn geschikt.
--   De geschiktheid moet toenemen naarmate de **cluster** van aaneengesloten geschikte cellen groter is en de cluster compacter is (om langerekte bermen of wegen uit te sluiten).
+- **Verharde cellen** die **geen wegen** zijn in **woonkernen** -\> alleen cellen die code 102 hebben in de ecosysteemkaart én NA in de wegenkaart én code 1 in de kernenkaart komen in aanmerking voor ontharding.
+- De cellen worden bij voorkeur geselecteerd als ze eigendom zijn van een **lokale** (1), **regionale** (4) of **provinciale** overheid (9) of **OCMW** (5). Of indien het een **Publieke Levensbeschouwelijke Instelling** (8) is met een **onderwijs** (lu_niv2 = 35) of **zorgfunctie** (lu_niv2 = 33). De geschiktheid van de **andere publieke eigendommen** moet half zo groot zijn.
+- De publieke cellen worden bij voorkeur geselecteerd als een van de volgende landgebruiksfuncties hebben (lu_niv2): **overige bebouwde percelen** (1), **sportterreinen** (6), **overige recreatie** (8), **gezondheidszorg** (33), **katoren&administratie** (34), **onderwijs** (35) of **overige diensten** (36). De andere scores in kaart lu_niv2 zijn niet geschikt.
+- **Private cellen** met een onderwijsfunctie (35) zijn geschikt.
+- De geschiktheid moet toenemen naarmate de **cluster** van aaneengesloten geschikte cellen groter is en de cluster compacter is (om langerekte bermen of wegen uit te sluiten).
 
 ```{r geschiktheid}
 
@@ -251,8 +251,7 @@ geschiktheid <- ifel(geschiktheid_combi == 0, 1, geschiktheid_combi)
 
 ### 3.2. Cellen alloceren
 
-Het onthardingsdoel per gemeente is 1 m² per inwoner. Als een gemeente 1000 inwoners heeft, moet er
-dus 1000 m² onthard worden = 10 cellen van 10x10m. Die 10 cellen moeten geplaatst worden op verharde cellen volgens hun geschiktheid.
+Het onthardingsdoel per gemeente is 1 m² per inwoner. Als een gemeente 1000 inwoners heeft, moet er dus 1000 m² onthard worden = 10 cellen van 10x10m. Die 10 cellen moeten geplaatst worden op verharde cellen volgens hun geschiktheid.
 
 ```{r allocatie}
 
@@ -339,9 +338,9 @@ In 2024 waren er 2.7 miljoen gebouwen in Vlaanderen ([Statbel](https://statbel.f
 
 Scenario's:
 
--   scenario 1: 23% extra infiltratie van bebouwde oppervlakte (4% huidige toestand + 19% trend tot 2050) **random** verdeeld over de bebouwde cellen (met tuin en riolering)
--   scenario 2: 23% van bebouwde oppervlakte verdeeld over de bebouwde cellen (idem sc 1) die het **meest geschikt zijn voor infiltratie**
--   scenario 3: 100% van bebouwde oppervlakte (idem sc 1)
+- scenario 1: 23% extra infiltratie van bebouwde oppervlakte (4% huidige toestand + 19% trend tot 2050) **random** verdeeld over de bebouwde cellen (met tuin en riolering)
+- scenario 2: 23% van bebouwde oppervlakte verdeeld over de bebouwde cellen (idem sc 1) die het **meest geschikt zijn voor infiltratie**
+- scenario 3: 100% van bebouwde oppervlakte (idem sc 1)
 
 ```{r afkoppeling}
 
