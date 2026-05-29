@@ -295,7 +295,7 @@ f <- freq(clusters_clean)
 clusters_clean[clusters_clean %in% f$value[f$count < 5]] <- NA
 
 
-cluster_stats <- zonal(dhm, clusters_clean, fun = "mean", na.rm = TRUE)
+cluster_stats <- zonal(dhm, clusters_clean, fun = "min", na.rm = TRUE)
 
 # Maak er een handige opzoekvector van: c("ID" = hoogte)
 hoogte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
