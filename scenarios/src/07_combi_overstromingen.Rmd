@@ -47,6 +47,7 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 De volgende datasets worden gebruikt:
 
 - toekomstlaag.shp -\> polygonen natuurdoelen
+- wegen.shp -\> wegen als barriere voor Costdist-analyse
 - overstromingsdiepte_t100_flu_plu.tif -\> waterdiepte voor fluviale en pluviale overstromingen bij toekomstig klimaat t100 (basiskaarten via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m). Voor combinatie fluviale en pluviale kaarten: zie ArcGIS-model `floodplain_rem`
   - De pluviale overstromingsgevaarkaart wordt gebruikt om de overstromingszones van de kleinere waterlopen in kaart te brengen. Om alleen de overstromingscellen mee te nemen die grenzen aan een waterloop, wordt een costdistance-analyse vanuit de waterlopen uitgevoerd, waarbij de niet-verstroomde cellen een barrière vormen. Geïsoleerde overstromingszones die alleen via afspoeling overstromen, worden zo uitgesloten.
 - overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
@@ -60,7 +61,7 @@ studiegebied <- "rivierbeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem.tif", "toekomstlaag.shp", "overstromingsdiepte_t100_flu_plu.tif", "dhm.tif", "vha.shp", "overstromingstolerantie_habitats_gis.xlsx")
+targets <- c("ecosysteem.tif", "toekomstlaag.shp", "wegen.shp", "overstromingsdiepte_t100_flu_plu.tif", "dhm.tif", "vha.shp", "overstromingstolerantie_habitats_gis.xlsx")
 
 # In welke folders zitten de data?
 
@@ -279,30 +280,51 @@ r_dhm <- dhm
 clusters <- patches(r_tol, directions = 8, zeroAsNA = TRUE)
 
 vha_terra <- vect(vha)
-celgrootte <- res(dhm)[1]
+celgrootte <- res(waterdiepte)[1]
 rivieren_buffer <- buffer(vha_terra, width = celgrootte / 2)
-rivieren_raster <- rasterize(rivieren_buffer, dhm, touches = TRUE, field = 1, background = NA)
+rivieren_raster <- rasterize(rivieren_buffer, waterdiepte, touches = TRUE, field = 1, background = NA)
 
 overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
 rivier_barriere <- ifel(is.na(rivieren_raster), 0, NA)
 
 mask <- ifel(is.na(rivier_barriere) | is.na(overstroombaar_barriere), NA, 0)
 
-# clusters opkuisen door rivieren uit te knippen en clusters < 5 cellen te verwijderen
+# wegen toevoegen als barriere
+
+# 1. Laad je vectorlijnen en het referenteraster (bijv. het DHM)
+wegen_vector <- vect("wegen.shp")
+
+# 2. Bereken de celgrootte en de benodigde buffer
+buffer_breedte <- sqrt(celgrootte^2 + celgrootte^2) / 2
+
+# 3. Buffer de wegen
+wegen_gebufferd <- buffer(vect(wegen), width = buffer_breedte)
+
+# 4. Verraster de gebufferde wegen
+# touches = TRUE, field = NA (barrière), background = 0 (begaanbaar)
+wegen_barriere <- rasterize(wegen_gebufferd, ecosysteem, touches = TRUE, field = NA, background = 0)
+
+# Wegen toevoegen aan barrières
+mask <- ifel(is.na(mask) | is.na(wegen_barriere), NA, 0)
+
+
+# clusters opkuisen door rivieren uit te knippen en clusters < 10 cellen te verwijderen
 clusters_clean <- clusters + rivier_barriere
 
 f <- freq(clusters_clean)
-clusters_clean[clusters_clean %in% f$value[f$count < 5]] <- NA
+clusters_clean[clusters_clean %in% f$value[f$count < 10]] <- NA
 
+# Bereken de minimale waterdiepte per cluster = hoogste punt van cluster
+# cluster_stats <- zonal(waterdiepte, clusters_clean, fun = "min", na.rm = TRUE)
+# Of een percentiel (p10 = 10% ondiepste cellen uitsluiten)
+cluster_stats <- zonal(waterdiepte, clusters_clean, fun = function(x) quantile(x, probs = 0.10, na.rm = TRUE))
 
-cluster_stats <- zonal(dhm, clusters_clean, fun = "min", na.rm = TRUE)
-
-# Maak er een handige opzoekvector van: c("ID" = hoogte)
-hoogte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
+# Maak er een opzoekvector van: c("ID" = hoogte)
+diepte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
 
 
 # Cluster ID's verzamelen
-cluster_ids <- as.character(names(hoogte_lookup))
+cluster_ids <- as.character(names(diepte_lookup))
 cluster_ids <- cluster_ids[cluster_ids != "0"] # Verwijder eventuele achtergrondcellen
 
 distance_resultaten <- list()
@@ -312,19 +334,18 @@ for (id in cluster_ids) {
   cat("Verwerken van cluster:", id, "\n")
   
   # 1. Haal de vooraf berekende hoogte direct op (0 milliseconden)
-  hoogte <- hoogte_lookup[id]
-  if (is.na(hoogte)) next
-  
+  diepte <- diepte_lookup[id]
+
   # 2. Startpunt definiëren
   start_cluster <- clusters_clean == as.integer(id)
   start_cluster <- ifel(start_cluster, 1, NA) 
   
-  # dhm > hoogte -> barriere voor distance-analyse 
-  is_te_hoog <- dhm > hoogte
-  barriere_hoogte <- classify(is_te_hoog, rcl = matrix(c(0, 0, 1, NA), ncol = 2, byrow = TRUE))
+  # waterdiepte < diepte -> barriere voor distance-analyse 
+  is_ondieper <- waterdiepte < diepte
+  barriere_diepte <- classify(is_ondieper, rcl = matrix(c(0, 0, 1, NA), ncol = 2, byrow = TRUE))
   
   # Voeg alle barrières samen met cover
-  geupdatet_masker <- mask(barriere_hoogte, mask, maskvalues = NA, updatevalue = NA)  
+  geupdatet_masker <- mask(barriere_diepte, mask, maskvalues = NA, updatevalue = NA)  
   
   input_grid <- cover(start_cluster, geupdatet_masker)
 
@@ -336,7 +357,7 @@ for (id in cluster_ids) {
   dist_focal <- gridDist(focal_area, target = 1)
   
   # Breid het resultaat weer uit naar de originele kaartgrootte
-  dist_cluster <- extend(dist_focal, dhm)
+  dist_cluster <- extend(dist_focal, waterdiepte)
   
   # Sla het resultaat op
   distance_resultaten[[id]] <- dist_cluster
@@ -348,5 +369,8 @@ raster_multilaag <- rast(distance_resultaten)
 
 eindkaart_min_afstand <- app(raster_multilaag, fun = "min", na.rm = TRUE)
 
-clusters_verbonden <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
+overstromingsvrije_clusters <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
+
+mapview(overstromingsvrije_clusters, na.color = "transparent") + mapview(clusters_clean, na.color = "transparent") + mapview(wegen)
+
 ```
