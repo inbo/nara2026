@@ -47,12 +47,13 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 De volgende datasets worden gebruikt:
 
 - toekomstlaag.shp -\> polygonen natuurdoelen
-- wegen.shp -\> wegen als barriere voor Costdist-analyse
 - overstromingsdiepte_t100_flu_plu.tif -\> waterdiepte voor fluviale en pluviale overstromingen bij toekomstig klimaat t100 (basiskaarten via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m). Voor combinatie fluviale en pluviale kaarten: zie ArcGIS-model `floodplain_rem`
   - De pluviale overstromingsgevaarkaart wordt gebruikt om de overstromingszones van de kleinere waterlopen in kaart te brengen. Om alleen de overstromingscellen mee te nemen die grenzen aan een waterloop, wordt een costdistance-analyse vanuit de waterlopen uitgevoerd, waarbij de niet-verstroomde cellen een barrière vormen. Geïsoleerde overstromingszones die alleen via afspoeling overstromen, worden zo uitgesloten.
 - overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
 - rem.tif -\> relative elevation model = relatieve hoogte van de vallei tov de waterhoogte in een waterloop. Geeft een benadering van de overstromingsvlakte van de rivier bij afwezigheid van dijken.
   - -\> zie ArcGIS-model `floodplain_rem`
+- vha.shp -\> waterlopen als barrières voor distance-analyse
+- wegen.shp -\> wegen als barrières voor distance-analyse
 
 ```{r bestanden_folders}
 
@@ -202,12 +203,12 @@ combineerbaarheid_t100 <- mask(combineerbaarheid, waterdiepte)
 
 # 0 = niet combineerbaar - 3 = combineerbaar
 # Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
-combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, 2)
+combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
 
-mapview(combineerbaarheid_t100)
+# mapview(combineerbaarheid_t100)
 
-# Opslaan van het resultaat
-writeRaster(combineerbaarheid_t100, "combineerbaarheid_t100.tif", overwrite = TRUE)
+# Resultaat opslaan (1 = niet combineerbaar)
+writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaarheid_t100.tif"), overwrite = TRUE)
 
 ```
 
@@ -253,75 +254,97 @@ r_z20d50_max   <- rasterize(percelen_final, r_base, field = "z20d50")
 
 # Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
 
-combineerbaar_bever <- ifel(r_z20d50_max <= 1, 1, 2)
+combineerbaar_bever <- ifel(r_z20d50_max <= 1, 1, NA)
 
 # Alleen natuur in overstroombare valleien in rekening brengen
 combineerbaar_bever_t100 <- mask(combineerbaar_bever, waterdiepte)
 
-
-plot(combineerbaar_bever_t100)
-
-mapview(combineerbaarheid_t100) + mapview(combineerbaar_bever_t100)
+# Resultaat opslaan (1 = niet combineerbaar)
+writeRaster(combineerbaar_bever_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaar_bever_t100.tif"), overwrite = TRUE)
 ```
 
-## 4. Afbakenen zones met zelfde waterdiepte
+Opkuisen tijdelijke bestanden
 
-Clusteren van cellen met eenzelfde waterdiepte
+```{r clear}
+
+behouden <- c("combineerbaarheid_t100", "waterdiepte", "combineerbaar_bever_t100", "ecosysteem", "wegen", "vha")
+
+rm(list = setdiff(ls(), behouden))
+
+# 2. Verwijder tijdelijke rasterbestanden die terra op je harde schijf heeft geparkeerd
+tmpFiles(remove = TRUE, old = TRUE)
+
+# 3. Dwing R om het RAM-geheugen onmiddellelijk vrij te geven aan je computer
+gc()
+```
+
+## 4. Zones vrijwaren van overstromingen
+
+Het onderstaande script bakent de zones af die niet mogen overstromen om natuurdoelen die niet bestand zijn tegen overstromingen te vrijwaren. Daarbij gaan we ervan uit dat alle cellen in overstroombaar gebied die grenzen aan de te vrijwaren natuurcellen en lager of even hoog als de natuurcellen liggen, niet mogen overstromen.
+
+![Figuur 2. Afbakening van zones die gevrijwaard worden van overstromingen om natuurdoelen te realiseren. Boven: vooraanzicht; onder: bovenaanzicht.](images/overstroming-01.png){width="420"}
+
+De zones die niet mogen overstromen worden geïdentificeerd via een **distance-analyse** die nagaat welke cellen bereikbaar zijn vanuit de natuurcellen (= lager liggen). Daarbij bakent een masker de zones af die een barrière vormen voor de analyse (= hoger gelegen cellen of cellen die aan de andere kant van de waterloop liggen). De volgende stappen worden doorlopen:
+
+- Stap 1 - definieer het masker met cellen die een barrière vormen voor de distance-analyse.
+  - Alleen **overstroombare cellen** worden in rekening gebracht -\> pluviale en fluviale t100-kaart
+  - **Rivieren** vormen een barrière (dijken kunnen er bv. voor zorgen dat de ene oever kan overstromen en de andere niet)
+  - **Wegen** vormen een barrière (transportinfrastructuur wordt vaak gevrijwaarde van overstromingen)
+- Stap 2 - maak clusters van de cellen met natuurdoelen die niet mogen overstromen. Daarvoor gebruiken we de resultaten van de analyse van combineerbaarheid van natuurdoelen met overstromingen. Omdat de verrasterde percelen van de toekomstkaart niet overal afgestemd zijn op de ecosysteemkaart (bv. overlap met waterlopen), snijden we ze bij met de verrasterde waterlopen. Clusters kleiner dan **10 cellen (0.1 ha)** laten we buietn beschouwing.
+- Stap 3 - Voor elk cluster wordt de bijbehorende zone afgebakend die niet mag overstromen. Voorafgaand aan de distance-analyse wordt het barrièremasker geüpdatet met de cellen in de overstromingszone (t100) die hoger liggen (= minder diep) dan de natuurcellen.
+  - Als drempelwaarde nemen we de P10-waarde van de waterdiepte binnen een cluster.
 
 ```{r zones}
 
-intolerant <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
+# Stap 1 - Masker
 
-r_tol <- intolerant
-r_dhm <- dhm
+# 1.1. Alleen overstroombare cellen (t100)
 
-# 2. Identificeer unieke clusters van niet-tolerante cellen
-# Patches groepeert aangrenzende cellen met waarde 1
-clusters <- patches(r_tol, directions = 8, zeroAsNA = TRUE)
+overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
 
+# 1.2. Rivieren als barrière toevoegen
 vha_terra <- vect(vha)
 celgrootte <- res(waterdiepte)[1]
 rivieren_buffer <- buffer(vha_terra, width = celgrootte / 2)
 rivieren_raster <- rasterize(rivieren_buffer, waterdiepte, touches = TRUE, field = 1, background = NA)
 
-overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
 rivier_barriere <- ifel(is.na(rivieren_raster), 0, NA)
 
 mask <- ifel(is.na(rivier_barriere) | is.na(overstroombaar_barriere), NA, 0)
 
-# wegen toevoegen als barriere
+# 1.3. Wegen als barriere toevoegen
 
-# 1. Laad je vectorlijnen en het referenteraster (bijv. het DHM)
-wegen_vector <- vect("wegen.shp")
-
-# 2. Bereken de celgrootte en de benodigde buffer
-buffer_breedte <- sqrt(celgrootte^2 + celgrootte^2) / 2
-
-# 3. Buffer de wegen
+buffer_breedte <- sqrt(celgrootte^2 + celgrootte^2) / 2 
+# Buffer de wegen
 wegen_gebufferd <- buffer(vect(wegen), width = buffer_breedte)
-
-# 4. Verraster de gebufferde wegen
-# touches = TRUE, field = NA (barrière), background = 0 (begaanbaar)
+# Verrasteren
 wegen_barriere <- rasterize(wegen_gebufferd, ecosysteem, touches = TRUE, field = NA, background = 0)
 
-# Wegen toevoegen aan barrières
 mask <- ifel(is.na(mask) | is.na(wegen_barriere), NA, 0)
 
+# Stap 2 - Identificeer unieke clusters van niet-tolerante cellen
 
-# clusters opkuisen door rivieren uit te knippen en clusters < 10 cellen te verwijderen
-clusters_clean <- clusters + rivier_barriere
+# Resultaat analyse combineerbaarheid
+intolerant <- combineerbaarheid_t100
 
-f <- freq(clusters_clean)
+# Rivieren inbranden als barrière 
+intolerant_riv <- intolerant + rivier_barriere
+
+# Clusters maken
+clusters <- patches(intolerant_riv, directions = 8, zeroAsNA = TRUE)
+
+# clusters < 10 cellen verwijderen
+f <- freq(clusters)
+clusters_clean <- clusters
 clusters_clean[clusters_clean %in% f$value[f$count < 10]] <- NA
 
+# Stap 3 - 
 # Bereken de minimale waterdiepte per cluster = hoogste punt van cluster
-# cluster_stats <- zonal(waterdiepte, clusters_clean, fun = "min", na.rm = TRUE)
-# Of een percentiel (p10 = 10% ondiepste cellen uitsluiten)
+# percentiel (p10 = 10% ondiepste cellen uitsluiten)
 cluster_stats <- zonal(waterdiepte, clusters_clean, fun = function(x) quantile(x, probs = 0.10, na.rm = TRUE))
 
 # Maak er een opzoekvector van: c("ID" = hoogte)
 diepte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
-
 
 # Cluster ID's verzamelen
 cluster_ids <- as.character(names(diepte_lookup))
@@ -333,7 +356,7 @@ distance_resultaten <- list()
 for (id in cluster_ids) {
   cat("Verwerken van cluster:", id, "\n")
   
-  # 1. Haal de vooraf berekende hoogte direct op (0 milliseconden)
+  # 1. Haal de vooraf berekende hoogte direct op
   diepte <- diepte_lookup[id]
 
   # 2. Startpunt definiëren
@@ -346,8 +369,7 @@ for (id in cluster_ids) {
   
   # Voeg alle barrières samen met cover
   geupdatet_masker <- mask(barriere_diepte, mask, maskvalues = NA, updatevalue = NA)  
-  
-  input_grid <- cover(start_cluster, geupdatet_masker)
+    input_grid <- cover(start_cluster, geupdatet_masker)
 
   # Crop de input naar de zone die er werkelijk toe doet
   # Dit voorkomt dat gridDist rekent op de lege 90% van je kaart
@@ -371,6 +393,7 @@ eindkaart_min_afstand <- app(raster_multilaag, fun = "min", na.rm = TRUE)
 
 overstromingsvrije_clusters <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
 
-mapview(overstromingsvrije_clusters, na.color = "transparent") + mapview(clusters_clean, na.color = "transparent") + mapview(wegen)
+mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
+writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/overstromingsvrije_clusters.tif"), overwrite = TRUE)
 ```
