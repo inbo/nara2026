@@ -326,7 +326,7 @@ kle_fractie_10m_tot <- mosaic(kle_fractie_10m, oever_fractie_kle, fun = "max")
 kle_fractie_10m_tot_01 <- ifel(!is.na(kle_fractie_10m_tot), kle_fractie_10m_tot, 0)
 
 # Enkel KLEs in landbouwgebied tellen mee
-landbouw_codes <- c(201, 202, 204, 205, 301) # geen agroforestry, nog uit te sluiten types?
+landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry, nog uit te sluiten types?
 landbouw_masker <- ecosysteem %in% c(landbouw_codes)
 kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_huidig.tif"), overwrite = TRUE)
