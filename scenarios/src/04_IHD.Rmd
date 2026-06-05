@@ -38,9 +38,16 @@ De volgende datasets worden gebruikt:
 
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
 - natdoel.tif -\> verrasterde percelen van de toekomstlaag_v2025 -\> veld HAB1
-- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
-- lu_niv2.tif -\> niveau 2 van het landgebruiksbestand
-- publiek_owner.tif -\> kaart van publieke eigendommen (publieke eigenaar)
+- ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA) voor 2022
+- bever_kerngebied.shp -\>
+- veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
+- ffr.shp -\> riviersegmenten die vrijstromend moeten zijn in 2050
+- habrl.shp -\> habitatrichtlijngebieden (SBZ-H)
+- rbh.shp -\> ruimteboekhouding voor gebieden met groene gewestplanbestemming
+- hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
+- combineerbaar_bever_t100.tif -\> combineerbaarheid natuurdoelen met bever (overstromingen)
+- combineerbaarheid_t100.tif -\> combineerbaarheid natuurdoelen met overstromingen t100
+- typen_MNMindeling_aangevuld.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
 
 ```{r bestanden_folders}
 
@@ -49,7 +56,7 @@ studiegebied <- "rivierbeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "ecosysteem.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "combineerbaarheid_t100.tif", "ffr.shp", "hag.tif", "habrl.shp", "rbh.shp", "typen_MNMindeling_aangevuld.xlsx")
 
 # In welke folders zitten de data?
 
@@ -90,7 +97,7 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$lu_niv2
+ref_raster <- data_list$ecosysteem_2022
 
 # Functie om rasters te harmoniseren
 harmoniseer_raster <- function(r, ref) {
@@ -116,4 +123,182 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 list2env(data_list_ok, envir = .GlobalEnv)
 ```
 
-## 2. Aantal inwoners per statistische sector
+## 2. Principes
+
+- De doelen van de **Natuurherstelverordening** worden maximaal gerealiseerd. In deze analyse houden we rekening met (1) herstel van land-, kust- en zoetwater**ecosystemen** (art. 4), (2) herstel van de natuurlijke verbindingen van **rivieren** en de natuurlijke functies van de bijbehorende overstromingsgebieden (art. 9) en (3) herstel van ontwaterde **veengebieden** (art. 11 §4). Daarnaast zijn in Vlaanderen nog een aantal andere vegetaties beschermd waarvoor herstelmaatregelen genomen worden. De volgende doelen worden in rekening gebracht:
+  - Natuurdoelen voor **terrestrische vegetaties** (bron: toekomstkaart)
+    - IHD voor de terrestrische **habitattypes**
+    - **Regionaal belangrijke biotopen** in de natuurbeheerplannen
+  - IHD voor het **habitattype 3260** (ondiepe beken en rivieren met goede structuur en watervegetaties)
+  - IHD voor de zoetwater **vissoorten** (grote en kleine modderkruiper, rivierdonderpad, beekprik en bittervoorn). Diadrome soorten (rivierprik, zalm en fint) laten we buiten beschouwing omdat hun kernleefgebieden buiten de gebieden van onze gevalstudies liggen.
+  - IHD voor **bever**
+  - Herstel van het **vrijstromend karakter** van rivieren: trajecten die zijn aangeduid om vrijstromend te worden tegen 2050
+  - **Veenherstel**: herstel 50% van de oppervlakte gedegradeerd veen, waarvan 1/3^de^ via vernatting
+-  Sommige doelen kunnen lokaal conflicteren omdat de abiotische randvoorwaarden verschillen:
+  - Een **verhoging van de grondwaterstand** voor veenherstel kan natuurtypes verdringen die een lagere grondwaterstand nodig hebben.
+  - **Beverdammen** kunnen terrestrische vegetaties onder water zetten waardoor die afsterven
+  - In vrijstromende rivieren krijgen natuurlijke processen opnieuw de vrije hand waardoor de rivier onder andere terug gaat meanderen, buiten haar oevers treedt en de rivierbedding verruwt. Dat gaat meestal gepaard met periodieke **overstromingen, oevererosie en vernatting** van de vallei. Vernatting en overstromingen creëren gradiënten in de vallei, die zich weerspiegelen in de vegetatiesamenstelling.
+    - In de vallei onstaan nattere **komgronden en drogere oeverwallen** met bijbehorende vegetaties. Op de drogere delen kunnen bv. glanshavervegetaties en vossenstaartgraslanden (6510) voorkomen en in de nattere zones zeggenvegetaties, venige heide, dottergraslanden. In de natste delen kan valleibos (91E0) ontwikkelen. Natte, grondwaterafhankelijke vegetatietypes (zoals dottergraslanden, grote zeggenvegetaties, natte heide of elzenbroekbossen) breiden zich uit over de lagere delen. De drogere vegetatietypes (zoals glanshavervegetaties, vossenstaartgraslanden, heidevegetaties of eiken-berkenbossen) worden hierdoor teruggedrongen en schuiven op naar de randen van de vallei en de zandige verhogingen zoals donken.
+
+    - Overstromingen brengen slib en **voedingsstoffen** in de vallei, wat zorgt voor een verruiging van de vegetatie. Dat is een natuurlijk fenomeen, maar door de slechte waterkwaliteit van de waterlopen in Vlaanderen zorgen deze periodieke overstromingen voor eutrofiëring van de vallei.
+
+      -\> We brengen de risico's van **overstromingen met eutroof water** apart in beeld.
+- Voor de analyse nemen we de **terrestrische natuurdoelen als uitgangspunt** en gaan we na in welke mate ze op hun huidige of voorziene locatie haalbaar zijn onder een meer natuurlijk watersysteem. Meer concreet gaan we na welke terrestrische doelen conflicteren met aquatische natuurdoelen (vrijstromendheid, instandhouding bever, vissoorten en veenherstel). De **toekomstkaart** (v2025) die aangeeft waar welke terrestrische habitattypes en regionaal belangrijke biotopen gerealiseerd moeten worden, vormt de basis voor de analyse.
+
+#### Scenario 1
+
+In scenario 1 (voorgenomen beleid) primeren de terrestrische natuurdoelen en wordt landbouw maximaal gespaard.
+
+- **Bever**: binen de SBZ waar bever een doelsoort is, kunnen vegetatiedoelen wijken (cf. groene code uit het SBP). Voor onze gevalstudies gaat het alleen over BE2400011 (valleien van de Dijle, Laan en IJse).
+  - -\> waar de vegetatiedoelen niet combineerbaar zijn met een langdurige zomeroverstroming, worden ze vervangen door een vegetatietype dat wel combineerbaar is.
+- **Veenherstel**: vernattingsdoel veen (1/3^de^ van verdroogd veen in gebied) niet in HAG, bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, niet op niet-combineerbare natuurdoelen. Veenherstel kan wel op plaatsen waar bever een doelsoort is.
+- **Vrijstromendheid**:
+  - -\>
+
+#### Scenario 2
+
+- **Bever**:
+- **Veenherstel**:
+  - -\> waar de vegetatiedoelen niet combineerbaarheid zijn met grondwater \< 0.25 cm onder het maaiveld, worden ze vervangen door een vegetatietype dat wel combineerbaar is.
+- **Vrijstromendheid**:
+
+#### Scenario 3
+
+## 3. Plaatsing natuurdoelen
+
+**Tabel inladen met grondwaterregimes**
+
+Overgenomen uit de methode voor de opmaak van de signaalkaart.
+
+```{r tabel_glg}
+
+groepslijst <- typen_MNMindeling_aangevuld
+
+groepslijst <- groepslijst %>% 
+  mutate(
+      groep_glg = factor(case_when(
+        groep_glg <= 2 ~ "zeer nat",
+        groep_glg == 3 ~ "nat",
+        groep_glg == 4 ~ "vochtig",
+        TRUE ~"droog"
+      ), levels = c("zeer nat", "nat", "vochtig", "droog")),
+      groep_glg_veen = factor(case_when(
+        groep_glg_veen <= 2 ~ "zeer nat",
+        groep_glg_veen == 3 ~ "nat",
+        groep_glg_veen == 4 ~ "vochtig",
+        TRUE ~"droog"
+      ), levels = c("zeer nat", "nat", "vochtig", "droog"))      )
+
+uitgesloten_typen <- c("(91E0_vc)|(9160)|(9130)")
+groepslijst[str_detect(groepslijst$type, pattern = uitgesloten_typen),"groep_glg"] <- "droog"
+
+extra_typen <- data.frame(type = c("geen vegetatie NSB", "geen NSB", "geen habitat"))
+
+groepslijst <- groepslijst %>% bind_rows(extra_typen) %>% 
+  dplyr::select(-volgnr) %>% 
+  rownames_to_column( var = "volgnr") %>% 
+  mutate(volgnr = as.numeric(volgnr))
+
+groepslijst <- groepslijst %>% 
+  mutate(type = factor(type))
+```
+
+### 3.1. Scenario 1
+
+Geschiktheidskaart
+
+- Buiten HAG
+- Binnen SBZ, VEN, groene codes gewestplan
+- Niet op cellen met veenbodem
+
+```{r geschiktheid_sc1}
+
+ven
+hag
+sbz
+rbh %in% c("03", "04", "05")
+```
+
+**Cellen die geschikt zijn voor vrijstromendheid**
+
+Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oever samen) mag maximaal 40% van de lengte van het riviersegment bedragen. 60% moet dus barriérevrij blijven. We benaderen dat als volgt:
+
+- We verrasteren de riviersegmenten die tegen 2050 vrijstromend moeten zijn. 60% van het aantal cellen dat direct tegen deze riviercellen ligt moet geschikt zijn voor vrijstromendheid (op de overige 40% mogen nog dijken of oeververstevigingen aanwezig zijn).
+- Masker geschikt voor vrijstromendheid:
+  - buiten HAG
+  - bij voorkeur in SBZ, groene bestemming of VEN **Opgelet: VEN nog toevoegen in script!**
+  - niet-combineerbare natuurcellen vrijwaren
+  - bij voorkeur op natuurlijk grasland, bos of moeras
+
+```{r ffr}
+
+# verrasteren van riviersegmenten veld 'reachID'
+ffr_rast <- rasterize(ffr, ecosysteem_2022, field = "reachID")
+# verrasteren beleidskaarten
+r_hag <- ifel(is.na(hag), 1, 0)
+r_rbh <- rasterize(rbh, ecosysteem_2022, field = "rbh")
+r_rbh <- ifel(r_rbh %in% c("03", "04", "05"), 2, 1)
+r_sbz <- rasterize(habrl, ecosysteem_2022, field = 2, background = 1)
+
+# Stap 1: Buffer van 1 rastercel breed aanmaken
+
+# We gebruiken focal() met een 3x3 grid om de reachID's exact 1 cel in alle 8 richtingen (horizontaal, verticaal, diagonaal) uit te smeren.
+# Als meerdere lijnsegmenten grenzen aan één buffer-cel, pakt hij via 'max' het hoogste ID.
+
+uitgebreid_rast <- focal(ffr_rast, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+
+uitgebreid_rast[uitgebreid_rast == -Inf] <- NA # -Inf omzetten in NA
+
+# Maskeer de oorspronkelijke lijncellen eruit met inverse = TRUE.
+buffer_only <- mask(uitgebreid_rast, ffr_rast, inverse = TRUE)
+
+# Stap 2: masker maken van cellen die niet geschikt zijn vrijstomendheid
+# Masker geschikte ecosystemen
+mask_eco <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401, 402, 403, 404, 701, 702), 200, 100)))
+# Masker combineerbaarheid met overstromingen
+mask_flood <- ifel(is.na(combineerbaarheid_t100), 1, 0)
+# Masker beleid
+mask_beleid <- r_hag * r_sbz * r_rbh
+mask_beleid <- ifel(mask_beleid == 4, 2, mask_beleid)
+# Combinatie maskers
+masker <- ifel(mask_beleid == 0 | mask_eco == 0 | mask_flood == 0, 0, mask_eco + mask_beleid)
+masker <- ifel(masker == 0, 0, ifel(masker %in% c(1, 101, 102, 201), 1, 2))
+
+# Stap 3: Data voorbereiden voor de 40% selectie
+
+# Combineer het buffer-raster en het masker in één object
+gecombineerd <- c(buffer_only, masker)
+names(gecombineerd) <- c("reachID", "geschiktheid")
+
+# Zet om naar een dataframe met behoud van het cel-ID. 
+# Dit is essentieel om de selectie straks terug te plaatsen in een raster.
+df <- as.data.frame(gecombineerd, cells = TRUE, na.rm = FALSE)
+
+# Filter zodat we alleen de cellen overhouden die daadwerkelijk in een buffer vallen
+df_buf <- df[!is.na(df$reachID), ]
+
+
+# Stap 4: Logica toepassen per reachID (60% en geschiktheid)
+
+# We gebruiken dplyr om per reachID de selectie te maken.
+geselecteerde_cellen <- df_buf %>%
+  group_by(reachID) %>%
+  # Bepaal eerst hoeveel 60% van de totale buffercellen voor deze reach is
+  mutate(aantal_nodig = round(n() * 0.60)) %>%
+  # Verwijder cellen die absoluut ongeschikt zijn (waarde 0)
+  filter(geschiktheid > 0) %>%
+  # Sorteer aflopend op geschiktheid, expliciet per groep (.by_group = TRUE)
+  arrange(desc(geschiktheid), cell, .by_group = TRUE) %>%
+  # Selecteer de top cellen door de rijnummers te vergelijken met het benodigde aantal
+  filter(row_number() <= aantal_nodig) %>%
+  ungroup()
+
+# Stap 5: Resultaat terugsrijven naar een nieuw raster
+
+# Maak een leeg raster aan op basis van de structuur van eco
+ffr_final <- rast(ecosysteem_2022)
+values(ffr_final) <- NA # Zet alles op leeg (NA)
+
+# Wijs de reachID toe aan de celnummers die succesvol door de selectie zijn gekomen
+ffr_final[geselecteerde_cellen$cell] <- geselecteerde_cellen$reachID
+```
