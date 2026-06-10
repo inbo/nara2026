@@ -42,7 +42,9 @@ De volgende datasets worden gebruikt:
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
 - ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA)
 - rivier_poly.shp -\> polygonen rivieren (wtz)
-- vha.shp -\>
+- owl.shp -\> oppervlaktewaterlichamen (voor ecologische typologie)
+- vha.shp
+- textuur.tif
 
 ```{r bestanden_folders}
 
@@ -50,7 +52,7 @@ studiegebied <- "rivierbeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "vha.shp")
+targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "vha.shp", "owl.shp", "textuur.tif")
 
 # In welke folders zitten de data?
 
@@ -158,7 +160,7 @@ Vermont DEC River Management Program - [Defining River Corridors](https://dec.ve
 
 **B. Besluit**
 
-de criteria van Harman et al. (3.5 x breedte + 4.5 m) en Vermont (6 x breedte) leveren min of meer dezelfde grootteorde op voor de zone die belangrijk is voor rivierprocessen. De breedte van de functionele overstromingszone (2.2 x breedte) en de riviercorridor voor analyse van vrijstromendheid (2 x breedte) liggen lager. Als middenweg opteren we voor de benadering van Hartman et al.:
+de criteria van Harman et al. (3.5 x breedte (bankfull) + 4.5 m) en Vermont (6 x breedte) leveren min of meer dezelfde grootteorde op voor de zone die belangrijk is voor rivierprocessen. De breedte van de functionele overstromingszone (2.2 x breedte) en de riviercorridor voor analyse van vrijstromendheid (2 x breedte) liggen lager. Als middenweg opteren we voor de benadering van Hartman et al.:
 
 `corridor = 3.5 x rivierbreedte + 4.5 m`
 
@@ -205,7 +207,7 @@ breedte_gordel <- (3.5 * breedte_rivier + 4.5)/2
 # Alloceer de waarde van de riviercellen aan de dichtstbijgelegen niet-riviercellen
 # Gebruik QGIS
 # Argumenten controleren van algoritme
-qgis_show_help("grass:r.grow.distance") 
+# qgis_show_help("grass:r.grow.distance") 
 
 qgis_result <- qgis_run_algorithm(
   "grass:r.grow.distance",
@@ -226,9 +228,9 @@ gordel <- ifel(allocatie_sync >= dist_rivier, 1, NA)
 
 # Stap 4 - riviercellen verwijderen uit de meandergordel
 
-land_mask <- !(ecosysteem %in% c(801, 1001)) # alleen niet-riviercellen
+land_mask <- !(ecosysteem_2022 %in% c(801, 1001)) # alleen niet-riviercellen
 
-gordel_10m <- resample(gordel, ecosysteem, method = "modal") %>%
+gordel_10m <- resample(gordel, ecosysteem_2022, method = "modal") %>%
   project(land_mask, method = "near")
 
 herstelzone <- ifel(land_mask & gordel_10m, 1, NA)
@@ -238,4 +240,103 @@ mapview(herstelzone)
 
 ```
 
-## 
+## Optie 2 (op basis van owl)
+
+```{r corridor_owl}
+
+
+owl_select <- st_transform(owl, crs(ecosysteem_2022)) %>%
+  select(OWLCODE, CODSTATOWL, CODTYPOWL) %>%
+  filter(is.na(CODSTATOWL) | CODSTATOWL != "KWL")
+
+
+# 1. Rivierbreedte bepalen uit CODTYPOWL
+# Mediane breedte per typologie uit Schneiders et al., 2009
+
+breedte_tabel <- c(
+  "Bk"   = 2.6,
+  "BkK"  = 3.0,
+  "Bg"   = 5.0,
+  "BgK"  = 5.7,
+  "Rk"   = 16.0,
+  "Rg"   = 25.0,
+  "Rzg"  = 77.0,
+  "RtNt" = 2.0
+)
+
+# Voor bankfull width -> langs elke oever 1 m extra rekenen
+owl_select$rivierbreedte <- breedte_tabel[as.character(owl_select$CODTYPOWL)] + 2
+
+# Alle niet-gedefinieerde types krijgen breedte 0
+owl_select$rivierbreedte[is.na(owl_select$rivierbreedte)] <- 0
+
+
+# 2. breedte meandergordel berekenen
+# delen door twee omdat de breedte later gebruikt wordt om langs beide zijden van de lijnstukken een buffer te plaatsen
+
+owl_select$gordel <- (3.5 * owl_select$rivierbreedte + 4.5) / 2
+
+# segmenten zonder oeverzone verwijderen
+owl_gordel <- owl_select[owl_select$gordel > 0, ]
+
+# 3. Buffer op basis van de breedte van de meandergordel
+
+meandergordel <- st_buffer(
+  owl_gordel,
+  dist = owl_gordel$gordel
+)
+
+
+# Omzetten naar terra-vector
+
+meandergordel_v <- vect(meandergordel)
+
+# Waarde waarmee de oeverzone wordt aangeduid
+meandergordel_v$gordel <- 1
+
+
+# 4. Verrasteren
+
+gordel_raster <- rasterize(meandergordel_v, ecosysteem_2022, field = "gordel", background = NA)
+
+
+# 5. Watercellen uitsluiten
+
+land_mask <- !(ecosysteem_2022 %in% c(801, 1001)) # alleen niet-riviercellen
+
+
+# Zet oeverzone op NA waar ecosysteemkaart water bevat
+herstelzone_owl <- ifel(land_mask & gordel_raster, 1, NA)
+
+
+mapview(herstelzone, col.regions = "red", na.color = "transparent") + mapview(herstelzone_owl, col.regions = "blue", na.color = "transparent")
+
+
+```
+
+```{r vernatting}
+
+dist_nat <- c(
+  "G" = 500, "Z" = 250, "S" = 250, "P" = 250, "L" = 100,
+  "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
+
+rat <- cats(textuur)[[1]] # Raster Attribute Table
+names(rat) <- c("value", "textuur")
+rat <- rat %>% 
+  select("value", "textuur")
+
+# Functie om dist voor combinaties van textuurklassen (bv. U-A-S) te berekenen
+calc_dist <- function(t_string) {
+  parts <- str_split(t_string, "-")[[1]]
+  vals <- dist_nat[parts]
+  return(mean(vals, na.rm = TRUE))
+}
+
+dist_values <- rat %>%
+  rowwise() %>%
+  mutate(afstand = calc_dist(textuur)) %>%
+  ungroup()
+
+
+
+```
