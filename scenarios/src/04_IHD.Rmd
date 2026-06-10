@@ -43,8 +43,11 @@ De volgende datasets worden gebruikt:
 - veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
 - ffr.shp -\> riviersegmenten die vrijstromend moeten zijn in 2050
 - habrl.shp -\> habitatrichtlijngebieden (SBZ-H)
+- ven.shp -\> VEN-gebieden
 - rbh.shp -\> ruimteboekhouding voor gebieden met groene gewestplanbestemming
 - hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
+- overstromingsdiepte_t100_flu_plu.tif -\> overstroombaar gebied (t100, fluviale en pluviale overstromingsgebieden gecombineerd -\> zie ArcGIS script)
+- vha.shp -\> waterlopen
 - combineerbaar_bever_t100.tif -\> combineerbaarheid natuurdoelen met bever (overstromingen)
 - combineerbaarheid_t100.tif -\> combineerbaarheid natuurdoelen met overstromingen t100
 - typen_MNMindeling_aangevuld.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
@@ -56,7 +59,7 @@ studiegebied <- "rivierbeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "combineerbaarheid_t100.tif", "ffr.shp", "hag.tif", "habrl.shp", "rbh.shp", "typen_MNMindeling_aangevuld.xlsx")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr.shp", "vha.shp", "hag.tif", "habrl.shp","ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "typen_MNMindeling_aangevuld.xlsx")
 
 # In welke folders zitten de data?
 
@@ -135,42 +138,69 @@ list2env(data_list_ok, envir = .GlobalEnv)
   - Herstel van het **vrijstromend karakter** van rivieren: trajecten die zijn aangeduid om vrijstromend te worden tegen 2050
   - **Veenherstel**: herstel 50% van de oppervlakte gedegradeerd veen, waarvan 1/3^de^ via vernatting
 -  Sommige doelen kunnen lokaal conflicteren omdat de abiotische randvoorwaarden verschillen:
-  - Een **verhoging van de grondwaterstand** voor veenherstel kan natuurtypes verdringen die een lagere grondwaterstand nodig hebben.
-  - **Beverdammen** kunnen terrestrische vegetaties onder water zetten waardoor die afsterven
-  - In vrijstromende rivieren krijgen natuurlijke processen opnieuw de vrije hand waardoor de rivier onder andere terug gaat meanderen, buiten haar oevers treedt en de rivierbedding verruwt. Dat gaat meestal gepaard met periodieke **overstromingen, oevererosie en vernatting** van de vallei. Vernatting en overstromingen creëren gradiënten in de vallei, die zich weerspiegelen in de vegetatiesamenstelling.
-    - In de vallei onstaan nattere **komgronden en drogere oeverwallen** met bijbehorende vegetaties. Op de drogere delen kunnen bv. glanshavervegetaties en vossenstaartgraslanden (6510) voorkomen en in de nattere zones zeggenvegetaties, venige heide, dottergraslanden. In de natste delen kan valleibos (91E0) ontwikkelen. Natte, grondwaterafhankelijke vegetatietypes (zoals dottergraslanden, grote zeggenvegetaties, natte heide of elzenbroekbossen) breiden zich uit over de lagere delen. De drogere vegetatietypes (zoals glanshavervegetaties, vossenstaartgraslanden, heidevegetaties of eiken-berkenbossen) worden hierdoor teruggedrongen en schuiven op naar de randen van de vallei en de zandige verhogingen zoals donken.
+  - Een **verhoging van de grondwaterstand** voor veenherstel of door opstuwing in rivieren kan natuurtypes verdringen die een lagere grondwaterstand nodig hebben.
+  - **Beverdammen** kunnen terrestrische vegetaties onder water zetten waardoor die afsterven.
+  - In vrijstromende rivieren krijgen natuurlijke processen de vrije hand waardoor de rivier onder andere terug gaat meanderen, buiten haar oevers treedt en de rivierbedding verruwt. Dat gaat meestal gepaard met periodieke **overstromingen, oevererosie en vernatting** van de vallei. Vernatting en overstromingen creëren gradiënten in de vallei, die zich weerspiegelen in de vegetatiesamenstelling.
+    - In de vallei onstaan nattere **komgronden en drogere oeverwallen** met bijbehorende vegetaties. Natte, grondwaterafhankelijke vegetatietypes (zoals dottergraslanden, grote zeggenvegetaties, natte heide of elzenbroekbossen) breiden zich uit over de lagere delen. De drogere vegetatietypes (zoals glanshavervegetaties, vossenstaartgraslanden, heidevegetaties of eiken-berkenbossen) worden hierdoor teruggedrongen en schuiven op naar de randen van de vallei en de zandige verhogingen zoals donken.
 
     - Overstromingen brengen slib en **voedingsstoffen** in de vallei, wat zorgt voor een verruiging van de vegetatie. Dat is een natuurlijk fenomeen, maar door de slechte waterkwaliteit van de waterlopen in Vlaanderen zorgen deze periodieke overstromingen voor eutrofiëring van de vallei.
 
       -\> We brengen de risico's van **overstromingen met eutroof water** apart in beeld.
-- Voor de analyse nemen we de **terrestrische natuurdoelen als uitgangspunt** en gaan we na in welke mate ze op hun huidige of voorziene locatie haalbaar zijn onder een meer natuurlijk watersysteem. Meer concreet gaan we na welke terrestrische doelen conflicteren met aquatische natuurdoelen (vrijstromendheid, instandhouding bever, vissoorten en veenherstel). De **toekomstkaart** (v2025) die aangeeft waar welke terrestrische habitattypes en regionaal belangrijke biotopen gerealiseerd moeten worden, vormt de basis voor de analyse.
+- Voor de analyse nemen we de **terrestrische natuurdoelen als uitgangspunt** en gaan we na in welke mate ze op hun huidige of voorziene locatie haalbaar zijn onder een meer natuurlijk watersysteem. Meer concreet gaan we na welke terrestrische doelen conflicteren met aquatische natuurdoelen (vrijstromendheid, instandhouding bever, vissoorten, habitat 3260 en veenherstel). De **toekomstkaart** (v2025) die aangeeft waar welke terrestrische habitattypes en regionaal belangrijke biotopen gerealiseerd moeten worden, vormt de basis voor de analyse. Die terrestrische natuurdoelen worden in de scenario's als volgt aangepast in functie van de realisatie van aquatische doelen:
+  - **Bever**: op plaatsen waar bever getolereerd wordt, worden vegetatiedoelen die niet combineerbaar zijn met een langdurige zomeroverstroming (cf. benadering SBP bever) vervangen door een vegetatietype dat wel combineerbaar is.
+  - **Veenherstel**: op plaatsen waar verdroogd veen hersteld wordt, stijgt het grondwater tot tegen het maaiveld. In die zones kunnen alleen vegetatiedoelen met een zeer nat/veenvormend grondwaterregime voorkomen.
+  - **Vrijstromendheid**: op plaatsen waar rivieren vrijstromend worden, verruwt de rivierbedding waardoor de grondwaterstand in de vallei stijgt en kan de vallei overstromen. Ter hoogte van vrijstromende trajecten kunnen in de vallei alleen vegetatiedoelen voorkomen die compatibel zijn met winteroverstromingen (t100) en een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
+  - **Habitat 3260 en vissoorten**: langs de onbevaarbare waterlooptrajecten die geselecteerd worden ifv de doelen wordt de hydromorfologie hersteld. Daarvoor wordt een meandergordel gereserveerd waarbinnen erosie en sedimentatie door rivierwerking de vrije hand krijgt. Meandering en waterplanten verruwen de rivierbedding waardoor de afvoer vertraagt en het rivierpeil stijgt. Dat leidt meestal tot een verhoging van de grondwaterstand in de vallei. Zonder verhoging van de rivierbodem kan hermeandering echter een verdere verdroging van de vallei in de hand werken. Binnen de vernattingszone kunnen alleen vegetatiedoelen voorkomen die compatibel zijn met een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
 
 #### Scenario 1
 
-In scenario 1 (voorgenomen beleid) primeren de terrestrische natuurdoelen en wordt landbouw maximaal gespaard.
+In scenario 1 realiseren we de waterregulerende NbO die het huidige beleid voorziet op plaatsen waar ze de minste weerstand opwekken/het gemakkelijkst te realiseren zijn. **We behouden de huidige terrestrische natuurdoelen**. De aquatische natuurdoelen worden als volgt gealloceerd:
 
-- **Bever**: binen de SBZ waar bever een doelsoort is, kunnen vegetatiedoelen wijken (cf. groene code uit het SBP). Voor onze gevalstudies gaat het alleen over BE2400011 (valleien van de Dijle, Laan en IJse).
-  - -\> waar de vegetatiedoelen niet combineerbaar zijn met een langdurige zomeroverstroming, worden ze vervangen door een vegetatietype dat wel combineerbaar is.
-- **Veenherstel**: vernattingsdoel veen (1/3^de^ van verdroogd veen in gebied) niet in HAG, bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, niet op niet-combineerbare natuurdoelen. Veenherstel kan wel op plaatsen waar bever een doelsoort is.
-- **Vrijstromendheid**:
-  - -\>
+- **Bever**: alleen binnen de **SBZ waar bever een doelsoort is**, kunnen vegetatiedoelen wijken (cf. groene code uit het SBP). Voor onze gevalstudies gaat het over BE2400011 (valleien van de Dijle, Laan en IJse).
+- **Veenherstel**: vernattingsdoel veen (1/3^de^ van verdroogd veen in gebied) niet in HAG, bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, niet op niet-combineerbare natuurdoelen.
+- **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei mogen alleen verwijderd worden thv valleigebieden buiten HAG, bij voorkeur binnen SBZ, groene gewestplanbestemmingen of VEN-gebied, niet thv bebouwing of akkers en niet thv terrestrische natuurdoelen die niet combineerbaar zijn met overstromingen.
+- **Habitat 3260 en vissoorten**: trajecten voor hydromorfologisch herstel worden geselecteerd langs onbevaarbare trajecten binnen de SBZ-H deelgebieden, niet in HAG en niet thv van niet-combineerbare natuurdoelen. Voor 3260 vallen de trajecten binnen de zoekzone voor het habitattype. Voor vissen worden de trajecten gebruikt uit de soortbeschermingsprogramma's.
+  - De oppervlaktedoelstelling voor 3260 per SBZ (doelstelling min actueel voorkomen) wordt gerealiseerd -\> van oppervlaktedoelstelling naar aantal cellen: een rivierbreedte van 4 à 5 m (rapporten Leyssen) komt ongeveer overeen met 40%-75% van de oppervlakte van een cel van 10 x 10 m. Gemakshalve gaan we ervan uit dat we de rivieroppervlakte de helft van de celoppervlakte bedraagt. Om de doeloppervlakte voor het habitattype te alloceren op de rasterkaart, moeten we dus twee keer zoveel cellen selecteren (bv. om 10 ha te realiseren, moeten we 200 cellen selecteren).
 
 #### Scenario 2
 
-- **Bever**:
-- **Veenherstel**:
-  - -\> waar de vegetatiedoelen niet combineerbaarheid zijn met grondwater \< 0.25 cm onder het maaiveld, worden ze vervangen door een vegetatietype dat wel combineerbaar is.
-- **Vrijstromendheid**:
+In scenario 2 realiseren we de waterregulerende NbO die het huidige beleid voorziet prioritair in gebieden die er toe doen voor de huidige (grond)watergebonden natuurdoelen. Natuurdoelen op het land passen we aan op plaatsen waar ze **natuurdoelen in de waterloop** belemmeren. De aquatische natuurdoelen worden als volgt gealloceerd:
+
+- **Bever**: vegetatiedoelen kunnen wijken thv **kernleefgebieden** van bever.
+  - -\> de overstroombare vallei (t100) wordt geselecteerd thv waterlopen die zijn aangeduid als kernleefgebied voor bever
+- **Veenherstel**: vernattingsdoel veen (1/3^de^ van verdroogd veen in gebied) bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, aansluitend bij bestaande niet verdroogde veengebieden. Veenherstel kan onder dit scenario dus ook in HAG en thv vegetatiedoelen die niet combineerbaar zijn met hoge grondwaterstanden.
+- **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei worden bij voorkeur verwijderd binnen SBZ, groene gewestplanbestemmingen of VEN-gebied, bij voorkeur niet op akkers, niet thv bebouwing. Vrijstromendheid wordt toegelaten thv niet-combineerbare vegetatiedoelen.
+- **Hydromorfologisch herstel:**
+  - **Habitattype 3260**: de oppervlaktedoelstelling per SBZ wordt gerealiseerd (1) binnen de SBZ-H deelgebieden en (2) binnen de zoekzone voor het habitattype.
+  - Meandergordel thv riviersegmenten met **visdoelen**
 
 #### Scenario 3
 
-## 3. Plaatsing natuurdoelen
+In scenario 3 realiseren we maximaal waterregulerende NbO in de gebieden die er toe doen voor die natuurtypes. We passen natuurdoelen aan op plaatsen waar ze een meer **natuurlijke hydrologie** belemmeren.
 
-**Tabel inladen met grondwaterregimes**
+- **Hydromorfologisch herstel:** de natuurlijke hydrologie van waterlopen wordt hersteld in waterlopen met het statuut 'natuurlijk waterlichaam' of 'sterk veranderd waterlichaam zonder doelverlaging', in waterlopen binnen SBZ, VEN of groene bestemmingen van het Gewestplan.
+  - Meandergordel met natuur + vernattingszone
+- **Bever**: wordt overal toegelaten waar aan hydromorfologisch herstel gewerkt wordt
+- **Veenherstel**: Alle verdroogde veengebieden worden hersteld. De bodembedekking thv de veengebieden wordt aangepast in een combineerbaar ecosysteemtype (open vegetaties of elzenbroekbos - 91E0).
+- **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei worden bij voorkeur verwijderd binnen SBZ, groene gewestplanbestemmingen of VEN-gebied, bij voorkeur niet op akkers, niet thv bebouwing. Vrijstromendheid wordt toegelaten thv niet-combineerbare vegetatiedoelen.
+  - t10 gebruiken ipv t100
+- Alle niet-bebouwde cellen in de t10-kaart kunnen overstromen (komberging). In die zones komen akkers en natuurdoelen die niet combineerbaar zijn met overstromingen in gedrang.
+  - t10 ipv t100 in scenario 3 omdat we uitgaan van hydrologisch herstel onder dit scenario, waardoor water meer stroomopwaarts wordt opgehouden en de overstromingen in de valleien minder omvangrijk zijn.
 
-Overgenomen uit de methode voor de opmaak van de signaalkaart.
+## 3. Geschiktheidskaarten
 
-```{r tabel_glg}
+### 3.1. Tolerantie hoge grondwaterstand
+
+- Tabel inladen met grondwaterregimes (overgenomen uit de methode voor de opmaak van de signaalkaart)
+- Grondwaterregimes (GLG, m onder maaiveld) voor grondwaterafhankelijke terrestrische habitattypen en rbb (signaalkaart):
+  - zeer nat/veenvormend: 0 - 0.25 m
+  - nat (niet veenvormend): 0.25 - 0.5 m
+  - vochtig: 0.5 - 1.2 m
+  - lokaal vochtig of droog: \> 1.2 m
+- In de zone rond waterlopen die hydrologisch herstel zijn, nemen we aan dat het grondwater stijgt tot 0.5 m onder het maaiveld. Vegetaties met een vochtig of droog grondwaterregime kunnen daar in de problemen komen.
+  - Afbakening zone:
+
+```{r grondwaterregime}
 
 groepslijst <- typen_MNMindeling_aangevuld
 
@@ -203,42 +233,97 @@ groepslijst <- groepslijst %>%
   mutate(type = factor(type))
 ```
 
-### 3.1. Scenario 1
+### 3.2. Veenherstel
 
-Geschiktheidskaart
+Uitleg veenherstel
 
-- Buiten HAG
-- Binnen SBZ, VEN, groene codes gewestplan
-- Niet op cellen met veenbodem
+- Kaart verdroogd en niet-verdroogd veen
+- Selecteer 1/3de van de verdroogde veencellen volgens criteria:
+  - Aansluitend bij niet verdroogde veencellen
+  - Bij voorkeur in SBZ, VEN of groene bestemmingen van het Gewestplan
 
-```{r geschiktheid_sc1}
+```{r veenherstel}
 
-ven
-hag
-sbz
-rbh %in% c("03", "04", "05")
+# 1 = verdroogd, 2 = niet verdroogd, NA = rest
+veen <- veenkaart
+
+intact_veen <- ifel(veen == 2, 1, NA)
+
+
+# Stap 1: Ruimtelijke statistieken berekenen voor het 'plakken'
+
+# 1. Bereken de fysieke afstand van ELKE cel tot het dichtstbijzijnde intacte veen
+dist_tot_intact <- distance(intact_veen)
+
+# 2. Bereken een buurtscore via een focal filter (3x3 matrix)
+# Dit telt hoeveel intacte veencellen (code 2) direct aan een cel grenzen (0 tot 8)
+buurt_score <- focal(intact_veen, w = 3, fun = "sum", na.rm = TRUE)
+
+# Stap 3: Data omzetten naar een tabel voor exacte selectie
+# Let op: we stoppen 'intact_veen' hier niet in, omdat die NA is op de plek van code 1.
+stapel <- c(veen, dist_tot_intact, buurt_score)
+names(stapel) <- c("status", "afstand", "buurt_score")
+
+# Zet om naar een dataframe met behoud van celnummers.
+# na.rm = TRUE zorgt ervoor dat alle niet-veencellen (de NA's) direct worden gewist.
+df <- as.data.frame(stapel, cells = TRUE, na.rm = TRUE)
+
+# Filter zodat we alleen de verdroogde veencellen (code 1) overhouden
+df_verdroogd <- df %>% filter(status == 1)
+
+
+# Stap 4: Exact 1/3de selecteren op basis van de prioriteit
+
+# Bereken hoeveel cellen exact 1/3de is van het totaal aantal verdroogde cellen
+aantal_te_vernatten <- round(nrow(df_verdroogd) / 3)
+
+geselecteerde_cellen <- df_verdroogd %>%
+  # NU GAAN WE PRIORITEREN:
+  # 1. 'afstand' oplopend: cellen die het dichtst bij intact veen liggen komen bovenaan.
+  # 2. 'buurt_score' aflopend: bij gelijke afstand kiezen we de cel met de meeste intacte buren.
+  # 'cell' voegen we toe als stabiele factor om eventuele resterende 'ties' te breken.
+  arrange(afstand, desc(buurt_score), cell) %>%
+  # Selecteer exact het benodigde aantal cellen (de top 1/3de)
+  filter(row_number() <= aantal_te_vernatten)
+
+
+# Stap 5: Het resultaat terugschrijven naar een rasterkaart
+
+# We maken een nieuwe kaart op basis van de verdroogde cellen.
+# We zetten alle verdroogde cellen (code 1) standaard eerst op waarde 0 (verdroogd laten).
+vernatting_kaart <- ifel(veen == 1, 0, NA)
+
+# De geselecteerde 1/3de cellen die moeten worden vernat geven we de waarde 1.
+vernatting_kaart[geselecteerde_cellen$cell] <- 1
 ```
 
-**Cellen die geschikt zijn voor vrijstromendheid**
+### 3.2. Vrijstromendheid
 
-Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oever samen) mag maximaal 40% van de lengte van het riviersegment bedragen. 60% moet dus barriérevrij blijven. We benaderen dat als volgt:
+Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oever samen) mag maximaal 40% van de lengte van het riviersegment bedragen. De lengte van de oevers bedraagt twee keer de lengte van de rivier, waardoor er dus maximaal langs 20% van de oevers een barrière mag zijn (80% moet barriérevrij blijven). We benaderen dat als volgt:
 
-- We verrasteren de riviersegmenten die tegen 2050 vrijstromend moeten zijn. 60% van het aantal cellen dat direct tegen deze riviercellen ligt moet geschikt zijn voor vrijstromendheid (op de overige 40% mogen nog dijken of oeververstevigingen aanwezig zijn).
+- We verrasteren de riviersegmenten die tegen 2050 vrijstromend moeten zijn. 80% van het aantal cellen dat direct tegen deze riviercellen ligt moet geschikt zijn voor vrijstromendheid (op de overige 20% mogen nog dijken of oeververstevigingen aanwezig zijn).
 - Masker geschikt voor vrijstromendheid:
   - buiten HAG
-  - bij voorkeur in SBZ, groene bestemming of VEN **Opgelet: VEN nog toevoegen in script!**
+  - bij voorkeur in SBZ, groene bestemming of VEN
   - niet-combineerbare natuurcellen vrijwaren
   - bij voorkeur op natuurlijk grasland, bos of moeras
+- Plaats het aantal cellen dat overeenkomt met 80% van de oevercellen per reachID
+- Selecteer de overstroombare cellen in de vallei die grenzen aan de oevercellen die geselecteerd zijn om barrièrevrij te worden onder vrijstromende omstandigheden.
+  - Via een distance-analyse worden de fluviale en pluviale overstromingscellen (t100) toegewezen aan oevercellen die barrièrevrij zijn.
+  - Het resultaat is een kaart van de cellen in de vallei die onder vrijstromende condities kunnen overstromen omdat
 
 ```{r ffr}
 
 # verrasteren van riviersegmenten veld 'reachID'
-ffr_rast <- rasterize(ffr, ecosysteem_2022, field = "reachID")
+ffr_rast <- rasterize(ffr, ecosysteem_2022, touches = TRUE, field = "reachID")
+
 # verrasteren beleidskaarten
 r_hag <- ifel(is.na(hag), 1, 0)
 r_rbh <- rasterize(rbh, ecosysteem_2022, field = "rbh")
 r_rbh <- ifel(r_rbh %in% c("03", "04", "05"), 2, 1)
 r_sbz <- rasterize(habrl, ecosysteem_2022, field = 2, background = 1)
+r_ven <- rasterize(ven, ecosysteem_2022, field = 2, background = 1)
+r_sbz_ven <- ifel(r_sbz == 2 | r_ven == 2, 2, 1)
 
 # Stap 1: Buffer van 1 rastercel breed aanmaken
 
@@ -252,53 +337,137 @@ uitgebreid_rast[uitgebreid_rast == -Inf] <- NA # -Inf omzetten in NA
 # Maskeer de oorspronkelijke lijncellen eruit met inverse = TRUE.
 buffer_only <- mask(uitgebreid_rast, ffr_rast, inverse = TRUE)
 
-# Stap 2: masker maken van cellen die niet geschikt zijn vrijstomendheid
-# Masker geschikte ecosystemen
+# Stap 2: masker maken van cellen die niet geschikt zijn voor vrijstomendheid
+# 1. Masker geschikte ecosystemen
 mask_eco <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401, 402, 403, 404, 701, 702), 200, 100)))
-# Masker combineerbaarheid met overstromingen
+# 2. Masker combineerbaarheid met overstromingen
 mask_flood <- ifel(is.na(combineerbaarheid_t100), 1, 0)
-# Masker beleid
-mask_beleid <- r_hag * r_sbz * r_rbh
+# 3. Masker beleid
+mask_beleid <- r_hag * r_sbz_ven * r_rbh
 mask_beleid <- ifel(mask_beleid == 4, 2, mask_beleid)
-# Combinatie maskers
+# 4. Combinatie maskers
 masker <- ifel(mask_beleid == 0 | mask_eco == 0 | mask_flood == 0, 0, mask_eco + mask_beleid)
 masker <- ifel(masker == 0, 0, ifel(masker %in% c(1, 101, 102, 201), 1, 2))
 
-# Stap 3: Data voorbereiden voor de 40% selectie
+# Stap 3: Dataframe maken voor de selectie van geschikte cellen
 
 # Combineer het buffer-raster en het masker in één object
 gecombineerd <- c(buffer_only, masker)
 names(gecombineerd) <- c("reachID", "geschiktheid")
 
 # Zet om naar een dataframe met behoud van het cel-ID. 
-# Dit is essentieel om de selectie straks terug te plaatsen in een raster.
 df <- as.data.frame(gecombineerd, cells = TRUE, na.rm = FALSE)
 
 # Filter zodat we alleen de cellen overhouden die daadwerkelijk in een buffer vallen
 df_buf <- df[!is.na(df$reachID), ]
 
 
-# Stap 4: Logica toepassen per reachID (60% en geschiktheid)
+# Stap 4: Logica toepassen per reachID (80% en geschiktheid)
 
-# We gebruiken dplyr om per reachID de selectie te maken.
 geselecteerde_cellen <- df_buf %>%
   group_by(reachID) %>%
-  # Bepaal eerst hoeveel 60% van de totale buffercellen voor deze reach is
-  mutate(aantal_nodig = round(n() * 0.60)) %>%
-  # Verwijder cellen die absoluut ongeschikt zijn (waarde 0)
+  # Bepaal eerst hoeveel 80% van de totale buffercellen voor deze reach is
+  mutate(aantal_nodig = round(n() * 0.80)) %>%
+  # Verwijder ongeschikte cellen (waarde 0)
   filter(geschiktheid > 0) %>%
-  # Sorteer aflopend op geschiktheid, expliciet per groep (.by_group = TRUE)
+  # Sorteer aflopend op geschiktheid per reachID (.by_group = TRUE)
   arrange(desc(geschiktheid), cell, .by_group = TRUE) %>%
-  # Selecteer de top cellen door de rijnummers te vergelijken met het benodigde aantal
+  # Selecteer 80% meest gecshikte cellen
   filter(row_number() <= aantal_nodig) %>%
   ungroup()
 
-# Stap 5: Resultaat terugsrijven naar een nieuw raster
+# Stap 5: Kaart maken van geselecteerde cellen op basis van hun cel-ID
 
-# Maak een leeg raster aan op basis van de structuur van eco
 ffr_final <- rast(ecosysteem_2022)
 values(ffr_final) <- NA # Zet alles op leeg (NA)
 
 # Wijs de reachID toe aan de celnummers die succesvol door de selectie zijn gekomen
 ffr_final[geselecteerde_cellen$cell] <- geselecteerde_cellen$reachID
+
+# Verwijder geïsoleerde cellen (n > 2)
+ffr_patches <- patches(ffr_final)
+f <- freq(ffr_patches)
+ffr_final_clean <- ffr_patches
+ffr_final_clean[ffr_final_clean %in% f$value[f$count <= 2]] <- NA
+
+# Stap 6: van oevercellen naar overstroombare vallei
+# Zones van de vallei aanduiden die kunnen overstromen bij vrijstromendheid
+
+diepte <- overstromingsdiepte_t100_flu_plu
+r_ffr <- ifel(ffr_final_clean > 0, 1, NA)
+
+# VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De ffr-lijnsegmenten zijn maar een selectie van de vha-lijnen.
+r_vha <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1)
+
+# Stap 6.1. - oevercellen langs vha selecteren (aanpak cf verrastering ffr)
+vha_buffer <- focal(r_vha, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+vha_buffer[vha_buffer == -Inf] <- NA
+# Riviercellen verwijderen.
+oever_zone <- mask(vha_buffer, r_vha, inverse = TRUE)
+
+# Stap 6.2. - oeverzone opsplitsen in:
+# cellen die mogen overstromen (waarde 1 in r_ffr)
+oever_wel <- ifel(r_ffr == 1, 1, NA)
+
+# cellen die niet mogen overstromen (waarde NA in r_ffr én in oeverzone)
+oever_niet <- ifel(!is.na(oever_zone) & is.na(r_ffr), 1, NA)
+# geïsoleerde cellen verwijderen
+oever_patches <- patches(oever_niet, directions = 8)
+f2 <- freq(oever_patches)
+oever_niet_clean <- oever_patches
+oever_niet_clean[oever_niet_clean %in% f2$value[f2$count <= 2]] <- NA
+
+# Stap 6.3. - distance-analyse voor selectie t100-cellen
+# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+begaanbaar_grid <- ifel(!is.na(diepte) | !is.na(oever_zone), 1, NA)
+begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
+
+# De rivier is een barrière + oeverzone wegknippen anders glipt de distance-analyse langs de oevers naar naburige zones
+begaanbaar_grid[!is.na(r_vha)] <- NA
+begaanbaar_grid[!is.na(r_vha) | !is.na(oever_zone)] <- NA
+
+# Grid A: afstand tot de WEL-overstroombare oevers
+grid_wel <- begaanbaar_grid
+grid_wel[!is.na(oever_wel)] <- 0  # Zet de startpunten op 0
+dist_wel <- gridDist(grid_wel, target = 0)
+
+# Grid B: afstand tot de NIET-overstroombare oevers
+grid_niet <- begaanbaar_grid
+grid_niet[!is.na(oever_niet_clean)] <- 0 # Zet de startpunten op 0
+dist_niet <- gridDist(grid_niet, target = 0)
+
+
+# Stap 6.4. - Zones toewijzen en maskeren
+# Een cel in de vallei mag overstromen als:
+# - De afstand tot 'wel' kleiner of gelijk is aan de afstand tot 'niet'
+# - OF als 'wel' bereikbaar is, maar 'niet' onbereikbaar is (door de barrière)
+vallei_allocatie <- ifel(
+  (dist_wel <= dist_niet) | (!is.na(dist_wel) & is.na(dist_niet)), 
+  1, 
+  NA
+)
+
+# Resultaat maskeren met t100-kaart
+ffr_overstroombaar <- mask(vallei_allocatie, diepte)
+
+mapview(diepte, col.regions = brewer.pal(9, "Blues"), na.color = "transparent") + mapview(ffr_overstroombaar, na.color = "transparent") + mapview(r_ffr, col.regions = "blue", na.color = "transparent")
+```
+
+### 3.4. Habitat 3260
+
+```{r 3260}
+
+
+```
+
+## 4. Scenario's
+
+### 4.1. Scenario 1
+
+```{r geschiktheid_sc1}
+
+ven
+hag
+sbz
+rbh %in% c("03", "04", "05")
 ```
