@@ -46,6 +46,9 @@ Deze datasets zijn specifiek voor dit script:
 - ecosysteem_2022.tif -\> ecosysteemkaart 2022 zonder buffer
 - effect_stuw.tif -\> effectiviteit voor **stuwtjes** ifv aanpak droogte
 - impact_droogte_agrar.tif -\> impact droogte op landbouw in aantal droogtedagen in 2100 (effectenenimpacts_s0_droogteduurAgrarischDagen_hoog_2100_t2)
+- tempnat.tif -\> tijdelijk natte gebieden watersysteemkaart UA
+- permnat.tif -\> tijdelijk natte gebieden watersysteemkaart UA
+- peilgestuurd.tif -\> beleidskaart peilgestuurde drainage
 
 Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
 
@@ -56,7 +59,7 @@ studiegebied <- "rivierbeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_stuw.tif", "impact_droogte_agrar.tif")
+targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_stuw.tif", "impact_droogte_agrar.tif", "tempnat.tif", "permnat.tif", "peilgestuurd.tif")
 
 # In welke folders zitten de data?
 
@@ -125,6 +128,16 @@ list2env(data_list_ok, envir = .GlobalEnv)
 
 ## 2. Geschiktheidskaart en doeloppervlakte
 
+**Optie 1**
+
+De geschiktheid voor dedrainage in landbouwgebied wordt bepaald op basis van de geschiktheidskaart voor peilgestuurde drainage die ontwikkeld werd i.h.k.v. het project OP-PEIL.
+
+**Optie 2**
+
+De geschiktheid voor dedrainage in landbouwgebied wordt bepaald op basis van de permanent natte en tijdelijk natte gebieden uit de watersysteemkaart van de UA. Rond de natte zones wordt een bijkomende zone van 50 m afgebakend omdat grachten meestal wat doorlopen tot buiten de natte gebieden.
+
+**Optie 3**
+
 De geschiktheidskaart wordt als volgt opgebouwd:
 
 - De **impactkaart** van het aantal droogtedagen (0-365) wordt herschaald van 0-1.
@@ -162,7 +175,32 @@ counts <- freq(finaal_masker)
 opp_dedrain <- round(0.25 * counts[counts$value == 1, "count"], 0)
 ```
 
-## 3. Alloceren van infiltratiemaatregelen
+```{r geschiktheid_watersysteemkaart}
+
+# 1. Bereken de geschiktheidsscore op basis van de tijdelijk en permanent natte gebieden en de verplichtingskaart peilgestuurde drainage
+nat <- ifel(!is.na(permnat) | !is.na(tempnat), 1, NA)
+nat_buffer <- buffer(nat, width = 50) %>% 
+  ifel(1, NA)
+nat_peilgestuurd <- ifel(!is.na(nat_buffer) & !is.na(peilgestuurd), 2, ifel(!is.na(nat_buffer) & is.na(peilgestuurd), 1, NA))
+
+mask_effect <- nat_peilgestuurd %in% c(1, 2)
+  
+# 2. Maskering: Alleen de toegestane ecosysteem-cellen en nat_peilgestuurd > 0
+# Selecteer ecosysteem 201 (annual crops)
+mask_ecosysteem <- ecosysteem_2022 %in% c(201)
+
+finaal_masker <- mask_ecosysteem & mask_effect
+
+# 3. Pas het masker toe op de totaalscore
+# Cellen die niet aan de voorwaarden voldoen worden NA
+geschiktheidskaart <- mask(nat_peilgestuurd, finaal_masker, maskvalues = 0)
+
+# bereken de doeloppervlakte (25% van de geschikte cellen)
+counts <- freq(finaal_masker)
+opp_dedrain <- round(0.25 * counts[counts$value == 1, "count"], 0)
+```
+
+## 3. Alloceren van dedrainagemaatregelen
 
 De doeloppervlakte (`opp_dedrain`) wordt gealloceerd volgens de geschiktheid van de cellen (hoogste geschiktheid eerst). Alleen cellen met code 201 (annual crops) komen in aanmerking.
 
@@ -175,7 +213,7 @@ De geselecteerde cellen krijgen code 9998 in de nieuwe kaart (`ecosysteem_aangep
 # 1. Omzetten naar een data.frame met coördinaten
 # We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
 # Optie 1: zonder rekening te houden met eerder geplaatste infiltratiemaatregelen
-df <- as.data.frame(c(ecosysteem, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
+df <- as.data.frame(c(ecosysteem_2022, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
 colnames(df) <- c("cell", "eco_code", "score")
 
 # Optie 2: cellen met infiltratiemaatregelen uitsluiten
@@ -196,7 +234,7 @@ nieuwe_code <- 9998
 top_cellen_indices <- df_sorted$cell[1:opp_dedrain]
 
 # 4. De originele ecosysteemkaart aanpassen
-ecosysteem_dedrain <- deepcopy(ecosysteem_infilt) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
+ecosysteem_dedrain <- deepcopy(ecosysteem) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
 ecosysteem_dedrain[top_cellen_indices] <- nieuwe_code
 
 # writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
