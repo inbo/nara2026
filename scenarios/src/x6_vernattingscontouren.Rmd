@@ -66,6 +66,9 @@ De volgende datasets worden gebruikt:
 - rivieren_dhm.tif -\> dhm van de rivieren in het gebied
 - vha.shp -\> rivieren
 - signaalkaart.shp -\> signaalkaart vernatting op basis van de natuurdoelenkaart en de INBO-veenkaart (zie ArcGIS-script `kaarten_r_scenarios_studiegebied`). Het ArcGIS-script voegt het veld 'klasse' toe en berekent de scores 'zn', 'n', v' en 'd' (**z**eer **n**at, **n**at, **v**ochtig en **d**roog).
+- grondwaterregime_habitats.xlsx -\> grondwaterregime (glg) voor habitats en rbb's (bron = tabel signaalkaart vernatting)
+- toekomstlaag.shp -\> natuurdoelen
+- veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
 
 ```{r bestanden_folders}
 
@@ -74,7 +77,7 @@ studiegebied <- "rivierbeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem.tif", "gebied.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif", "glg.tif", "textuur.tif", "rivieren_dhm.tif", "vha.shp", "signaalkaart.shp")
+targets <- c("ecosysteem_2022.tif", "gebied.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif", "glg.tif", "textuur.tif", "rivieren_dhm.tif", "vha.shp", "signaalkaart.shp", "grondwaterregime_habitats.xlsx", "toekomstlaag.shp", "veen1970_poly.shp")
 
 # In welke folders zitten de data?
 
@@ -146,17 +149,7 @@ list2env(data_list_ok, envir = .GlobalEnv)
 ```{r data_klaarmaken}
 
 # Vectoren
-rivieren <- vha %>% st_make_valid() %>% st_transform(st_crs(ecosysteem))
-
-rivier_buffers <- st_buffer(rivieren, dist = 1)
-rivier_buffer <- st_union(rivier_buffers)
-
-percelen <- signaalkaart %>% st_transform(st_crs(ecosysteem)) %>% 
-  st_make_valid() %>%
-  st_cast("POLYGON") %>%
-  st_difference(rivier_buffer) %>%
-  st_collection_extract("POLYGON") %>%
-  mutate(FID = row_number())
+rivieren <- vha %>% st_make_valid() %>% st_transform(st_crs(ecosysteem_2022))
 
 # Rasters
 dtm_r          <- dhm
@@ -177,8 +170,10 @@ Om die grotere zones af te bakenen moeten we naburige polygonen groeperen die mi
 
 Door te werken met klassen ipv de exacte stijghoogte of hoogteligging verliezen we informatie, maar kunnen we meer logische zones voor vernatting afbakenen.
 
-- Stap 1: de percelen worden gegroepeerd op basis van de **peilklasse** (zeer nat, nat, vochtig, droog) en de **hoogteligging** van het perceel.
-- Stap 2: voor de gegroepeerde polygonen wordt de gemiddelde stijghoogte berekend op basis van de glg-kaart.
+- Stap 0: eigen signaalkaart maken op basis van de toekomstlaag. Per perceel de habitattypes en rbb's selecteren die minstens 30% van het perceel bedekken. Vervolgens het natste type overhouden.
+- Stap 1: nieuw gecreerde natuurcellen (veen) toevoegen aan percelenkaart
+- Stap 2: de percelen worden gegroepeerd op basis van de **peilklasse** (zeer nat, nat, vochtig, droog) en de **hoogteligging** van het perceel.
+- Stap 3: voor de gegroepeerde polygonen wordt de gemiddelde stijghoogte berekend op basis van de glg-kaart.
   - Aan elk van de peilklassen wordt een gemiddelde stijghoogte toegekend:
     - zeer natte percelen (zn) -\> 0.125 m onder maaiveld
     - natte percelen (n) -\> 0.375 m
@@ -186,7 +181,19 @@ Door te werken met klassen ipv de exacte stijghoogte of hoogteligging verliezen 
     - droge percelen (d) -\> 1.2 m
   - Op basis van de huidige glg per polygoon wordt vervolgens het verschil met het gewenste peilniveau berekend.
 
-```{r percelen, echo=FALSE}
+### Optie 1 - op basis van de signaalkaart (beperkt tot SBZ-H)
+
+```{r percelen_signaalkaart, echo=FALSE}
+
+rivier_buffers <- st_buffer(rivieren, dist = 1)
+rivier_buffer <- st_union(rivier_buffers)
+
+percelen <- signaalkaart %>% st_transform(st_crs(ecosysteem_2022)) %>% 
+  st_make_valid() %>%
+  st_cast("POLYGON") %>%
+  st_difference(rivier_buffer) %>%
+  st_collection_extract("POLYGON") %>%
+  mutate(FID = row_number())
 
 # Stap 1: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
 # meest voorkomende hoogteklasse per perceel
@@ -220,6 +227,190 @@ percelen_final$huidige_glg <- exact_extract(glg_r, percelen_final, 'median')
 percelen_final <- percelen_final %>%
   mutate(peilwijziging = pmax(0, huidige_glg - streefpeil))
 
+```
+
+### Optie 2 - op basis van de toekomstkaart
+
+#### Stap 0 - Signaalkaart maken
+
+```{r percelen_glg}
+
+# Data hernoemen
+percelen <- toekomstlaag
+tbl_grondwater <- grondwaterregime_habitats
+
+# Stap 1: signaalkaart maken
+
+# 1. Tabel transformeren voor koppeling
+# We maken een 'long' format om makkelijker te filteren en te matchen
+percelen_df <- as.data.frame(percelen) %>%
+  mutate(ID_perceel = row_number()) %>%
+  pivot_longer(
+    cols = starts_with("HAB"), 
+    names_to = "HAB_nr", 
+    values_to = "HAB_type"
+  ) %>%
+  # Match de bedekkingsgraad (pHAB) bij het juiste HAB_type
+  mutate(p_nr = sub("HAB", "pHAB", HAB_nr)) %>%
+  rowwise() %>%
+  mutate(bedekking = get(p_nr)) %>%
+  filter(bedekking > 30) # Criterium: alleen bedekkingsgraad > 30% telt mee
+
+# 2. Koppel de grondwaterregimes
+percelen_scores <- percelen_df %>%
+  left_join(tbl_grondwater, by = c("HAB_type" = "habitat")) %>%
+  mutate(klasse = factor(klasse, levels = c("d", "v", "n", "zn"), ordered = TRUE)) %>%
+  group_by(ID_perceel) %>%
+  # Kies per perceel het vegetatietype met de laagste tolerantie
+  summarise(
+    min_glg   = min(groep_glg, na.rm = TRUE)) %>%
+  mutate(klasse = case_when(
+    min_glg %in% c(1, 2) ~ "zn",
+    min_glg == 3        ~ "n",
+    min_glg == 4        ~ "v",
+    min_glg == 5        ~ "d"   
+  )) %>%
+  mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
+
+# Voeg scores terug toe aan de vector data
+percelen_glg <- merge(percelen, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+
+```
+
+#### Stap 1 - Rastercellen toevoegen
+
+- Vernatte veencellen -\> zeer natte condities (zn)
+- De vernattingszone van hydromorfologisch herstel heeft een grondwaterstand \< 0.5 m onder het maaiveld. Die zone voegen we op het einde apart toe.
+
+```{r toevoegen_nieuwe_rastercellen}
+
+#////////////////////////////
+# A. Veenkaart toevoegen (zn)
+#////////////////////////////
+
+# test met veenkaart -> input = raster met 1 voor veen
+veen <- st_intersection(veen1970_poly, gebied)
+r_veen <- rasterize(veen, ecosysteem_2022, field = 1)
+r_veen_buf <- buffer(r_veen, 200) %>% ifel(1, NA)
+
+# Vectoriseren van veenkaart
+veen_spat <- as.polygons(r_veen_buf, dissolve = TRUE)
+veen_sf <- st_as_sf(veen_spat)
+veen_sf <- st_transform(veen_sf, st_crs(percelen_glg))
+
+percelen_glg <- st_make_valid(percelen_glg) %>%
+  select(klasse)
+veen_sf <- st_make_valid(veen_sf)
+
+# Maskers voor overlap
+veen_masker <- st_union(veen_sf)
+percelen_masker <- st_union(st_geometry(percelen_glg))
+
+# A. Overlap percelen en veenpolygonen. Veen moet klasse 'zn' krijgen
+percelen_overlap <- st_intersection(percelen_glg, st_geometry(veen_masker)) %>%
+  mutate(klasse = "zn") # de overlap wordt'zn'
+
+# B. Geen overlap tussen veen en percelen (veen 'hapt' overlap uit percelen)
+percelen_geen_overlap <- st_difference(percelen_glg, st_geometry(veen_masker))
+
+# C. Geen overlap tussen veen en percelen en nieuwe polygonen van veen
+veen_buiten_geom <- st_difference(veen_masker, percelen_masker)
+
+veen_buiten_sf <- st_sf(geometry = veen_buiten_geom) %>% 
+  st_make_valid() %>% 
+  st_cast("POLYGON")
+
+# Voeg de kolommen van percelen_glg toe als NA
+for (col in names(percelen_glg)) {
+  if (col != "geometry") {
+    veen_buiten_sf[[col]] <- NA
+  }
+}
+
+# Geef deze nieuwe veenpercelen de code "zn"
+veen_buiten_sf$klasse <- "zn"
+
+# Zorg dat de kolommen in exact dezelfde volgorde staan als het origineel
+veen_buiten_sf <- veen_buiten_sf[, names(percelen_glg)]
+
+
+# Integratie
+percelen_glg_veen <- rbind(percelen_geen_overlap, percelen_overlap, veen_buiten_sf)
+
+
+```
+
+#### Stap 2 - Percelen samenvoegen
+
+```{r Stap2}
+
+# Stap 2: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
+
+# 1. Percelen splitsen met gebufferde rivieren
+
+rivier_buffers <- st_buffer(rivieren, dist = 1)
+rivier_buffer <- st_union(rivier_buffers)
+
+# 2. Zet sf-objecten om naar terra 'SpatVector' objecten
+percelen_glg_veen <- percelen_glg_veen %>%
+  st_make_valid() %>%
+  filter(!st_is_empty(.)) %>%
+  st_collection_extract("POLYGON") %>%     
+  st_cast("MULTIPOLYGON")
+
+v_percelen <- vect(percelen_glg_veen)
+v_rivier <- vect(rivier_buffer)
+
+v_rivier <- project(v_rivier, crs(v_percelen))
+
+v_percelen <- makeValid(v_percelen)
+v_rivier <- makeValid(v_rivier)
+
+# 1 grote polygoon maken van rivierbuffers
+v_rivier_union <- aggregate(v_rivier)
+
+# 3. Percelen bijsnijden met rivieren
+v_percelen_cut <- erase(v_percelen, v_rivier_union)
+
+# 4. filter eventuele lijnen/punten eruit die door het snijden zijn ontstaan
+v_percelen_cut <- v_percelen_cut[geomtype(v_percelen_cut) == "polygons", ]
+
+# 5. Terug omzetten naar sf
+percelen_cut <- st_as_sf(v_percelen_cut) %>%
+  st_make_valid() %>%
+  mutate(FID = row_number())
+
+
+# meest voorkomende hoogteklasse per perceel
+dtm_klass <- floor(dtm_r / 0.5) * 0.5 # dtm reclassen in stappen van 0.5 m
+percelen_cut$h_klasse <- exact_extract(dtm_klass, percelen_cut, 'mode')
+
+percelen_final <- percelen_cut %>%
+  filter(klasse != "d") %>% # geen peilverhoging voor droge percelen
+  group_by(klasse, h_klasse) %>%
+  summarize(geometry = st_union(geometry), .groups = "drop") %>%
+  st_make_valid() %>%
+  st_collection_extract("POLYGON") %>%
+  st_cast("POLYGON") %>%
+  mutate(id = row_number())
+
+# Peilwijziging berekenen
+
+# Stap 3: Gewenste stijghoogte berekenen via de glg-laag
+percelen_final <- percelen_final %>%
+  dplyr::filter(as.numeric(st_area(.)) > 0) %>% # verwijder lege polygons
+  mutate(streefpeil = recode_values(klasse,
+                                 "zn" ~ 0.125,
+                                 "n"  ~ 0.375,
+                                 "v"  ~ 0.85,
+                                 "d"  ~ 1.2
+  ))
+
+ext_waarden <- exact_extract(glg_r, percelen_final, 'median')
+
+percelen_final$huidige_glg <- exact_extract(glg_r, percelen_final, 'median')
+percelen_final <- percelen_final %>%
+  mutate(peilwijziging = pmax(0, huidige_glg - streefpeil))
 ```
 
 ## Contouren
@@ -379,13 +570,14 @@ ksat_v <- c(
   "G" = 10, "Z" = 1, "S" = 0.4, "P" = 0.15, "L" = 0.08,
   "V" = 0.05, "M" = 0.03, "X" = 0.1, "A" = 0.01, "E" = 0.001, "U" = 0.0001)
 
-rat <- cats(bodem_r)[[1]] # Raster Attribute Table
+rat <- cats(bodem_r)[[1]]
+rat <- rat[1:2]
 names(rat) <- c("value", "textuur")
 
 # Functie om ksat voor combinaties van textuurklassen (bv. U-A-S) te berekenen
 calc_k <- function(t_string) {
   parts <- str_split(t_string, "-")[[1]]
-  vals <- ksat_v[parts] # aanpassen voor h of v
+  vals <- ksat_v[parts]
   return(mean(vals, na.rm = TRUE))
 }
 
@@ -436,8 +628,8 @@ percelen_vect <- vect(percelen_select_opp)
 percelen_vect <- project(percelen_vect, crs(ref_raster))
 
 buff_params <- buffer(percelen_vect, 200)
-percelen_select_opp$Tavg <- extract(transmis, buff_params, fun = mean, na.rm = TRUE)[,2]
-omega_avg <- extract(omega, buff_params, fun = mean, na.rm = TRUE)[,2]
+percelen_select_opp$Tavg <- terra::extract(transmis, buff_params, fun = mean, na.rm = TRUE)[,2]
+omega_avg <- terra::extract(omega, buff_params, fun = mean, na.rm = TRUE)[,2]
 percelen_select_opp$lambda <- sqrt(percelen_select_opp$Tavg * omega_avg)
 
 # 2. Loop over de verschillende polygonen om de stijging te berekenen en
@@ -506,7 +698,12 @@ contour <- ifel(glg_dif > 0, 1, NA)
 contour_landb <- glg_dif * glg_landbouw_na
 contour_landb <- ifel(contour_landb > 0, 1, NA)
 
-# mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, col.regions = "darkred") + mapview(gebied, alpha.regions = 0)
+# Vernattingszone hydromorfologisch herstel toevoegen
+herstelzone <- herstelzone
+
+contour_landb <- ifel(contour_landb == 1 | herstelzone == 1, 1, NA)
+
+mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, col.regions = "darkred") + mapview(gebied, alpha.regions = 0)
 
 # writeRaster(contour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_vernatting.tif"), overwrite = TRUE)
 
