@@ -137,20 +137,21 @@ list2env(data_list_ok, envir = .GlobalEnv)
   - IHD voor **bever**
   - Herstel van het **vrijstromend karakter** van rivieren: trajecten die zijn aangeduid om vrijstromend te worden tegen 2050
   - **Veenherstel**: herstel 50% van de oppervlakte gedegradeerd veen, waarvan 1/3^de^ via vernatting
--  Sommige doelen kunnen lokaal conflicteren omdat de abiotische randvoorwaarden verschillen:
-  - Een **verhoging van de grondwaterstand** voor veenherstel of door opstuwing in rivieren kan natuurtypes verdringen die een lagere grondwaterstand nodig hebben.
-  - **Beverdammen** kunnen terrestrische vegetaties onder water zetten waardoor die afsterven.
-  - In vrijstromende rivieren krijgen natuurlijke processen de vrije hand waardoor de rivier onder andere terug gaat meanderen, buiten haar oevers treedt en de rivierbedding verruwt. Dat gaat meestal gepaard met periodieke **overstromingen, oevererosie en vernatting** van de vallei. Vernatting en overstromingen creëren gradiënten in de vallei, die zich weerspiegelen in de vegetatiesamenstelling.
-    - In de vallei onstaan nattere **komgronden en drogere oeverwallen** met bijbehorende vegetaties. Natte, grondwaterafhankelijke vegetatietypes (zoals dottergraslanden, grote zeggenvegetaties, natte heide of elzenbroekbossen) breiden zich uit over de lagere delen. De drogere vegetatietypes (zoals glanshavervegetaties, vossenstaartgraslanden, heidevegetaties of eiken-berkenbossen) worden hierdoor teruggedrongen en schuiven op naar de randen van de vallei en de zandige verhogingen zoals donken.
+- Sommige doelen kunnen lokaal conflicteren omdat de abiotische randvoorwaarden verschillen:
+- Een **verhoging van de grondwaterstand** voor veenherstel of door opstuwing in rivieren kan natuurtypes verdringen die een lagere grondwaterstand nodig hebben.
+- **Beverdammen** kunnen terrestrische vegetaties onder water zetten waardoor die afsterven.
+- In vrijstromende rivieren krijgen natuurlijke processen de vrije hand waardoor de rivier onder andere terug gaat meanderen, buiten haar oevers treedt en de rivierbedding verruwt. Dat gaat meestal gepaard met periodieke **overstromingen, oevererosie en vernatting** van de vallei. Vernatting en overstromingen creëren gradiënten in de vallei, die zich weerspiegelen in de vegetatiesamenstelling.
+  - In de vallei onstaan nattere **komgronden en drogere oeverwallen** met bijbehorende vegetaties. Natte, grondwaterafhankelijke vegetatietypes (zoals dottergraslanden, grote zeggenvegetaties, natte heide of elzenbroekbossen) breiden zich uit over de lagere delen. De drogere vegetatietypes (zoals glanshavervegetaties, vossenstaartgraslanden, heidevegetaties of eiken-berkenbossen) worden hierdoor teruggedrongen en schuiven op naar de randen van de vallei en de zandige verhogingen zoals donken.
 
-    - Overstromingen brengen slib en **voedingsstoffen** in de vallei, wat zorgt voor een verruiging van de vegetatie. Dat is een natuurlijk fenomeen, maar door de slechte waterkwaliteit van de waterlopen in Vlaanderen zorgen deze periodieke overstromingen voor eutrofiëring van de vallei.
+  - Overstromingen brengen slib en **voedingsstoffen** in de vallei, wat zorgt voor een verruiging van de vegetatie. Dat is een natuurlijk fenomeen, maar door de slechte waterkwaliteit van de waterlopen in Vlaanderen zorgen deze periodieke overstromingen voor eutrofiëring van de vallei.
 
-      -\> We brengen de risico's van **overstromingen met eutroof water** apart in beeld.
+    -\> We brengen de risico's van **overstromingen met eutroof water** apart in beeld.
 - Voor de analyse nemen we de **terrestrische natuurdoelen als uitgangspunt** en gaan we na in welke mate ze op hun huidige of voorziene locatie haalbaar zijn onder een meer natuurlijk watersysteem. Meer concreet gaan we na welke terrestrische doelen conflicteren met aquatische natuurdoelen (vrijstromendheid, instandhouding bever, vissoorten, habitat 3260 en veenherstel). De **toekomstkaart** (v2025) die aangeeft waar welke terrestrische habitattypes en regionaal belangrijke biotopen gerealiseerd moeten worden, vormt de basis voor de analyse. Die terrestrische natuurdoelen worden in de scenario's als volgt aangepast in functie van de realisatie van aquatische doelen:
   - **Bever**: op plaatsen waar bever getolereerd wordt, worden vegetatiedoelen die niet combineerbaar zijn met een langdurige zomeroverstroming (cf. benadering SBP bever) vervangen door een vegetatietype dat wel combineerbaar is.
   - **Veenherstel**: op plaatsen waar verdroogd veen hersteld wordt, stijgt het grondwater tot tegen het maaiveld. In die zones kunnen alleen vegetatiedoelen met een zeer nat/veenvormend grondwaterregime voorkomen.
   - **Vrijstromendheid**: op plaatsen waar rivieren vrijstromend worden, verruwt de rivierbedding waardoor de grondwaterstand in de vallei stijgt en kan de vallei overstromen. Ter hoogte van vrijstromende trajecten kunnen in de vallei alleen vegetatiedoelen voorkomen die compatibel zijn met winteroverstromingen (t100) en een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
   - **Habitat 3260 en vissoorten**: langs de onbevaarbare waterlooptrajecten die geselecteerd worden ifv de doelen wordt de hydromorfologie hersteld. Daarvoor wordt een meandergordel gereserveerd waarbinnen erosie en sedimentatie door rivierwerking de vrije hand krijgt. Meandering en waterplanten verruwen de rivierbedding waardoor de afvoer vertraagt en het rivierpeil stijgt. Dat leidt meestal tot een verhoging van de grondwaterstand in de vallei. Zonder verhoging van de rivierbodem kan hermeandering echter een verdere verdroging van de vallei in de hand werken. Binnen de vernattingszone kunnen alleen vegetatiedoelen voorkomen die compatibel zijn met een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
+    - De **oppervlaktedoelstelling voor 3260** per SBZ (doelstelling min actueel voorkomen) wordt gerealiseerd -\> van oppervlaktedoelstelling naar aantal cellen: een rivierbreedte van 4 à 5 m (rapporten Leyssen) komt ongeveer overeen met 40%-75% van de oppervlakte van een cel van 10 x 10 m. Gemakshalve gaan we ervan uit dat we de rivieroppervlakte de helft van de celoppervlakte bedraagt. Om de doeloppervlakte voor het habitattype te alloceren op de rasterkaart, moeten we dus twee keer zoveel cellen selecteren (bv. om 10 ha te realiseren, moeten we 200 cellen selecteren).
 
 #### Scenario 1
 
@@ -160,32 +161,29 @@ In scenario 1 realiseren we de waterregulerende NbO die het huidige beleid voorz
 - **Veenherstel**: vernattingsdoel veen (1/3^de^ van verdroogd veen in gebied) niet in HAG, bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, niet op niet-combineerbare natuurdoelen.
 - **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei mogen alleen verwijderd worden thv valleigebieden buiten HAG, bij voorkeur binnen SBZ, groene gewestplanbestemmingen of VEN-gebied, niet thv bebouwing of akkers en niet thv terrestrische natuurdoelen die niet combineerbaar zijn met overstromingen.
 - **Habitat 3260 en vissoorten**: trajecten voor hydromorfologisch herstel worden geselecteerd langs onbevaarbare trajecten binnen de SBZ-H deelgebieden, niet in HAG en niet thv van niet-combineerbare natuurdoelen. Voor 3260 vallen de trajecten binnen de zoekzone voor het habitattype. Voor vissen worden de trajecten gebruikt uit de soortbeschermingsprogramma's.
-  - De oppervlaktedoelstelling voor 3260 per SBZ (doelstelling min actueel voorkomen) wordt gerealiseerd -\> van oppervlaktedoelstelling naar aantal cellen: een rivierbreedte van 4 à 5 m (rapporten Leyssen) komt ongeveer overeen met 40%-75% van de oppervlakte van een cel van 10 x 10 m. Gemakshalve gaan we ervan uit dat we de rivieroppervlakte de helft van de celoppervlakte bedraagt. Om de doeloppervlakte voor het habitattype te alloceren op de rasterkaart, moeten we dus twee keer zoveel cellen selecteren (bv. om 10 ha te realiseren, moeten we 200 cellen selecteren).
 
 #### Scenario 2
 
 In scenario 2 realiseren we de waterregulerende NbO die het huidige beleid voorziet prioritair in gebieden die er toe doen voor de huidige (grond)watergebonden natuurdoelen. Natuurdoelen op het land passen we aan op plaatsen waar ze **natuurdoelen in de waterloop** belemmeren. De aquatische natuurdoelen worden als volgt gealloceerd:
 
 - **Bever**: vegetatiedoelen kunnen wijken thv **kernleefgebieden** van bever.
-  - -\> de overstroombare vallei (t100) wordt geselecteerd thv waterlopen die zijn aangeduid als kernleefgebied voor bever
-- **Veenherstel**: vernattingsdoel veen (1/3^de^ van verdroogd veen in gebied) bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, aansluitend bij bestaande niet verdroogde veengebieden. Veenherstel kan onder dit scenario dus ook in HAG en thv vegetatiedoelen die niet combineerbaar zijn met hoge grondwaterstanden.
-- **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei worden bij voorkeur verwijderd binnen SBZ, groene gewestplanbestemmingen of VEN-gebied, bij voorkeur niet op akkers, niet thv bebouwing. Vrijstromendheid wordt toegelaten thv niet-combineerbare vegetatiedoelen.
-- **Hydromorfologisch herstel:**
-  - **Habitattype 3260**: de oppervlaktedoelstelling per SBZ wordt gerealiseerd (1) binnen de SBZ-H deelgebieden en (2) binnen de zoekzone voor het habitattype.
-  - Meandergordel thv riviersegmenten met **visdoelen**
+  - De overstroombare vallei (t100) wordt geselecteerd thv waterlopen die zijn aangeduid als kernleefgebied voor bever
+  - Geen kaart kernleefgebieden -\> alternatief: onbevaarbare vha-segmenten \>= cat 2 met huidige beverterritoria
+- **Veenherstel**: vernattingsdoel veen bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, [aansluitend bij bestaande niet verdroogde veengebieden]{.underline}. Veenherstel kan onder dit scenario dus ook in HAG en thv vegetatiedoelen die niet combineerbaar zijn met hoge grondwaterstanden.
+- **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei worden bij voorkeur verwijderd binnen SBZ, groene gewestplanbestemmingen of VEN-gebied. Zones met bebouwing blijven gevrijwaard. HAG en akkers buiten HAG kunnen ingeschakeld worden, maar alleen als er te weinig ruimte is in de andere geschikte zones. [Vrijstromendheid wordt toegelaten thv niet-combineerbare vegetatiedoelen]{.underline}.
+- **Habitat 3260 en vissoorten**: trajecten voor hydromorfologisch herstel worden bij voorkeur geselecteerd langs onbevaarbare trajecten binnen de SBZ-H deelgebieden. HAG en akkers buiten HAG kunnen ingeschakeld worden, maar alleen als er te weinig ruimte is in de andere geschikte zones. Vernatting kan ook thv niet-combineerbare natuurdoelen.
+  - Aaneengeslotenheid als extra criterium? Voor 3260 vallen de trajecten binnen de zoekzone voor het habitattype. Voor vissen worden de trajecten gebruikt uit de soortbeschermingsprogramma's.
 
 #### Scenario 3
 
 In scenario 3 realiseren we maximaal waterregulerende NbO in de gebieden die er toe doen voor die natuurtypes. We passen natuurdoelen aan op plaatsen waar ze een meer **natuurlijke hydrologie** belemmeren.
 
-- **Hydromorfologisch herstel:** de natuurlijke hydrologie van waterlopen wordt hersteld in waterlopen met het statuut 'natuurlijk waterlichaam' of 'sterk veranderd waterlichaam zonder doelverlaging', in waterlopen binnen SBZ, VEN of groene bestemmingen van het Gewestplan.
-  - Meandergordel met natuur + vernattingszone
-- **Bever**: wordt overal toegelaten waar aan hydromorfologisch herstel gewerkt wordt
-- **Veenherstel**: Alle verdroogde veengebieden worden hersteld. De bodembedekking thv de veengebieden wordt aangepast in een combineerbaar ecosysteemtype (open vegetaties of elzenbroekbos - 91E0).
-- **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei worden bij voorkeur verwijderd binnen SBZ, groene gewestplanbestemmingen of VEN-gebied, bij voorkeur niet op akkers, niet thv bebouwing. Vrijstromendheid wordt toegelaten thv niet-combineerbare vegetatiedoelen.
-  - t10 gebruiken ipv t100
-- Alle niet-bebouwde cellen in de t10-kaart kunnen overstromen (komberging). In die zones komen akkers en natuurdoelen die niet combineerbaar zijn met overstromingen in gedrang.
-  - t10 ipv t100 in scenario 3 omdat we uitgaan van hydrologisch herstel onder dit scenario, waardoor water meer stroomopwaarts wordt opgehouden en de overstromingen in de valleien minder omvangrijk zijn.
+- **Hydromorfologisch herstel:** de natuurlijke hydrologie van waterlopen wordt hersteld in alle niet-kunstmatige onbevaarbare waterlopen tot en met categorie 3, zonder de waterlopen die beheerd worden door de polders.
+  - Langs deze waterlopen bakenen we een meanderzone en een vernattingszone af.
+  - Alle niet-bebouwde cellen in de t100-kaart kunnen overstromen (komberging). In die zones wordt het landgebruik afgestemd op vernatting en overstromingen (geen akkers, geen niet-combineerbare natuurdoelen.
+  - Dat betekent dat al deze waterlopen **vrijstromend** zijn.
+- **Bever**: wordt toegelaten in alle waterlopen \>= categorie 2 waar aan hydromorfologisch herstel gewerkt wordt (**+ waar er op dit moment beverterritoria zijn? = kernleefgebieden**). In de overstroombare delen komen alleen vegetaties voor die combineerbaar zijn met zomeroverstromingen.
+- **Veenherstel**: [Alle verdroogde veengebieden]{.underline} worden hersteld. De bodembedekking thv de veengebieden wordt aangepast in een combineerbaar ecosysteemtype (open vegetaties of elzenbroekbos - 91E0).
 
 ## 3. Geschiktheidskaarten
 
