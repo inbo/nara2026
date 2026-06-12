@@ -45,6 +45,7 @@ De volgende datasets worden gebruikt:
 - owl.shp -\> oppervlaktewaterlichamen (voor ecologische typologie)
 - vha.shp
 - textuur.tif
+- overstromingsdiepte_t100_flu_plu.tif -\> overstromingsdiepte t100
 
 ```{r bestanden_folders}
 
@@ -52,7 +53,7 @@ studiegebied <- "rivierbeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem.tif", "rivier_poly.shp", "vha.shp", "owl.shp", "textuur.tif")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "rivier_poly.shp", "vha.shp", "owl.shp", "textuur.tif", "overstromingsdiepte_t100_flu_plu.tif")
 
 # In welke folders zitten de data?
 
@@ -314,10 +315,15 @@ mapview(herstelzone, col.regions = "red", na.color = "transparent") + mapview(he
 
 ```
 
+## Vernattingszone rivier
+
 ```{r vernatting}
 
+vallei <- ifel(overstromingsdiepte_t100_flu_plu > 0, 1, NA)
+
+# Tabel met vernattingsafstanden per textuurklasse
 dist_nat <- c(
-  "G" = 500, "Z" = 250, "S" = 250, "P" = 250, "L" = 100,
+  "G" = 500, "Z" = 200, "S" = 200, "P" = 200, "L" = 100,
   "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
 
 rat <- cats(textuur)[[1]] # Raster Attribute Table
@@ -337,6 +343,57 @@ dist_values <- rat %>%
   mutate(afstand = calc_dist(textuur)) %>%
   ungroup()
 
+
+
+# CRS van kaarten gelijkmaken
+vha <- st_transform(vha, st_crs(ecosysteem_2022))
+textuur <- st_transform(textuur, st_crs(ecosysteem_2022))
+
+# 1.D ominante textuurklasse per lijnsegment bepalen
+ext_waarden <- terra::extract(textuur, vha, touches = TRUE)
+
+# Functie om de modus (meest voorkomende waarde) te berekenen
+get_mode <- function(x) {
+  x <- na.omit(x)
+  if (length(x) == 0) return(NA)
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# De naam van de rasterkolom dynamisch ophalen
+raster_naam <- names(textuur)[1]
+
+# Bereken de dominante klasse per uniek ID
+dominante_klassen <- ext_waarden %>%
+  filter(!is.na(.data[[raster_naam]])) %>% 
+  group_by(ID) %>%
+  summarise(dominante_klasse = get_mode(.data[[raster_naam]]))
+
+# 2. Afstanden koppelen uit dist_values
+dominante_klassen <- dominante_klassen %>%
+  left_join(dist_values, by = c("dominante_klasse" = "textuur"))
+
+# Voeg een ID toe aan de originele waterlopen om te kunnen matchen
+vha$ID <- 1:nrow(vha)
+vha_met_afstand <- vha %>%
+  left_join(dominante_klassen, by = "ID") %>%
+  filter(!is.na(afstand))
+
+# 3. Variabele buffer aanmaken
+vha_buffer <- st_buffer(vha_met_afstand, dist = vha_met_afstand$afstand)
+
+# 4. Verrasteren van het eindresultaat
+buffer_vector <- vect(vha_buffer) # Omzetten naar terra-formaat
+buffer_rast <- rasterize(
+  x = buffer_vector, 
+  y = ecosysteem_2022, 
+  field = "afstand", 
+  fun = "min", 
+  background = NA
+)
+
+# Vernattingszone beperken tot grenzen overstromingskaart (t100)
+vernatting_rivier <- buffer_rast * vallei
 
 
 ```
