@@ -135,6 +135,8 @@ De geschiktheidskaart wordt als volgt opgebouwd:
 
 De **doeloppervlakte** voor infiltratiemaatregelen (`opp_infilt`) wordt berekend als 25% van de oppervlakte van de geschikte cellen.
 
+Van die doeloppervlakte wordt de **oppervlakte van de nieuw geplaatste KLE afgetrokken** (-\> % per cel \* aantal cellen). KLE verminderen de oppervlakkige afstroming en dragen zo bij aan infiltratie. De KLE worden geplaatst in functie van erosiemaatregelen en zullen dus voornamelijk op de steilste hellingen geplaatst worden.
+
 ```{r geschiktheidskaart}
 
 ecosysteem <- ecosysteem_2022
