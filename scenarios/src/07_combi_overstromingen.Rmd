@@ -208,7 +208,7 @@ combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
 # mapview(combineerbaarheid_t100)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaarheid_t100.tif"), overwrite = TRUE)
+# writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaarheid_t100.tif"), overwrite = TRUE)
 
 ```
 
@@ -326,6 +326,7 @@ mask <- ifel(is.na(mask) | is.na(wegen_barriere), NA, 0)
 
 # Resultaat analyse combineerbaarheid
 intolerant <- combineerbaarheid_t100
+intolerant <- combineerbaar_bever_t100
 
 # Rivieren inbranden als barrière 
 intolerant_riv <- intolerant + rivier_barriere
@@ -395,5 +396,6 @@ overstromingsvrije_clusters <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
 
 mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
-writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/overstromingsvrije_clusters.tif"), overwrite = TRUE)
+writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_bever.tif"), overwrite = TRUE)
+
 ```
