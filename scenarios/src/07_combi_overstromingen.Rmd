@@ -234,9 +234,9 @@ percelen_scores_bever <- percelen_df %>%
   group_by(ID_perceel) %>%
   # Kies per perceel het vegetatietype met de laagste tolerantie
   summarise(
-    min_z20d50 = min(minz20d50, na.rm = TRUE), # cf score SBP
-    z20d50 = min(z20d50, na.rm = TRUE), # max. tolerantiescore zomer
-    min_w20d50 = min(minw20d50, na.rm = TRUE) # min. tolerantiescore winter
+    min_zd20 = min(zd20, na.rm = TRUE),
+    min_z20d50 = min(z20d50, na.rm = TRUE),
+    min_z50d = min(z50d, na.rm = TRUE)
   ) %>%
   mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
@@ -248,13 +248,19 @@ target_res <- 10
 r_base <- rast(ext(ecosysteem), resolution = target_res, crs = crs(ecosysteem))
 
 # Rasteriseer de tolerantiescores naar 10x10m
+r_zd20 <- rasterize(percelen_final, r_base, field = "min_zd20")
 r_z20d50   <- rasterize(percelen_final, r_base, field = "min_z20d50")
-r_w20d50   <- rasterize(percelen_final, r_base, field = "min_w20d50")
-r_z20d50_max   <- rasterize(percelen_final, r_base, field = "z20d50")
+r_z50d   <- rasterize(percelen_final, r_base, field = "min_z50d")
 
+
+# 4. Bereken de combineerbaarheid ifv de diepteligging van de natuurdoelen
+combineerbaarheid <- ifel(waterdiepte < 20, r_zd20,
+                 ifel(waterdiepte >= 20 & waterdiepte <= 50, r_z20d50,
+                  ifel(waterdiepte > 50, r_z50d, NA)))
+
+# 0 = niet combineerbaar - 3 = combineerbaar
 # Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
-
-combineerbaar_bever <- ifel(r_z20d50_max <= 1, 1, NA)
+combineerbaar_bever <- ifel(combineerbaarheid <= 1, 1, NA)
 
 # Alleen natuur in overstroombare valleien in rekening brengen
 combineerbaar_bever_t100 <- mask(combineerbaar_bever, waterdiepte)
@@ -394,7 +400,7 @@ eindkaart_min_afstand <- app(raster_multilaag, fun = "min", na.rm = TRUE)
 
 overstromingsvrije_clusters <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
 
-mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
+mapview(waterdiepte, na.color = "transparent") + mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
 writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_bever.tif"), overwrite = TRUE)
 
