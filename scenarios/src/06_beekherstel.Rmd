@@ -165,6 +165,8 @@ de criteria van Harman et al. (3.5 x breedte (bankfull) + 4.5 m) en Vermont (6 x
 
 `corridor = 3.5 x rivierbreedte + 4.5 m`
 
+## Optie 1 (op basis van de polygonen van de waterlopen)
+
 **C. Stappenplan**
 
 - Stap 1: Breedte van de rivier bepalen:
@@ -315,7 +317,7 @@ mapview(herstelzone, col.regions = "red", na.color = "transparent") + mapview(he
 
 ```
 
-## Vernattingszone rivier
+## 4. Vernattingszone rivier
 
 ```{r vernatting}
 
@@ -323,7 +325,7 @@ vallei <- ifel(overstromingsdiepte_t100_flu_plu > 0, 1, NA)
 
 # Tabel met vernattingsafstanden per textuurklasse
 dist_nat <- c(
-  "G" = 500, "Z" = 200, "S" = 200, "P" = 200, "L" = 100,
+  "G" = 500, "Z" = 200, "S" = 200, "P" = 150, "L" = 100,
   "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
 
 rat <- cats(textuur)[[1]] # Raster Attribute Table
@@ -349,7 +351,7 @@ dist_values <- rat %>%
 vha <- st_transform(vha, st_crs(ecosysteem_2022))
 textuur <- st_transform(textuur, st_crs(ecosysteem_2022))
 
-# 1.D ominante textuurklasse per lijnsegment bepalen
+# 1.Dominante textuurklasse per lijnsegment bepalen
 ext_waarden <- terra::extract(textuur, vha, touches = TRUE)
 
 # Functie om de modus (meest voorkomende waarde) te berekenen
@@ -371,7 +373,7 @@ dominante_klassen <- ext_waarden %>%
 
 # 2. Afstanden koppelen uit dist_values
 dominante_klassen <- dominante_klassen %>%
-  left_join(dist_values, by = c("dominante_klasse" = "textuur"))
+  left_join(tbl_dist_nat, by = c("dominante_klasse" = "textuur"))
 
 # Voeg een ID toe aan de originele waterlopen om te kunnen matchen
 vha$ID <- 1:nrow(vha)
@@ -393,7 +395,7 @@ buffer_rast <- rasterize(
 )
 
 # Vernattingszone beperken tot grenzen overstromingskaart (t100)
-vernatting_rivier <- buffer_rast * vallei
+vernatting_rivier <- ifel(!is.na(buffer_rast * vallei), 1, NA)
 
 
 ```
