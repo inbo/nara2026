@@ -525,8 +525,7 @@ percelen_scores_glg <- percelen_df %>%
 percelen_final <- merge(percelen, percelen_scores_glg, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
 
 # 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
-target_res <- 10
-r_base <- rast(ext(ecosysteem_2022), resolution = target_res, crs = crs(ecosysteem_2022))
+r_base <- rast(ext(ecosysteem_2022), resolution = 10, crs = crs(ecosysteem_2022))
 
 # Rasteriseer de tolerantiescores naar 10x10m
 r_maxglg <- rasterize(percelen_final, r_base, field = "max_glg")
