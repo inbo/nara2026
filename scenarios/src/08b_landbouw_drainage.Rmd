@@ -54,7 +54,7 @@ Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappe
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -234,7 +234,7 @@ nieuwe_code <- 9998
 top_cellen_indices <- df_sorted$cell[1:opp_dedrain]
 
 # 4. De originele ecosysteemkaart aanpassen
-ecosysteem_dedrain <- deepcopy(ecosysteem) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
+ecosysteem_dedrain <- deepcopy(ecosysteem_2022) # Aanpassen in 'ecosysteem' als optie 2 gekozen wordt
 ecosysteem_dedrain[top_cellen_indices] <- nieuwe_code
 
 # writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_dedrain.tif"), overwrite = TRUE)
