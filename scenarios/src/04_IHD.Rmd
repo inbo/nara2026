@@ -771,10 +771,10 @@ vallei_allocatie <- ifel(
 )
 
 # Resultaat maskeren met t100-kaart
-bever_overstroombaar <- mask(vallei_allocatie, diepte)
-bever_overstroombaar <- mask(bever_overstroombaar, intolerant_zone_bever, maskvalues = 1, updatevalue = NA)
+sc1_bever <- mask(vallei_allocatie, diepte)
+sc1_bever <- mask(bever_overstroombaar, intolerant_zone_bever, maskvalues = 1, updatevalue = NA)
 
-mapview(diepte, na.color = "transparent") + mapview(bever_overstroombaar, col.regions = "red", na.color = "transparent") + mapview(intolerant_zone_bever, col.regions = "blue", na.color = "transparent")
+mapview(diepte, na.color = "transparent") + mapview(sc1_bever, col.regions = "red", na.color = "transparent") + mapview(intolerant_zone_bever, col.regions = "blue", na.color = "transparent")
 ```
 
 ##### b) Veenherstel
@@ -782,11 +782,11 @@ mapview(diepte, na.color = "transparent") + mapview(bever_overstroombaar, col.re
 De Natuurherstelverordening legt hersteldoelen op voor organische bodems in de landbouw die bestaan uit ontwaterde veengebieden. Tegen 2050 moeten in minstens 50% van die veengebieden herstelmaatregelen van kracht zijn, waarvan minstens een derde vernat is. Tot 40% van die doelstelling mag gerealiseerd worden in gebieden met een ander grondgebruik dan landbouwgebruik. We vertalen die doelstelling als volgt:
 
 - Landbouwgebruik: alle percelen die in landbouwgebruik zijn op de uiterste indieningsdatum van de verzamelaanvraag van 2022.
-- Vernattingsdoel: 1/3de van 50% = 17% -\> 40% buiten landbouwgebruik = 7% vernatting buiten landbouwgebruik.
+- Vernattingsdoel: 1/3de van 50% = 17% van de verdroogde veenbodems in landbouwgebruik vernatten. Maximaal 40% daarvan mag vernat worden buiten landbouwgebruik -\> 7% vernatting buiten landbouwgebruik, 10% binnen landbouwgebruik.
 
 Scenario 1: 7% van de verdroogde veengebieden in landbouwgebruik vernatten in gebieden buiten landbouwgebruik, de overige 10% bij voorkeur niet op akkers. Geen vernatting t.h.v. natuurdoelen die niet compatibel zijn met te hoge grondwatertafels.
 
-```{r}
+```{r veen_sc1}
 
 # veen_verdroogd: 1 = verdroogd, 2 = niet verdroogd, NA = rest
 
@@ -800,46 +800,41 @@ dist_tot_intact <- distance(intact_veen)
 # 2. Landbouw
 # 2.1. Landbouwgebruik
 landbouw <- ifel(!is.na(lbgp_gewasgroep), 1, 0)
-# 2.2. Akkers
-akkers <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, 0))
-# 2.3. HAG
+# 2.2. HAG
 r_hag
 
 # 3. Natuur
 # 3.1. Zone te vrijwaren voor niet-combineerbare natuurdoelen
-natuur_intol <- intolerant_zone_veenherstel
+natuur_intol <- ifel(is.na(intolerant_zone_veenherstel), 0, 1)
 # 3.2. SBZ, VEN, groene bestemmingen
 r_natuur
 
+# 4. Ecosystemen -> reclass ecosysteemkaart
+reclass_lu <- matrix(c( # van, tot en met, wordt
+  100,  106,  0, # ruimtebeslag
+  200, 205,  1, # akkers
+  205, 300, 3, # grasland buiten landbouw of natuur
+  300, 301, 2, # grasland landbouw
+  301, 401, 3, # semi-nat. grasland en loofbos
+  401, 402, 2, # naaldbos
+  402, 602, 3, # 
+  602, 702, 4, # moeras en venen
+  702, 802, 0, # rivieren en kanalen
+  802, 1201, 3), # rest
+  ncol = 3, byrow = TRUE)
+
+lu_geschikt <- classify(ecosysteem_2022, rcl = reclass_lu)
 
 # STAP 1b: geschiktheidskaart (aanpassen ifv scenario)
 # sc1: niet hag, akker lage geschiktheid, landbouwgras hogere geschiktheid, niet op intolerante natuur, natuur hoge geschiktheid
 
-# incompatibel landgebruik: ruimtebeslag + rivieren
-lu_intol <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 103, 104, 105, 106, 801, 802), 1, 0))
-
-reclass_lu <- c(
-  100,  106,  0,
-  200, 205,  0,
-  299, 300, ,
-  300, 301, 1
-  
-
-)
-
-geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1 | lu_intol == 1, 0, ifel(
-  akkers == 1, 1, ifel(
-    ecosysteem_2022 == 301, 2, ifel(
-      r_natuur == 0 & ecosysteem_2022 %in% c(300, 302, 400, 401, 403, 404)))))
+geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1 | lu_geschikt == 0, 0, ifel(r_natuur == 1, lu_geschikt + 1, lu_geschikt))
 
 
-# Stap 3: Data omzetten naar een tabel voor exacte selectie
-# Let op: we stoppen 'intact_veen' hier niet in, omdat die NA is op de plek van code 1.
-stapel <- c(veen_verdroogd, dist_tot_intact)
-names(stapel) <- c("status", "afstand")
+# Stap 3: Data omzetten naar een tabel voor selectie
+stapel <- c(veen_verdroogd, geschikt_sc1, landbouw)
+names(stapel) <- c("status", "geschiktheid", "landbouw")
 
-stapel <- c(veen_verdroogd, dist_tot_intact)
-names(stapel) <- c("status", "afstand")
 
 # Zet om naar een dataframe met behoud van celnummers.
 # na.rm = TRUE -> alle niet-veencellen (de NA's) worden gewist.
@@ -851,28 +846,35 @@ df_verdroogd <- df %>% filter(status == 1)
 
 # Stap 4: herstelopgave (1/3de van 50% = 17% vernatten) selecteren op basis van de prioriteit
 
-# Bereken herstelopgave (17% van verdroogde cellen)
-aantal_te_vernatten <- round(nrow(df_verdroogd) * 0.17)
+# Bereken herstelopgave (17% van verdroogde cellen in landbouwgebruik -> 10% te vernatten in landbouw, 7% buiten landbouw)
+opgave_landbouw <- round(nrow(df_verdroogd %>% filter(landbouw == 1)) * 0.10)
+opgave_rest <- round(nrow(df_verdroogd %>% filter(landbouw == 1)) * 0.07)
 
-geselecteerde_cellen <- df_verdroogd %>%
-  # Prioriteren:
-  # 1. 'afstand' oplopend: cellen die het dichtst bij intact veen liggen komen bovenaan.
-  # 'cell' voegen we toe als stabiele factor om eventuele resterende 'ties' te breken.
-  arrange(afstand, cell) %>%
+cellen_landbouw <- df_verdroogd %>%
+  filter(landbouw == 1) %>%
+  # Prioriteren ('cell' specifiëren om eventuele resterende 'ties' te breken)
+  arrange(desc(geschiktheid), cell) %>%
   # Selecteer exact het benodigde aantal cellen (de top 1/3de)
-  filter(row_number() <= aantal_te_vernatten)
+  filter(row_number() <= opgave_landbouw)
 
+cellen_rest <- df_verdroogd %>%
+  filter(landbouw == 0) %>%
+  arrange(desc(geschiktheid), cell) %>%
+  # Selecteer exact het benodigde aantal cellen (de top 1/3de)
+  filter(row_number() <= opgave_rest)
 
 # Stap 5: Het resultaat terugschrijven naar een rasterkaart
 
 # We maken een nieuwe kaart op basis van de verdroogde cellen.
 # We zetten alle verdroogde cellen (code 1) standaard eerst op waarde 0 (verdroogd laten).
-vernatting_kaart <- ifel(veen_verdroogd == 1, 0, NA)
+sc1_veen <- ifel(veen_verdroogd == 1, 0, NA)
 
 # De geselecteerde cellen die moeten worden vernat geven we de waarde 1.
-vernatting_kaart[geselecteerde_cellen$cell] <- 1
+sc1_veen[cellen_landbouw$cell] <- 1
+sc1_veen[cellen_rest$cell] <- 2
 
-mapview(veen_verdroogd, na.color = "transparent") + mapview(vernatting_kaart, na.color = "transparent")
+mapview(veen_verdroogd, na.color = "transparent") + mapview(sc1_veen, na.color = "transparent") + mapview(landbouw, na.color = "transparent")
+
 ```
 
 ##### c) Vrijstromendheid
@@ -1029,7 +1031,108 @@ mapview(diepte, col.regions = brewer.pal(9, "Blues"), na.color = "transparent") 
 
 ##### b) Veenherstel
 
-Scenario 2: 7% verdroogd veen vernatten buiten landbouwgebruik, de overige 10% bij voorkeur aansluitend bij intact veen. Vernatting is ook mogelijk t.h.v. natuurdoelen die niet compatibel zijn met te hoge grondwatertafels.
+Scenario 2: 7% verdroogd veen vernatten buiten landbouwgebruik, de overige 10% bij voorkeur aansluitend bij intact veen. Vernatting is ook mogelijk t.h.v. natuurdoelen die niet compatibel zijn met te hoge grondwatertafels. De vernattingscellen sluiten bij voorkeur aan bij intact veen.
+
+```{r veen_sc2}
+
+# veen_verdroogd: 1 = verdroogd, 2 = niet verdroogd, NA = rest
+
+intact_veen <- ifel(veen_verdroogd == 2, 1, NA)
+
+# Stap 1a: criteria voor plaatsing cellen die vernat moeten worden
+
+# 1. Afstand tot het dichtstbijzijnde intacte veen
+dist_tot_intact <- distance(intact_veen)
+# 1b. Veenclusters met (1) en zonder (0) intact veen
+veen_masker <- ifel(!is.na(veen_verdroogd), 1, NA)
+clusters <- patches(veen_masker, directions = 8)
+cluster_stats <- zonal(veen_verdroogd, clusters, fun = "max", na.rm = TRUE)
+reclass_matrix <- as.matrix(cluster_stats)
+reclass_matrix[, 2] <- ifelse(reclass_matrix[, 2] == 2, 1, 0)
+veen_clusters <- classify(clusters, rcl = reclass_matrix, others = NA)
+
+# 2. Landbouw
+# 2.1. Landbouwgebruik
+landbouw <- ifel(!is.na(lbgp_gewasgroep), 1, 0)
+# 2.2. HAG
+r_hag
+
+# 3. Natuur
+# 3.1. Zone te vrijwaren voor niet-combineerbare natuurdoelen
+natuur_intol <- ifel(is.na(intolerant_zone_veenherstel), 0, 1)
+# 3.2. SBZ, VEN, groene bestemmingen
+r_natuur
+
+# 4. Ecosystemen -> reclass ecosysteemkaart
+reclass_lu <- matrix(c( # van, tot en met, wordt
+  100,  106,  0, # ruimtebeslag
+  200, 205,  1, # akkers
+  205, 300, 3, # grasland buiten landbouw of natuur
+  300, 301, 2, # grasland landbouw
+  301, 401, 3, # semi-nat. grasland en loofbos
+  401, 402, 1, # naaldbos
+  402, 602, 3, # 
+  602, 702, 4, # moeras en venen
+  702, 802, 0, # rivieren en kanalen
+  802, 1201, 1), # rest
+  ncol = 3, byrow = TRUE)
+
+lu_geschikt <- classify(ecosysteem_2022, rcl = reclass_lu)
+
+# STAP 1b: geschiktheidskaart (aanpassen ifv scenario)
+# sc2: kan op hag, akker lage geschiktheid, landbouwgras hogere geschiktheid, kan op intolerante natuur, bij voorkeur aansluitend bij intact veen, natuur hoge geschiktheid
+
+geschikt_sc2 <- lu_geschikt
+
+
+# Stap 3: Data omzetten naar een tabel voor selectie
+stapel <- c(veen_verdroogd, geschikt_sc2, landbouw, dist_tot_intact, veen_clusters)
+names(stapel) <- c("status", "geschiktheid", "landbouw", "afstand", "clusters")
+
+
+# Zet om naar een dataframe met behoud van celnummers.
+# na.rm = TRUE -> alle niet-veencellen (de NA's) worden gewist.
+df <- as.data.frame(stapel, cells = TRUE, na.rm = TRUE)
+
+# Filter zodat we alleen de verdroogde veencellen overhouden
+df_verdroogd <- df %>% filter(status == 1)
+
+
+# Stap 4: herstelopgave (1/3de van 50% = 17% vernatten) selecteren op basis van de prioriteit
+
+# Bereken herstelopgave (17% van verdroogde cellen in landbouwgebruik -> 10% te vernatten in landbouw, 7% buiten landbouw).
+opgave_landbouw <- round(nrow(df_verdroogd %>% filter(landbouw == 1)) * 0.10)
+opgave_rest <- round(nrow(df_verdroogd %>% filter(landbouw == 1)) * 0.07)
+
+# Cellen sorteren: eerst clusters van veencellen met intact veen en daarbinnen op basis van afstand. In clusters zonder intact veen sorteren op basis van geschiktheid
+cellen_landbouw <- df_verdroogd %>%
+  filter(landbouw == 1) %>%
+  arrange(
+    desc(clusters), 
+    ifelse(clusters == 1, afstand, 0),
+    desc(geschiktheid)) %>%
+  filter(row_number() <= opgave_landbouw)
+
+cellen_rest <- df_verdroogd %>%
+  filter(landbouw == 0) %>%
+  arrange(
+    desc(clusters), 
+    ifelse(clusters == 1, afstand, 0),
+    desc(geschiktheid)) %>%
+  filter(row_number() <= opgave_rest)
+
+# Stap 5: Het resultaat terugschrijven naar een rasterkaart
+
+# We maken een nieuwe kaart op basis van de verdroogde cellen.
+# We zetten alle verdroogde cellen (code 1) standaard eerst op waarde 0 (verdroogd laten).
+sc2_veen <- ifel(veen_verdroogd == 1, 0, NA)
+
+# De geselecteerde cellen die moeten worden vernat geven we de waarde 1.
+sc2_veen[cellen_landbouw$cell] <- 1
+sc2_veen[cellen_rest$cell] <- 2
+
+mapview(veen_verdroogd, na.color = "transparent") + mapview(sc2_veen, na.color = "transparent")
+```
 
 ### 4.3. Scenario 3
 
@@ -1038,3 +1141,14 @@ Scenario 2: 7% verdroogd veen vernatten buiten landbouwgebruik, de overige 10% b
 ##### b) Veenherstel
 
 Scenario 3: alle verdroogde veenbodems herstellen
+
+```{r veen_sc3}
+
+# veen_verdroogd: 1 = verdroogd, 2 = niet verdroogd, NA = rest
+
+# Alle verdroogde veengronden worden vernat -> vernatting in landbouwgebruik krijgt code 1, vernatting buiten landbouwgebruik krijgt code 2
+sc3_veen <- ifel(is.na(veen_verdroogd), NA, ifel(veen_verdroogd == 1 & landbouw == 1, 1, 2))
+
+
+mapview(veen_verdroogd, na.color = "transparent") + mapview(sc3_veen, na.color = "transparent")
+```
