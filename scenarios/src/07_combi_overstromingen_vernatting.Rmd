@@ -30,7 +30,7 @@ library(progress)
 
 Het script berekent de combineerbaarheid van de natuurdoelen (Toekomstlaag ANB, versie 2025) met (1) overstromingen vanuit rivieren (fluviaal), door intense neerslag (pluviaal) en door beveractiviteit, (2) vernatting door peilverhoging in rivieren en (3) vernatting voor veenherstel.
 
-Voor de combineerbaarheid met **overstromingen en vernatting** worden in een eerste stap de niet combineerbare cellen geselecteerd. In een tweede stap wordt de zone afgebakend die ook gevrijwaard moet worden van vernatting of overstromingen om de intolerante natuurdoelen te realiseren. Omdat zowel de overstromingen als de vernatting vanuit de rivier komen, bakenen we daarvoor de zones af die tussen de intolerante natuurdoelen en de rivier liggen, op basis van de waterdiepte bij overstromingen.
+Voor de combineerbaarheid met **overstromingen en vernatting** worden in een eerste stap de niet combineerbare cellen geselecteerd. In een tweede stap wordt de zone afgebakend die ook gevrijwaard moet worden van vernatting of overstromingen om de intolerante natuurdoelen te realiseren. Omdat zowel de overstromingen als de vernatting vanuit de rivier komen, bakenen we daarvoor de zones af die tussen de intolerante natuurdoelen en de rivier liggen op basis van de waterdiepte bij overstromingen.
 
 ![Figuur 2. Afbakening van zones die gevrijwaard worden van overstromingen om natuurdoelen te realiseren. Boven: vooraanzicht; onder: bovenaanzicht.](images/overstroming-02.png){width="333"}
 
@@ -65,12 +65,12 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "toekomstlaag.shp", "veen1970_poly.shp", "wegen.shp", "overstromingsdiepte_t100_flu_plu.tif", "dhm.tif", "vha.shp", "overstromingstolerantie_habitats_gis.xlsx", "grondwaterregime_habitats.xlsx")
+targets <- c("ecosysteem_2022.tif", "toekomstlaag.shp", "veen1970_poly.shp", "wegen.shp", "overstromingsdiepte_t100_flu_plu.tif", "vha.shp", "textuur.tif", "overstromingstolerantie_habitats_gis.xlsx", "grondwaterregime_habitats.xlsx")
 
 # In welke folders zitten de data?
 
@@ -150,22 +150,20 @@ In deze analyse gebruiken we de scores voor de **minst tolerante types bij een w
 
 Stappen:
 
-1.  Selectie van percelen met vegetaties die minstens 30% van het perceel bedekken
-2.  Tolerantiescores koppelen aan vegetaties (minw\*\*d) -\> bij meerdere vegetatietypes per perceel: kies minst tolerante type
-3.  Schrijf de tolerantiescores voor elk van de dieptes weg als apart raster
-4.  Vergelijk de tolerantierasters met de waterdiepte
+- Stap 1 - Selectie van percelen met vegetaties die minstens 30% van het perceel bedekken
+- Stap 2 - Tolerantiescores koppelen aan vegetaties (minw\*\*d) -\> bij meerdere vegetatietypes per perceel: kies minst tolerante type
+- Stap 3 - Schrijf de tolerantiescores voor elk van de dieptes weg als apart raster
+- Stap 4 - Vergelijk de tolerantierasters met de waterdiepte
 
 **Opmerking**: het script vergelijkt de waterdiepte pixel per pixel met de tolerantie per perceel -\> ook waterdiepte per perceel bereken zodat de vergelijking volledig op perceelsniveau gebeurt?
 
-```{r combi_t100}
+**Stap 1 - Selecteer natuurdoelen die minstens 30% van perceel bedekken**
 
-# Data hernoemen
+```{r natuurdoelen_30_percent}
+
 percelen <- toekomstlaag
-tbl_tolerantie <- overstromingstolerantie_habitats_gis
-waterdiepte <- overstromingsdiepte_t100_flu_plu
 
-# 1. Tabel transformeren voor koppeling
-# We maken een 'long' format om makkelijker te filteren en te matchen
+# Selectie van natuurdoelen die minstens 30% van een perceel bedekken
 percelen_df <- as.data.frame(percelen) %>%
   mutate(ID_perceel = row_number()) %>%
   pivot_longer(
@@ -179,7 +177,16 @@ percelen_df <- as.data.frame(percelen) %>%
   mutate(bedekking = get(p_nr)) %>%
   filter(bedekking > 30) # Criterium: alleen bedekkingsgraad > 30% telt mee
 
-# 2. Koppel de tolerantiescores uit Excel
+```
+
+**Stap 2 - 4 - tolerantiescores per perceel en combineerbaarheid met overstromingen per perceel**
+
+```{r combi_t100}
+
+tbl_tolerantie <- overstromingstolerantie_habitats_gis
+waterdiepte <- overstromingsdiepte_t100_flu_plu
+
+# 1. Koppel de tolerantiescores aan de geselecteerde doelen
 percelen_scores <- percelen_df %>%
   left_join(tbl_tolerantie, by = c("HAB_type" = "habitat")) %>%
   group_by(ID_perceel) %>%
@@ -194,9 +201,9 @@ percelen_scores <- percelen_df %>%
 # Voeg scores terug toe aan de vector data
 percelen_final <- merge(percelen, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
 
-# 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
+# 2. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 target_res <- 10
-r_base <- rast(ext(ecosysteem), resolution = target_res, crs = crs(ecosysteem))
+r_base <- rast(ext(ecosysteem_2022), resolution = target_res, crs = crs(ecosysteem_2022))
 
 # Rasteriseer de 3 tolerantiescores naar 10x10m
 r_wd20   <- rasterize(percelen_final, r_base, field = "min_wd20")
@@ -204,7 +211,7 @@ r_w20d50 <- rasterize(percelen_final, r_base, field = "min_w20d50")
 r_w50d   <- rasterize(percelen_final, r_base, field = "min_w50d")
 
 
-# 4. Bereken de combineerbaarheid
+# 3. Bereken de combineerbaarheid
 combineerbaarheid <- ifel(waterdiepte < 20, r_wd20,
                  ifel(waterdiepte >= 20 & waterdiepte <= 50, r_w20d50,
                   ifel(waterdiepte > 50, r_w50d, NA)))
@@ -215,10 +222,10 @@ combineerbaarheid_t100 <- mask(combineerbaarheid, waterdiepte)
 # Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
 combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
 
-# mapview(combineerbaarheid_t100)
+mapview(combineerbaarheid_t100)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-# writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaarheid_t100.tif"), overwrite = TRUE)
+writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaarheid_t100.tif"), overwrite = TRUE)
 
 ```
 
@@ -251,7 +258,7 @@ percelen_final <- merge(percelen, percelen_scores_bever, by.x = "row.names", by.
 
 # 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 target_res <- 10
-r_base <- rast(ext(ecosysteem), resolution = target_res, crs = crs(ecosysteem))
+r_base <- rast(ext(ecosysteem_2022), resolution = target_res, crs = crs(ecosysteem_2022))
 
 # Rasteriseer de tolerantiescores naar 10x10m
 r_zd20 <- rasterize(percelen_final, r_base, field = "min_zd20")
@@ -294,15 +301,16 @@ gc()
 
 Het onderstaande script bakent de zones af die niet mogen overstromen om natuurdoelen die niet bestand zijn tegen overstromingen te vrijwaren. Daarbij gaan we ervan uit dat alle cellen in overstroombaar gebied die grenzen aan de te vrijwaren natuurcellen en lager of even hoog als de natuurcellen liggen, niet mogen overstromen.
 
-De zones die niet mogen overstromen worden geïdentificeerd via een **distance-analyse** die nagaat welke cellen bereikbaar zijn vanuit de natuurcellen (= lager liggen). Daarbij bakent een masker de zones af die een barrière vormen voor de analyse (= hoger gelegen cellen of cellen die aan de andere kant van de waterloop liggen). De volgende stappen worden doorlopen:
+De zones die niet mogen overstromen worden geïdentificeerd via een **patches-analyse** die nagaat welke cellen die lager gelegen zijn dan de natuurcellen een aaneengesloten geheel vormen met de natuurcellen. Daarbij bakent een masker de zones af die een barrière vormen voor de analyse (= hoger gelegen cellen of cellen die aan de andere kant van de waterloop liggen). De volgende stappen worden doorlopen:
 
-- Stap 1 - definieer het masker met cellen die een barrière vormen voor de distance-analyse.
+- Stap 1 - definieer het masker met cellen die een barrière vormen voor de patches-analyse.
   - Alleen **overstroombare cellen** worden in rekening gebracht -\> pluviale en fluviale t100-kaart
   - **Rivieren** vormen een barrière (dijken kunnen er bv. voor zorgen dat de ene oever kan overstromen en de andere niet)
-  - **Wegen** vormen een barrière (transportinfrastructuur wordt vaak gevrijwaarde van overstromingen)
-- Stap 2 - maak clusters van de cellen met natuurdoelen die niet mogen overstromen. Daarvoor gebruiken we de resultaten van de analyse van combineerbaarheid van natuurdoelen met overstromingen. Omdat de verrasterde percelen van de toekomstkaart niet overal afgestemd zijn op de ecosysteemkaart (bv. overlap met waterlopen), snijden we ze bij met de verrasterde waterlopen. Clusters kleiner dan **0 cellen (0.5 ha)** laten we buiten beschouwing.
-- Stap 3 - Voor elk cluster wordt de bijbehorende zone afgebakend die niet mag overstromen. Voorafgaand aan de distance-analyse wordt het barrièremasker geüpdatet met de cellen in de overstromingszone (t100) die hoger liggen (= minder diep) dan de natuurcellen.
+  - **Wegen** vormen een barrière (transportinfrastructuur wordt vaak gevrijwaard van overstromingen)
+- Stap 2 - maak clusters van de cellen met natuurdoelen die niet mogen overstromen. Daarvoor gebruiken we de resultaten van de analyse van combineerbaarheid van natuurdoelen met overstromingen. Omdat de verrasterde percelen van de toekomstkaart niet overal afgestemd zijn op de ecosysteemkaart (bv. overlap met waterlopen), snijden we ze bij met de verrasterde waterlopen. Clusters kleiner dan **10 cellen (0.1 ha)** laten we buiten beschouwing.
+- Stap 3 - Voor elk cluster wordt de bijbehorende zone afgebakend die niet mag overstromen. Voorafgaand aan de patches-analyse wordt het barrièremasker geüpdatet met de cellen in de overstromingszone (t100) die hoger liggen (= minder diep) dan de natuurcellen.
   - Als drempelwaarde nemen we de P10-waarde van de waterdiepte binnen een cluster.
+  - Het script loopt doorheen de afzonderlijke clusters. Bij veel clusters kan het daarom lang duren om het volledige gebied te analyseren. Om de rekentijd te beperken groeperen we clustercellen per 10 cm diepte (bv. clusters met een P10-diepte van 101 cm, 102 cm en 104 cm analyseren we samen in de groep van 100 cm diepte).
 
 ```{r zones_overstroming}
 
@@ -328,7 +336,7 @@ buffer_breedte <- sqrt(celgrootte^2 + celgrootte^2) / 2
 # Buffer de wegen
 wegen_gebufferd <- buffer(vect(wegen), width = buffer_breedte)
 # Verrasteren
-wegen_barriere <- rasterize(wegen_gebufferd, ecosysteem, touches = TRUE, field = NA, background = 0)
+wegen_barriere <- rasterize(wegen_gebufferd, ecosysteem_2022, touches = TRUE, field = NA, background = 0)
 
 mask <- ifel(is.na(mask) | is.na(wegen_barriere), NA, 0)
 
@@ -344,69 +352,121 @@ intolerant_riv <- intolerant + rivier_barriere
 # Clusters maken
 clusters <- patches(intolerant_riv, directions = 8, zeroAsNA = TRUE)
 
-# clusters < 50 cellen verwijderen
+# clusters < 10 cellen verwijderen
 f <- freq(clusters)
 clusters_clean <- clusters
-clusters_clean[clusters_clean %in% f$value[f$count < 50]] <- NA
+clusters_clean[clusters_clean %in% f$value[f$count < 10]] <- NA
 
-# Stap 3 - 
-# Bereken de minimale waterdiepte per cluster = hoogste punt van cluster
-# percentiel (p10 = 10% ondiepste cellen uitsluiten)
-cluster_stats <- zonal(waterdiepte, clusters_clean, fun = function(x) quantile(x, probs = 0.10, na.rm = TRUE))
 
-# Maak er een opzoekvector van: c("ID" = hoogte)
+cluster_stats <- zonal(
+  waterdiepte,
+  clusters_clean,
+  fun = function(x) quantile(x, probs = 0.10, na.rm = TRUE)
+)
+
 diepte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
 
-# Cluster ID's verzamelen
-cluster_ids <- as.character(names(diepte_lookup))
-cluster_ids <- cluster_ids[cluster_ids != "0"] # Verwijder eventuele achtergrondcellen
+cluster_info <- data.frame(
+  id = as.integer(names(diepte_lookup)),
+  diepte = as.numeric(diepte_lookup)
+)
 
-distance_resultaten <- list()
+cluster_info <- cluster_info[cluster_info$id != 0, ]
 
-# Loop door de clusters
-for (id in cluster_ids) {
-  cat("Verwerken van cluster:", id, "\n")
-  
-  # 1. Haal de vooraf berekende hoogte direct op
-  diepte <- diepte_lookup[id]
+# Groeperen clusters: ipv elke cluster apart te berekenen, groeperen we ze per 10 cm diepte
+cluster_info$klasse <- round(cluster_info$diepte / 10, 0) * 10
 
-  # 2. Startpunt definiëren
-  start_cluster <- clusters_clean == as.integer(id)
-  start_cluster <- ifel(start_cluster, 1, NA) 
-  
-  # waterdiepte < diepte -> barriere voor distance-analyse 
-  is_ondieper <- waterdiepte < diepte
-  barriere_diepte <- classify(is_ondieper, rcl = matrix(c(0, 0, 1, NA), ncol = 2, byrow = TRUE))
-  
-  # Voeg alle barrières samen met cover
-  geupdatet_masker <- mask(barriere_diepte, mask, maskvalues = NA, updatevalue = NA)  
-    input_grid <- cover(start_cluster, geupdatet_masker)
 
-  # Crop de input naar de zone die er werkelijk toe doet
-  # Dit voorkomt dat gridDist rekent op de lege 90% van je kaart
-  focal_area <- trim(input_grid) 
+# Initialiseren
+bereikbaar <- rast(clusters_clean)
+values(bereikbaar) <- NA
+
+buffer_afstand <- 1000
+
+klassen <- sort(
+  unique(cluster_info$klasse),
+  decreasing = TRUE
+)
+
+for(d in klassen){
+
+  cat("\n")
+  cat("Diepteklasse:", d, "\n")
+
+  ids <- cluster_info$id[cluster_info$klasse == d]
+
+  cat("Aantal clusters:", length(ids), "\n")
+
+  start_clusters <- ifel(clusters_clean %in% ids, 1, NA)
+
+  if(global(!is.na(start_clusters),
+            "sum",
+            na.rm=TRUE)[1,1] == 0)
+    next
   
-  # Voer de distance-analyse uit op de gecropte zone
-  dist_focal <- gridDist(focal_area, target = 1)
-  
-  # Breid het resultaat weer uit naar de originele kaartgrootte
-  dist_cluster <- extend(dist_focal, waterdiepte)
-  
-  # Sla het resultaat op
-  distance_resultaten[[id]] <- dist_cluster
+  # gezamenlijke bounding box
+  start_trim <- trim(start_clusters)
+
+  bb <- ext(start_trim)
+
+  bb_buffer <- ext(
+    xmin(bb) - buffer_afstand,
+    xmax(bb) + buffer_afstand,
+    ymin(bb) - buffer_afstand,
+    ymax(bb) + buffer_afstand
+  )
+
+  # lokale uitsnede
+
+  wd_local <- crop(waterdiepte, bb_buffer, snap = "out")
+
+  mask_local <- crop(mask, bb_buffer, snap = "out")
+
+  start_local <- crop(start_clusters, bb_buffer, snap = "out")
+
+  # toegankelijk raster
+
+  toegankelijk <- ifel(wd_local >= d, 1, NA)
+
+  toegankelijk <- mask(toegankelijk, mask_local)
+
+  # connected components
+
+  cc <- patches(toegankelijk, directions = 8, zeroAsNA = TRUE)
+
+  # componenten waarin minstens één cluster van deze klasse ligt
+
+  cc_start <- mask(cc, start_local)
+
+  comp_ids <- unique(values(cc_start))
+
+  comp_ids <- comp_ids[!is.na(comp_ids)]
+
+  if(length(comp_ids) == 0)
+    next
+
+  # selecteer componenten
+  selectie <- cc %in% comp_ids
+
+  selectie <- ifel(selectie, 1, NA)
+
+  # terug projecteren naar originele extent
+
+  selectie_full <- extend(selectie, bereikbaar)
+
+  bereikbaar <- cover(bereikbaar, selectie_full)
+
+  # Opkuisen tijdelijke bestanden
+  rm(start_clusters, start_trim, wd_local, mask_local, start_local, toegankelijk, cc, cc_start, selectie, selectie_full)
+
+  gc()
 }
 
-
-# Resultaten combineren
-raster_multilaag <- rast(distance_resultaten)
-
-eindkaart_min_afstand <- app(raster_multilaag, fun = "min", na.rm = TRUE)
-
-overstromingsvrije_clusters <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
+overstromingsvrije_clusters_bever <- bereikbaar
 
 mapview(waterdiepte, na.color = "transparent") + mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
-writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_bever.tif"), overwrite = TRUE)
+writeRaster(overstromingsvrije_clusters_bever, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_bever.tif"), overwrite = TRUE)
 
 ```
 
@@ -551,9 +611,7 @@ De aanpak is dezelfde als die voor overstromingen.
 
 # 1.1. Alleen overstroombare cellen (t100)
 
-waterdiepte <- crop(waterdiepte, ecosysteem_2022)
 overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
-
 
 # 1.2. Rivieren als barrière toevoegen
 vha_terra <- vect(vha)
@@ -571,8 +629,7 @@ buffer_breedte <- sqrt(celgrootte^2 + celgrootte^2) / 2
 # Buffer de wegen
 wegen_gebufferd <- buffer(vect(wegen), width = buffer_breedte)
 # Verrasteren
-wegen_barriere <- rasterize(wegen_gebufferd, ecosysteem, touches = TRUE, field = NA, background = 0)
-wegen_barriere <- crop(wegen_barriere, ecosysteem_2022)
+wegen_barriere <- rasterize(wegen_gebufferd, ecosysteem_2022, touches = TRUE, field = NA, background = 0)
 
 mask <- ifel(is.na(mask) | is.na(wegen_barriere), NA, 0)
 
@@ -587,65 +644,117 @@ intolerant_riv <- intolerant + rivier_barriere
 # Clusters maken
 clusters <- patches(intolerant_riv, directions = 8, zeroAsNA = TRUE)
 
-# clusters < 50 cellen verwijderen
+# clusters < 10 cellen verwijderen
 f <- freq(clusters)
 clusters_clean <- clusters
-clusters_clean[clusters_clean %in% f$value[f$count < 50]] <- NA
+clusters_clean[clusters_clean %in% f$value[f$count < 10]] <- NA
 
-# Stap 3 - 
-# Bereken de minimale waterdiepte per cluster = hoogste punt van cluster
-# percentiel (p10 = 10% ondiepste cellen uitsluiten)
-cluster_stats <- zonal(waterdiepte, clusters_clean, fun = function(x) quantile(x, probs = 0.10, na.rm = TRUE))
 
-# Maak er een opzoekvector van: c("ID" = hoogte)
+cluster_stats <- zonal(
+  waterdiepte,
+  clusters_clean,
+  fun = function(x) quantile(x, probs = 0.10, na.rm = TRUE)
+)
+
 diepte_lookup <- setNames(cluster_stats[[2]], cluster_stats[[1]])
 
-# Cluster ID's verzamelen
-cluster_ids <- as.character(names(diepte_lookup))
-cluster_ids <- cluster_ids[cluster_ids != "0"] # Verwijder eventuele achtergrondcellen
+cluster_info <- data.frame(
+  id = as.integer(names(diepte_lookup)),
+  diepte = as.numeric(diepte_lookup)
+)
 
-distance_resultaten <- list()
+cluster_info <- cluster_info[cluster_info$id != 0, ]
 
-# Loop door de clusters
-for (id in cluster_ids) {
-  cat("Verwerken van cluster:", id, "\n")
-  
-  # 1. Haal de vooraf berekende hoogte direct op
-  diepte <- diepte_lookup[id]
+# Drempelwaarde: ipv elke cluster apart te berekenen, groeperen we ze per 10 cm diepte
+cluster_info$klasse <- round(cluster_info$diepte / 10, 0) * 10
 
-  # 2. Startpunt definiëren
-  start_cluster <- clusters_clean == as.integer(id)
-  start_cluster <- ifel(start_cluster, 1, NA) 
-  
-  # waterdiepte < diepte -> barriere voor distance-analyse 
-  is_ondieper <- waterdiepte < diepte
-  barriere_diepte <- classify(is_ondieper, rcl = matrix(c(0, 0, 1, NA), ncol = 2, byrow = TRUE))
-  
-  # Voeg alle barrières samen met cover
-  geupdatet_masker <- mask(barriere_diepte, mask, maskvalues = NA, updatevalue = NA)  
-    input_grid <- cover(start_cluster, geupdatet_masker)
+# Initialiseren
+bereikbaar_nat <- rast(clusters_clean)
+values(bereikbaar_nat) <- NA
 
-  # Crop de input naar de zone die er werkelijk toe doet
-  # Dit voorkomt dat gridDist rekent op de lege 90% van je kaart
-  focal_area <- trim(input_grid) 
+
+buffer_afstand <- 1000
+
+klassen <- sort(
+  unique(cluster_info$klasse),
+  decreasing = TRUE
+)
+
+for(d in klassen){
+
+  cat("\n")
+  cat("Diepteklasse:", d, "\n")
+
+  ids <- cluster_info$id[cluster_info$klasse == d]
+
+  cat("Aantal clusters:", length(ids), "\n")
+
+  start_clusters <- ifel(clusters_clean %in% ids, 1, NA)
+
+  if(global(!is.na(start_clusters),
+            "sum",
+            na.rm=TRUE)[1,1] == 0)
+    next
   
-  # Voer de distance-analyse uit op de gecropte zone
-  dist_focal <- gridDist(focal_area, target = 1)
-  
-  # Breid het resultaat weer uit naar de originele kaartgrootte
-  dist_cluster <- extend(dist_focal, waterdiepte)
-  
-  # Sla het resultaat op
-  distance_resultaten[[id]] <- dist_cluster
+  # gezamenlijke bounding box
+  start_trim <- trim(start_clusters)
+
+  bb <- ext(start_trim)
+
+  bb_buffer <- ext(
+    xmin(bb) - buffer_afstand,
+    xmax(bb) + buffer_afstand,
+    ymin(bb) - buffer_afstand,
+    ymax(bb) + buffer_afstand
+  )
+
+  # lokale uitsnede
+
+  wd_local <- crop(waterdiepte, bb_buffer, snap = "out")
+
+  mask_local <- crop(mask, bb_buffer, snap = "out")
+
+  start_local <- crop(start_clusters, bb_buffer, snap = "out")
+
+  # toegankelijk raster
+
+  toegankelijk <- ifel(wd_local >= d, 1, NA)
+
+  toegankelijk <- mask(toegankelijk, mask_local)
+
+  # connected components
+
+  cc <- patches(toegankelijk, directions = 8, zeroAsNA = TRUE)
+
+  # componenten waarin minstens één cluster van deze klasse ligt
+
+  cc_start <- mask(cc, start_local)
+
+  comp_ids <- unique(values(cc_start))
+
+  comp_ids <- comp_ids[!is.na(comp_ids)]
+
+  if(length(comp_ids) == 0)
+    next
+
+  # selecteer componenten
+  selectie <- cc %in% comp_ids
+
+  selectie <- ifel(selectie, 1, NA)
+
+  # terug projecteren naar originele extent
+
+  selectie_full <- extend(selectie, bereikbaar_nat)
+
+  bereikbaar_nat <- cover(bereikbaar_nat, selectie_full)
+
+  # Opkuisen tijdelijke bestanden
+  rm(start_clusters, start_trim, wd_local, mask_local, start_local, toegankelijk, cc, cc_start, selectie, selectie_full)
+
+  gc()
 }
 
-
-# Resultaten combineren
-raster_multilaag <- rast(distance_resultaten)
-
-eindkaart_min_afstand <- app(raster_multilaag, fun = "min", na.rm = TRUE)
-
-vernattingsvrije_clusters <- ifel(!is.na(eindkaart_min_afstand), 1, NA)
+vernattingsvrije_clusters <- bereikbaar_nat
 
 mapview(vernattingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
@@ -681,7 +790,7 @@ percelen_final <- merge(percelen, percelen_scores_glg, by.x = "row.names", by.y 
 target_res <- 10
 r_base <- rast(ext(ecosysteem_2022), resolution = target_res, crs = crs(ecosysteem_2022))
 
-# Rasteriseer de tolerantiescores naar 10x10m
+# Rasteriseer het gewenste grondwaterregime naar 10x10m
 r_maxglg <- rasterize(percelen_final, r_base, field = "max_glg")
 
 ```
@@ -690,7 +799,7 @@ r_maxglg <- rasterize(percelen_final, r_base, field = "max_glg")
 
 De invloedssfeer van een peilverlaging in veengebied is o.a. afhankelijk van de diepte van de peilverlaging, de veenkwaliteit, de doorlatendheid van de ondergrond en de aanwezigheid van kwel. In een veengebied met een doorlatende ondergrond en in afwezigheid van kwel kan een peilverlaging ver doordringen in het veenpakket (\> 100 m). In gebieden waar permante kwel zorgt voor een aanvoer van grondwater naar het veenpakket, is de invloed van lokale ontwatering kleiner (\~10 - 20 m).
 
-Als ruwe benadering schatten we de invloedssfeer in op basis van een logaritmisch verband tussen de peilverlaging en een maximale afstand (100 m).
+We schatten de afname van de grondwaterverlaging met de afstand tot het perceel in met een exponentieel vervalmodel (gebaseerd na de stationaire oplossing voor grondwaterstroming met een constante weerstand).
 
 ```{r veen_verdrogingssfeer}
 
@@ -731,26 +840,61 @@ stappen <- seq(0.25, 1.2, by = 0.05)
 
 for (h0 in stappen) {
   # Selecteer cellen die binnen de huidige schijf van de verlaging vallen
-  bron_cellen <- (glg_verschil > (h0 - 0.025)) & (glg_verschil <= (h0 + 0.025))
-  
-  # Controleer of er daadwerkelijk percelen zijn met deze waarde
-  if (global(bron_cellen, "max", na.rm = TRUE)[1, 1] == 1) {
-    
+  # bron_cellen <- (glg_verschil > (h0 - 0.025)) & (glg_verschil <= (h0 + 0.025))
+  bron_cellen <- ifel(glg_verschil == h0, 1, NA)
+
     # Bereken de afstand vanaf deze subset van cellen
-    dist_raster <- distance(bron_cellen, maxdist = 2*lambda)
+  dist_raster <- distance(bron_cellen, maxdist = 2*lambda)
     
     # Bereken de maximale invloedsafstand met peildaling max. 0.2 m
-    max_afstand <- lambda * log(h0 / 0.2)
+  max_afstand <- lambda * log(h0 / 0.2)
     
     # Voeg cellen die binnen deze straal liggen toe
-    invloedszone[dist_raster <= max_afstand] <- 1
-  }
+  invloedszone[dist_raster <= max_afstand] <- 1
+
 }
 
 # 4. De bronpercelen toevoegen
 invloedszone[!is.na(glg_verschil) & glg_verschil >= 0.2] <- 1
 
-writeRaster(invloedszone, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_veenherstel.tif"), overwrite = TRUE)
+# Beperken tot veenbodems
+invloedszone_veen <- ifel(!is.na(resample(r_veen, invloedszone, method = "near")) & invloedszone == 1, 1, NA)
 
-# mapview(invloedszone, col.regions = "lightblue", na.color = "transparent") + mapview(r_veen, col.regions = "brown3", na.color = "transparent")
+
+writeRaster(invloedszone_veen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_veenherstel.tif"), overwrite = TRUE)
+
+
+mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") + mapview(r_veen, zcol = "brown", na.color = "transparent", alpha.regions = 0.5) + mapview(invloedszone_veen, col.regions = "lightblue", na.color = "transparent")
+
+```
+
+Kaarten
+
+```{r kaarten}
+
+percelen_gebied <- st_intersection(percelen, gebied)
+r_percelen <- rasterize(percelen_gebied, ecosysteem_2022)
+
+
+mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
+  mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
+  mapview(overstromingsvrije_clusters, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5) +
+    mapview(combineerbaarheid_t100, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
+
+mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
+  mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
+  mapview(vernattingsvrije_clusters, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5) +
+    mapview(combineerbaar_vernatting_t100, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
+
+mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
+  mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
+  mapview(overstromingsvrije_clusters_bever, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5) +
+    mapview(combineerbaar_bever_t100, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
+
+mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
+  mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
+  mapview(r_veen, col.regions = "brown", na.color = "transparent", alpha.regions = 0.5) +
+    mapview(invloedszone_veen, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5)
+
+
 ```
