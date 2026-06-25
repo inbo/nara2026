@@ -45,7 +45,7 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 De volgende datasets worden gebruikt:
 
 - ecosysteem.tif -\> wordt standaard geladen voor afstemming crs en extent kaarten
-- rivierb_buf.shp -\> polygoon van het gebied (met buffer)
+- gebied_buf.shp -\> polygoon van het gebied (met buffer)
 - ecosysteem_2022.tif -\> ecosysteemkaart 2022 van het gebied (FLEA)
 - tabel_hcov.xlsx -\> tabel met eigenschappen van de hcov-eenheden (k, textuur, aquifer/aquitard)
 
@@ -134,7 +134,7 @@ working_dir <- "C:/R/NARA2026/basiseenheden"
 aquifer_info <- tabel_hcov %>%
   mutate(is_aquifer = ifelse(aqui == "aquifer", 1, 0))
 
-clip_poly <- rivierb_buf
+clip_poly <- gebied_buf
 
 # 2. RASTERS LADEN EN STACKEN
 # We laden Top (t), Dikte (d) en wijzen K en Type toe
@@ -177,7 +177,8 @@ analyze_stack <- function(v) {
   
   # Sorteer lagen van boven naar beneden op basis van de Top-waarde
   order_idx <- order(tops, decreasing = TRUE)
-  
+ 
+  # Versie 1: oorspronkelijke functie 
   total_D  <- 0
   total_kD <- 0
   
@@ -193,6 +194,48 @@ analyze_stack <- function(v) {
   avg_k <- if(total_D_cor > 0) total_kD / total_D_cor else NA
   return(c(total_D_cor, avg_k))
 }
+# # Versie 2: aangepaste functie die rekening houdt met aquitard bovenaan en max-diepte van 120 m
+# # Filter de gesorteerde data (verwijder NA's)
+# sorted_diks  <- diks[order_idx]
+# sorted_ks    <- ks[order_idx]
+# sorted_types <- types[order_idx]
+#
+# total_D  <- 0
+# total_kD <- 0
+# max_depth <- 500  # De grens van 500 meter
+#
+# # STAP 1: Controleer of er überhaupt een aquifer aanwezig is aan de top
+# if (!is.na(sorted_types[1]) && sorted_types[1] == 0) {
+# # Voorwaarde: dikte is 0 -> neem Ksat van de eerste aquitard
+# total_D <- 0
+# avg_k   <- sorted_ks[1]
+# } else {
+# # Voorwaarde: aquifer aanwezig -> bereken gewogen gemiddelde
+# for (i in seq_along(sorted_types)) {
+#   # Stop als we een aquitard tegenkomen of de data op is
+#   if (is.na(sorted_types[i]) || sorted_types[i] == 0 || is.na(sorted_ks[i]) || is.na(sorted_diks[i])) break
+#
+#   current_d <- sorted_diks[i]
+#   current_k <- sorted_ks[i]
+#
+#   # Check of we met de huidige laag over de 20m grens gaan
+#   if (!is.na(total_D) && !is.na(current_d) && (total_D + current_d) > max_depth) {
+#     remaining_d <- max_depth - total_D
+#     total_kD <- total_kD + (remaining_d * current_k)
+#     total_D  <- max_depth
+#     break # We hebben de 20m bereikt, stop de lus
+#   } else {
+#     total_kD <- total_kD + (current_d * current_k)
+#     total_D  <- total_D + current_d
+#   }
+# }
+#
+#   # Bereken het gemiddelde (vermijd delen door 0)
+#   avg_k <- if (!is.na(total_D) && (total_D > 0)) total_kD / total_D else NA
+#   }
+#
+#   return(c(total_D, avg_k))
+#   }
 
 result_ras <- app(full_stack, analyze_stack)
 names(result_ras) <- c("totale_dikte_aquifer", "gemiddelde_ksat")
@@ -202,7 +245,7 @@ if (st_crs(clip_poly) != st_crs(result_ras)) {
   clip_poly <- st_transform(clip_poly, st_crs(result_ras))
   message("CRS aangepast naar Lambert 72 (EPSG:31370)")
 }
-result_ras <- mask(result_ras, clip_poly)
+result_ras <- mask(result_ras, clip_poly) # dit stukje kan je weglaten, zorgt voor NA-waarden aan de randen
 
 mapview(result_ras$totale_dikte_aquifer)
 

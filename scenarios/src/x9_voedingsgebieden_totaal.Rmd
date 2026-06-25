@@ -1,0 +1,282 @@
+---
+title: "x8_voedingsgebieden_totaal"
+author: "NARA"
+date: "2026-06-08"
+output: html_document
+---
+```{r packages, include = FALSE}
+library(terra)
+library(mapview)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(sf)
+library(purrr)
+library(readr)
+```
+# Inleiding
+
+# 1. Basisbestanden laden
+
+```{r data laden, echo = FALSE}
+studiegebied <- "dijle"
+
+dir_data <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/data")
+dir_result <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/resultaten")
+dir_temp <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/temp")
+
+f_voedingsgebied <- file.path(dir_result, "voedingsgebied_whitebox.tif")
+f_natuur_vect <- file.path(dir_data, str_c(studiegebied,"_polygons.shp"))
+f_ecosysteem  <- file.path(dir_data, "ecosysteem.tif") #FLEA-ecosysteemkaart voor scenariogebruik (referentieraster)
+f_watersysteem <- file.path(dir_data, "watersysteem.tif")
+
+ecosysteem <- rast(f_ecosysteem)
+watersysteem <- rast(f_watersysteem)
+voedingsgebied <- rast(f_voedingsgebied)
+ref_raster <- rast(res = 10, ext = ext(ecosysteem), crs = crs(ecosysteem))
+natuur_vect <- vect(f_natuur_vect)
+watersysteem_r <- resample(watersysteem, ref_raster, method = "near")
+voedingsgebied_r <- resample(voedingsgebied, ref_raster, method = "near")
+```
+
+# 2. Resultaten modpath-analyse laden 
+
+```{r resultaten modpath laden, echo = FALSE}
+# 1. Pathlines
+f_path_blks <- file.path(dir_data, str_c("PRT_pathlines_BLKS_", studiegebied,".shp"))
+f_path_cks <- file.path(dir_data, str_c("PRT_pathlines_CKS_", studiegebied,".shp"))
+f_path_cvs <- file.path(dir_data, str_c("PRT_pathlines_CVS_", studiegebied,".shp"))
+f_path_ms <- file.path(dir_data, str_c("PRT_pathlines_MS_", studiegebied,".shp"))
+
+paden_lijnen <- c(
+  blks = f_path_blks, 
+  cks  = f_path_cks,
+  cvs  = f_path_cvs,
+  ms   = f_path_ms
+)
+
+  # Filter alleen de paden die bestaan
+  bestaande_paden <- paden_lijnen[file.exists(paden_lijnen)]
+
+  # Controle: stop het script als er geen enkel bestand gevonden is
+  if (length(bestaande_paden) == 0) {
+    stop("Fout: geen van de opgegeven bestanden bestaat!")
+  }
+  
+  # lees de bestaande bestanden in met een loop/functie
+  all_lines <- names(bestaande_paden) %>% 
+    map_dfr(function(type_naam) {
+      pad <- bestaande_paden[type_naam]
+      
+      st_read(pad, quiet = TRUE) %>%
+        mutate(
+          id_nummer = as.numeric(str_extract(basename(path), "\\d+")),
+          type = type_naam
+        ) %>%
+        dplyr::select(irpt, id_nummer, type)
+    })
+
+# 2. Endpoints
+paden_punten <- c(
+  blks = file.path(dir_data, str_c("combine_", studiegebied, "_BLKS_endpoints.csv")),
+  cks  = file.path(dir_data, str_c("combine_", studiegebied, "_CKS_endpoints.csv")),
+  cvs  = file.path(dir_data, str_c("combine_", studiegebied, "_CVS_endpoints.csv")),
+  ms   = file.path(dir_data, str_c("combine_", studiegebied, "_MS_endpoints.csv"))
+)
+
+# 3. Gridcellen grondwatermodel
+paden_grid <- c(
+  blks = file.path(dir_data, "grid_BLKS.shp"),
+  cks  = file.path(dir_data, "grid_CKS.shp"),
+  cvs  = file.path(dir_data, "grid_CVS.shp"),
+  ms   = file.path(dir_data, "grid_MS.shp")
+)
+
+```
+
+# 3. Pathlines verwerken tot omhullende polygoon
+
+```{r enveloppes maken, echo = FALSE, warning = FALSE}
+# Per id_nummer een enveloppe maken
+enveloppes <- all_lines %>%
+  group_by(id_nummer) %>%
+  st_buffer(dist = 100) %>% 
+  summarise(do_union = TRUE) %>% 
+  st_make_valid() %>%
+  
+  st_buffer(dist = -200) %>% 
+  st_buffer(dist = 100) %>%
+  st_make_valid() %>%
+  
+  ungroup() %>%                  
+  st_collection_extract("POLYGON") %>%  # eerst groepen verwijderen om multipolygon om te zetten in losse polygonen       
+  mutate(area = as.numeric(st_area(st_geometry(.)))) %>%
+  filter(area > 100000) %>% # alles kleiner dan 10ha weg
+  group_by(id_nummer) %>% 
+  summarise(do_union = TRUE) %>% # De overgebleven grote stukken weer samenvoegen per id_nummer
+  ungroup()
+
+# Sorteren zodat het maximum id_nummer wint bij overlap (cf. x7_voedingsgebieden_whitebox.Rmd)
+polygonen_voor_raster <- enveloppes %>%
+  arrange(id_nummer)
+polygonen_voor_raster <- vect(polygonen_voor_raster)
+
+# Verrasteren
+enveloppes_tot <- rasterize(
+  x = polygonen_voor_raster, 
+  y = ref_raster,
+  field = "id_nummer",
+  fun = "max")
+
+# Controleplot en wegschrijven
+plot(enveloppes_tot) 
+plot(natuur_vect, add = TRUE, col = "green")  
+mapview(enveloppes, border = "black", lwd = 4) + 
+  mapview(all_lines, zcol = "id_nummer")
+writeVector(polygonen_voor_raster, file.path(dir_temp, "enveloppes.shp"), overwrite = TRUE)
+writeRaster(enveloppes_tot, file.path(dir_temp, "enveloppes.tif"), overwrite = TRUE)
+
+```
+# 4. Endpoints omzetten naar "realistische" gridcel-polygonen
+
+## 4.1 Endpoints combineren met gridcellen
+
+```{r endpoint grid1, echo = FALSE, warning = FALSE}
+systemen <- c("blks", "cks", "cvs", "ms")
+
+# Per grondwatersysteem: verwerk de data als zowel punten als gridcellen bestaan
+gridcellen_per_id <- systemen %>% 
+  map_dfr(function(t) {
+    
+    p_pad <- paden_punten[t]
+    g_pad <- paden_grid[t]
+    
+    # Controleren of beide bestanden bestaan
+    if (file.exists(p_pad) && file.exists(g_pad)) {
+      message(str_c("Verwerken van type: ", t))
+      
+      # A. Punten inlezen, ID bepalen en omzetten naar sf object (Lambert 72)
+      punten_sf <- read_csv(p_pad, show_col_types = FALSE) %>%
+        mutate(id_nummer = as.numeric(str_extract(File, "(?<=_)\\d+(?=\\.)"))) %>%
+        # Alleen relevante kolommen behouden vóór de ruimtelijke stap
+        dplyr::select(x, y, id_nummer) %>% 
+        st_as_sf(coords = c("x", "y"), crs = "EPSG:31370")
+      
+      # B. Gridcellen inlezen (en zorgen dat het CRS matcht)
+      grid_sf <- st_read(g_pad, quiet = TRUE) %>% 
+        st_transform("EPSG:31370")
+      
+      # C. Ruimtelijke join: 'id_nummer' van de punten toekennen aan de gridcel waar ze in vallen
+      grid_met_id <- grid_sf %>%
+        st_join(punten_sf, join = st_intersects) %>%
+        filter(!is.na(id_nummer)) %>%
+        mutate(type = t) %>%
+        dplyr::select(id_nummer, type)
+      
+      return(grid_met_id)
+      
+    } else {
+      message(str_c("Dit bestand ontbreekt: ", t))
+      return(NULL) 
+    }
+  })
+
+# Gridcellen samenvoegen per id_nummer om dubbele/overlappende cellen te vermijden.
+grid_fin <- gridcellen_per_id %>%
+  group_by(id_nummer) %>%
+  summarise(do_union = TRUE) %>%
+  st_make_valid() %>%
+  ungroup()
+
+# Sorteren voor de verrastering (hoogste ID wint bij overlap, net als bij de lijnen)
+grid_voor_raster <- grid_fin %>%
+  arrange(id_nummer)
+grid_voor_raster <- vect(grid_voor_raster) #omzetten naar terra-object voor verdere verwerking
+
+# Verrasteren
+grid_raster <- rasterize(
+    x = grid_voor_raster, 
+    y = ref_raster,
+    field = "id_nummer",
+    fun = "max" # Hoogste id_nummer wint nog steeds bij eventuele overlap
+  )
+
+# Controleplot en wegschrijven
+mapview(grid_voor_raster) + mapview(enveloppes, border = "black", lwd = 4) + mapview(all_lines, zcol = "id_nummer")
+plot(grid_raster)
+
+writeVector(grid_voor_raster, file.path(dir_temp, "grid_endpoints.shp"), overwrite = TRUE)
+writeRaster(grid_raster, file.path(dir_temp, "grid_endpoints.tif"), overwrite = TRUE)
+
+```
+
+## 4.2 Gridcellen bijsnijden op basis van VHA-polygonen (of infiltratiezones?)
+
+Voorlopig weggelaten bij gebrek aan goede manier om te croppen: langs welke kant snijden we de grid-polygonen af met de VHA-zones?
+
+```{r endpoint grid2, echo = FALSE, warning = FALSE}
+# Zou ik voorlopig weglaten bij gebrek aan goede manier om te croppen + langs welke kant afsnijden?
+# # Laad de VHA-zones in als SpatVector
+# f_vha <- file.path(dir_data, "vha_zone.shp")
+# vha_vect <- vect(f_vha)
+# vha_vect <- project(vha_vect, crs(grid_voor_raster))
+# 
+# # Gridcellen croppen: alles buiten de VHA-polygonen wordt weggesneden
+# grid_crop <- terra::intersect(grid_voor_raster, vha_vect)
+#   
+# # Schoon de tabel op zodat we alleen de id_nummer kolom overhouden
+# grid_crop <- grid_crop[, "id_nummer"]
+#   
+# #Verrasteren
+# grid_raster_final <- rasterize(
+#     x = grid_crop, 
+#     y = ref_raster,
+#     field = "id_nummer",
+#     fun = "max" # Hoogste id_nummer wint nog steeds bij eventuele overlap
+#   )
+#   
+# # Controle-plot
+# mapview(grid_raster_final)
+
+```
+# 5. Basisbestanden combineren tot totale voedingsgebieden
+```{r alles combinereren, echo = FALSE, warning = FALSE}
+voedingsgebied_combi <- max(enveloppes_tot, grid_raster, voedingsgebied_r, na.rm = TRUE)
+
+voedingsgebied_combi_zonder_grid <- max(enveloppes_tot, voedingsgebied_r, na.rm = TRUE)
+
+# Controleplot
+mapview(voedingsgebied_combi)
+mapview(voedingsgebied_combi_zonder_grid)
+```
+
+# 6. "Echte" voedingsgebieden selecteren
+
+Het resultaat van de vorige stap combineren we met een masker van infiltratie en overgangsgebieden.
+
+```{r mask infiltratie, echo = FALSE, warning = FALSE}
+# Masker maken met infiltratie- en overgangsgebieden
+infiltratiewaarden <- c(300, 200, 100, 10, 0)
+infiltratie_mask <- ifel(watersysteem_r %in% infiltratiewaarden, 1, 0) %>% 
+  project(ref_raster)
+
+
+# Masker toepassen
+voedingsgebied_echt <- ifel(infiltratie_mask == 1, voedingsgebied_combi, NA)
+
+voedingsgebied_echt_zonder_grid <- ifel(infiltratie_mask == 1, voedingsgebied_combi_zonder_grid, NA)
+
+# Controleplot en wegschrijven als raster
+mapview(voedingsgebied_echt) +
+  mapview(natuur_vect, zcol = "cluster_id", border = "black", lwd = 4)
+
+writeRaster(voedingsgebied_echt, file.path(dir_result, "voedingsgebied_combi.tif"), overwrite = TRUE)
+writeRaster(voedingsgebied_echt_zonder_grid, file.path(dir_result, "voedingsgebied_combi_zonder_grid.tif"), overwrite = TRUE)
+
+# Wegschrijven als vector
+voedingsgebied_echt <- rast(file.path(dir_result, "voedingsgebied_combi.tif"))
+voedingsgebied_vect <- as.polygons(voedingsgebied_echt, aggregate = TRUE)
+writeVector(voedingsgebied_vect, file.path(dir_result, "voedingsgebied_combi.shp"), overwrite = TRUE)
+mapview(voedingsgebied_vect)
+```
+

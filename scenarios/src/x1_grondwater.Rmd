@@ -12,12 +12,10 @@ library(sf)
 library(terra)
 library(dplyr)
 library(tidyverse)
-library(beepr)
 library(mapview)
+library(gstat)
 
 ```
-
-Het script berekent de grondwaterstand op basis van de head-waarden van de verschillende grondwatersystemen.
 
 ## 1. Data inladen en klaarmaken
 
@@ -29,15 +27,19 @@ Je hebt ook een **rasterbestand** nodig dat gebruikt wordt om de resolutie van h
 
 ```{r data, message=FALSE, warning=FALSE }
 
-path <- "C:/R/NARA2026/scenarios/data/grondwater"
+path <- "C:/R/nara2026/scenarios/data/grondwater"
+studiegebied <- "herk_mombeek"
 
 files <- c(str_c(path,"/", "head_BLKS.shp"), str_c(path,"/", "head_CKS.shp"), str_c(path,"/", "head_CVS.shp"), str_c(path,"/", "head_MS.shp"))
 
 # Polygoon van het gebied om de shapes van de grondwatersystemen bij te knippen
-gebied_path <- "C:/R/NARA2026/scenarios/rivierbeek/data/gebied.shp"
+gebied_path <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/data/gebied_buf.shp")
 
-# Raster om het finale raster op te snappen en dezelfde resolutie te gebruiken. Ik gebruik het raster van de ecosysteemkaart van FLEA
-raster_path <- "C:/R/NARA2026/scenarios/rivierbeek/data/ecosysteem.tif"
+# Raster om het finale raster op te snappen en dezelfde resolutie te gebruiken. 
+raster_path <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/data/ecosysteem.tif")
+
+# resultaatpad 
+result_path <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/resultaten")
 
 # Laad de template en het studiegebied
 template <- rast(raster_path)
@@ -47,7 +49,7 @@ gebied <- st_transform(gebied, crs(template))
 
 ```
 
-## 2. Kaarten verwerken
+## 2. Kaart grondwaterstand maken
 
 ### 2.1. Shapes bijknippen en grondwaterstand van hoogste niet-lege laag nemen
 
@@ -83,11 +85,11 @@ get_top_head_clipped <- function(shp_path, filter_geom) {
 
 ```
 
-### 2.1. Verrasteren en overlappende grondwatersystemen
+### 2.2. Verrasteren en overlappende grondwatersystemen
 
 De polygonen worden verrasterd en gesnapt op het ecosysteemraster. Op plaatsen waar twee grondwatersystemen overlappen, wordt de gemiddelde grondwaterstand genomen (`final_result`).
 
-Het script bevat een laatste stap om het resultaat te smoothen met een Gauss-filter. Omdat de originele polygonen van de shapefiles een veelvoud van vierkanten van 250m x 250m zijn, gebruik ik een venster van 25 x 25 cellen. Je kan de smooth-stap ook overslaan en het ruwe resultaat in het infiltratiescript verder bewerken (ilter + depressies vullen).
+Het script bevat een laatste stap om het resultaat te smoothen met een Gauss-filter. Omdat de originele polygonen van de shapefiles een veelvoud van vierkanten van 250m x 250m zijn, gebruik ik een venster van 25 x 25 cellen. Je kan de smooth-stap ook overslaan en het ruwe resultaat in het infiltratiescript verder bewerken (filter + depressies vullen).
 
 ```{r verrasteren}
 
@@ -98,26 +100,25 @@ for (f in files) {
   shp_subset <- get_top_head_clipped(f, gebied)
   
   if (!is.null(shp_subset)) {
-    # Het template wordt gebruikt om het finale raster te snappen
+    # De template wordt gebruikt om het finale raster te snappen
     # We gebruiken fun = max voor het geval een polygoon kleiner is dan een pixel
     r <- rasterize(shp_subset, template, field = "top_head", fun = max)
     raster_list[[f]] <- r
   }
 }
 
-# Combineren van de verschillende systemen
 if (length(raster_list) > 0) {
   all_rasters <- rast(raster_list)
   
-  # Neem de hoogste grondwaterstand bij overlap
+  # Neem de gemiddelde grondwaterstand bij overlap
   final_gw <- app(all_rasters, fun = mean, na.rm = TRUE)
   
   # Maskeren en bijsnijden tot het gebied
   # 'mask' zet waarden buiten het gebied op NA
   # 'crop' snijdt de witte randen (extensie) weg tot de bounding box van 'gebied'
   final_result <- final_gw %>% 
-    mask(gebied) %>% 
-    crop(gebied)
+    mask(gebied) #%>% 
+   # crop(gebied)
   
   # Smoothen van het resultaat (optioneel)
   # De originele polygonen van de shapefiles zijn een veelvoud van vierkanten van 250m x 250m
@@ -138,18 +139,193 @@ if (length(raster_list) > 0) {
   final_smoothed_masked <- mask(final_smoothed, gebied)
   
   cat("Succes!")
-  beep(3)
 } else {
   stop("Geen data gevonden in de opgegeven shapefiles.")
 }
 ```
 
-## 3. Kaart maken en wegschrijven
+```{r interpol}
+# Verrasteren - versie met centroïdes en interpolatie daarvan 
+# ingewikkelde versie, want simpele gaf foutmeldingen
+raster_list <- list()
+
+## 1. Maak van de template een grid van punten voor de voorspelling
+grid_points <- as.points(template, values = FALSE)
+grid_sf <- st_as_sf(grid_points)
+
+for (f in files) {
+  shp_subset <- get_top_head_clipped(f, gebied)
+  
+  if (!is.null(shp_subset) && nrow(shp_subset) > 0) {
+    ## 2. Centroids maken en omzetten naar het Spatial formaat voor gstat
+    sf_subset <- st_as_sf(shp_subset)
+    file_boundary <- st_union(sf_subset)
+    centroids <- st_centroid(sf_subset)
+    
+    ## 3. Conversie naar SpatialPointsDataFrame om de foutmelding op te lossen
+    sp_centroids <- as(centroids, "Spatial")
+    sp_grid <- as(grid_sf, "Spatial")
+    
+    ## 4. Interpolatie direct uitvoeren met gstat::idw -> omzeilt de terra::interpolate functie
+    res_idw <- gstat::idw(top_head ~ 1, 
+                          locations = sp_centroids, 
+                          newdata = sp_grid, 
+                          nmax = 8, 
+                          debug.level = 0)
+    
+    ## 5. Het resultaat (punten) weer terugzetten naar een raster
+    r_interp <- rasterize(vect(res_idw), template, field = "var1.pred")
+   
+    ## 6. Gebruik de 'file_boundary' om het raster bij te snijden tot waar er data was
+    r_clipped <- mask(r_interp, vect(file_boundary))
+    
+    ## 7. Opslaan in de lijst
+    raster_list[[f]] <- r_clipped
+  }
+}
+# # Simpele versie met foutmeldingen (mss bruikbaar na R-update)
+# raster_list <- list()
+# 
+# for (f in files) {
+#   shp_subset <- get_top_head_clipped(f, gebied)
+#   
+#   if (!is.null(shp_subset) && nrow(shp_subset) > 0) {
+#       sf_subset <- st_as_sf(shp_subset)
+#       file_boundary <- st_union(sf_subset)
+#       centroids <- st_centroid(sf_subset)
+#     
+#       idw_mod <- gstat(formula = top_head ~ 1, data = centroids, nmax = 12)
+#       r_interp <- interpolate(template, idw_mod, debug.level = 0)
+#     
+#     
+#       r_clipped <- mask(r_interp, vect(file_boundary))
+#       raster_list[[f]] <- r_clipped
+#   }
+# }
+
+if (length(raster_list) > 0) {
+  all_rasters <- rast(raster_list)
+  
+  # Neem de gemiddelde grondwaterstand bij overlap
+  final_gw <- app(all_rasters, fun = mean, na.rm = TRUE)
+  
+  # Maskeren en bijsnijden tot het gebied
+  # 'mask' zet waarden buiten het gebied op NA
+  # 'crop' snijdt de witte randen (extensie) weg tot de bounding box van 'gebied'
+  final_result_interpol <- final_gw %>% 
+    mask(gebied) #%>% 
+    #crop(gebied)
+}
+```
+
+### 2.3 Kaart maken en wegschrijven
 
 ```{r kaart}
 
 mapview(final_smoothed_masked, col.region = rainbow, na.color = "transparent")
+mapview(final_result, col.region = rainbow, na.color = "transparent")
+mapview(final_result_interpol, col.region = rainbow, na.color = "transparent")
 
-# 7. Opslaan
-writeRaster(final_smoothed_masked, "grondwater_gesnapt_smooth.tif", overwrite = TRUE)
+# Opslaan
+writeRaster(final_smoothed_masked, file.path(result_path,"grondwater_gesnapt_smooth.tif"), overwrite = TRUE)
+writeRaster(final_result, file.path(result_path,"grondwater_gesnapt.tif"), overwrite = TRUE)
+writeRaster(final_result_interpol, file.path(result_path,"grondwater_interpol.tif"), overwrite = TRUE)
+```
+
+## 4. Kwelkaart maken
+
+Voor de voorgaande kaart selecteerden we enkel de h-waarden uit de bovenste laag. Nu hebben we de bovenste laag nodig, en de laag precies daaronder: waar de onderste laag hogere h-waarden vertoont dan de bovenste, is er een indicatie voor kwel (tenzij er nog een ondoorlatende laag tussenzit, voorlopig hier niet in rekening gebracht).
+
+### 4.1 Selectie kwellocaties
+Selecteer de bovenste 2 lagen, controleer voorwaarde stijghoogte laag 1 < stijghoogte laag 2 en voeg het resultaat van de controle (1 als waar, NA als onwaar) toe als kolom aan de attributentabel.
+
+```{r functie kwelkaart}
+
+get_seepage_map <- function(shp_path, filter_geom) {
+  cat("Verwerken van:", shp_path, "\n")
+  
+  # 1. Inlezen en transformeren
+  shp <- st_read(shp_path)
+  shp <- st_transform(shp, st_crs(filter_geom))
+  
+  # 2. Ruimtelijke filter om enkel relevante shapes voor het studiegebied te selecteren
+  shp_clipped <- shp[st_filter(shp, filter_geom), ]
+  
+  if (nrow(shp_clipped) == 0) return(NULL)
+  
+  # 3. Kolommen sorteren (LayIdx_1, LayIdx_2, etc.)
+  lay_cols <- grep("LayIdx_", names(shp_clipped), value = TRUE)
+  lay_cols <- lay_cols[order(as.numeric(gsub("LayIdx_", "", lay_cols)))]
+  
+  # 4. Extractie van de eerste twee geldige waarden per rij (kolommen tijdelijk omgezet naar long-versie)
+  temp_data <- shp_clipped %>%
+    st_drop_geometry() %>%
+    mutate(row_id = row_number()) %>%
+    select(row_id, all_of(lay_cols)) %>%
+    pivot_longer(cols = all_of(lay_cols), names_to = "layer", values_to = "head_val") %>%
+    filter(!is.na(head_val)) %>% # Verwijder lege waarden
+    group_by(row_id) %>%
+    slice(1:2) %>%              # Neem de bovenste twee lagen met data
+    mutate(rank = row_number()) %>%
+    ungroup() %>%
+    pivot_wider(id_cols = row_id, names_from = rank, names_prefix = "head_", values_from = head_val)
+
+  # 5. Voeg waarden terug toe aan de shapefile en bereken kwel
+  # head_1 is de bovenste laag, head_2 is de laag eronder
+  shp_clipped <- shp_clipped %>%
+    mutate(row_id = row_number()) %>%
+    left_join(temp_data, by = "row_id") %>%
+    mutate(
+      # Kwel: als bovenste laag (1) lager is dan de laag eronder (2)
+      # We gebruiken 1 voor kwel, anders NA
+      kwel_indicator = if_else(head_1 < head_2, 1, NA_real_)
+    )
+  
+  return(shp_clipped %>% select(head_1, head_2, kwel_indicator))
+}
+```
+
+### 4.2. Verrasteren en overlappende grondwatersystemen
+
+zie boven
+
+```{r verrasteren kwelkaart}
+
+# Rasterisatie proces
+raster_list <- list()
+
+for (f in files) {
+  shp_subset <- get_seepage_map(f, gebied)
+  
+  if (!is.null(shp_subset)) {
+    # De template wordt gebruikt om het finale raster te snappen
+    # We gebruiken fun = max voor het geval een polygoon kleiner is dan een pixel
+    r <- rasterize(shp_subset, template, field = "kwel_indicator", fun = max)
+    raster_list[[f]] <- r
+  }
+}
+
+# Combineren van de verschillende systemen
+if (length(raster_list) > 0) {
+  all_rasters <- rast(raster_list)
+  
+  # Neem de niet-NA-waarde (max) bij overlap
+  final_kwel <- app(all_rasters, fun = max, na.rm = TRUE)
+  
+  # Maskeren en bijsnijden tot het gebied
+  # 'mask' zet waarden buiten het gebied op NA
+  # 'crop' snijdt de witte randen (extensie) weg tot de bounding box van 'gebied'
+  final_kwelresult <- final_kwel %>% 
+    mask(gebied) #%>% 
+    #crop(gebied)
+}
+``` 
+ 
+### 4.3 Kaart maken en wegschrijven
+
+```{r kwelkaart}
+
+mapview(final_kwelresult, col.region = rainbow, na.color = "transparent")
+writeRaster(final_kwelresult, file.path(result_path, "kwel_h.tif"), overwrite = TRUE)
+
 ```

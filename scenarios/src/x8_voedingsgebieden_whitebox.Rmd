@@ -1,0 +1,320 @@
+---
+title: "x7_voedingsgebieden_whitebox"
+author: "NARA"
+date: "2026-06-08"
+output: html_document
+---
+
+```{r packages, include = FALSE}
+library(terra)
+library(whitebox)
+library(mapview)
+library(stringr)
+library(dplyr)
+```
+
+## Inleiding
+
+In dit script bakenen we de grondwatervoedingsgebieden van natuurgebieden af met Whiteboxtools. 
+Het resultaat is een raster met per natuurgebied een ruw voedingsgebied (een apart id-nummer voor elk natuurgebied) op 10m resolutie. 
+Dat gebied voegen we in een volgend script (x8) samen met de resultaten van een modpath-analyse om per natuurgebied een meer robuust voedingsgebied af te bakenen.
+
+## 1. Data laden en omzetten naar het juiste formaat
+
+Alle basisbestanden laden, en omzetten naar zelfde referentiesysteem, resolutie en extent. 
+Voor gebruik in Whitebox moet op het einde elk bestand opnieuw omgezet worden naar een .tif-formaat of .shp.
+
+```{r data laden, echo = FALSE}
+studiegebied <- "rivierbeek"
+
+dir_data <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/data")
+dir_result <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/resultaten")
+dir_temp <- str_c("C:/R/nara2026/scenarios/", studiegebied, "/temp")
+
+f_dtm          <- file.path(dir_data, "dhm.tif")
+f_rivier_vect  <- file.path(dir_data, "rivieren.shp")
+f_natuur_vect <- file.path(dir_data, str_c(studiegebied,"_polygons.shp"))
+f_ecosysteem  <- file.path(dir_data, "ecosysteem.tif") #FLEA-ecosysteemkaart voor scenariogebruik (referentieraster)
+
+dtm  <- rast(f_dtm)
+rivieren_vect <- vect(f_rivier_vect)
+natuur_vect <- vect(f_natuur_vect)
+ecosysteem <- rast(f_ecosysteem)
+
+ref_raster <- rast(res = 10, ext = ext(ecosysteem), crs = crs(ecosysteem))
+
+dtm_r          <- resample(dtm, ref_raster, method = "bilinear")
+rivieren_r <- rasterize(rivieren_vect, ref_raster, field = "UIDN")
+rivieren_r <- ifel(!is.na(rivieren_r), 1, NA)
+rivieren_01 <- subst(rivieren_r, from = NA, to = 0)
+natuur_r    <- rasterize(natuur_vect, field = "cluster_id", ref_raster)
+
+# paden bewerkte kaarten opslaan voor Whitebox
+f_rivier       <- file.path(dir_data, "rivieren_r.tif")
+f_rivier_01    <- file.path(dir_data, "rivieren_01.tif")
+f_natuur_rast <- file.path(dir_data, "natuur_r.tif")
+f_dtm          <- file.path(dir_data, "dtm_r.tif")
+
+# Wegschrijven als tif of shp, want Whitebox werkt niet met R-objecten
+writeRaster(rivieren_r, f_rivier, overwrite = TRUE)
+writeRaster(natuur_r, f_natuur_rast, overwrite = TRUE)
+writeRaster(dtm_r, f_dtm, overwrite = TRUE)
+
+```
+
+## 2. Ruwe watershed
+
+### Stap 1: preprocessing: smoothen en inbranden rivieren in basisoppervlak {.tabset}
+
+We nemen een gesmoothe versie van de DHM met 10m resolutie als basisoppervlak, om de grondwatertafel te benaderen en dus niet alle lokale oneffenheden mee te tellen. 
+We verlagen dat basisoppervlak ter hoogte van rivieren met 2m, zodat het water preferentieel afstroomt via rivieren.
+
+Er zijn verschillende manieren om rivieren in het basisoppervlak te branden: bv.
+via een fill_burn (sterke voorkeur voor stroming via rivieren) of via een
+eenvoudige verlaging van het basisoppervlak ter hoogte van rivieren. Met die
+laatste variant kan je zelf kiezen hoe sterk de rivier water aantrekt. --\> hier
+gekozen voor simpele versie met 2 m verlaging tov DTM ter hoogte van rivier.
+
+
+```{r plot DTM-rivieren, echo = FALSE, warning = FALSE}
+# Smoothing om lokale ruis te verwijderen (sluit beter aan bij grondwatertafels)
+dtm_smooth <- focal(dtm_r, w = 9, fun = "mean", na.rm = TRUE) # 9x9 venster voor smoothing
+writeRaster(dtm_smooth, file.path(dir_temp, "dtm_smooth.tif"), overwrite = TRUE)
+
+dtm_rivieren <- dtm_smooth - (rivieren_01 * 2) # 10m verlaging als 'sink'? Of 2m om niet te strikt alle grondwaterstroming op te slorpen??
+writeRaster(dtm_rivieren, file.path(dir_temp, "dtm_rivieren.tif"), overwrite = TRUE)
+plot(dtm_rivieren)
+```
+
+### Stap 2: stroomrichting bepalen op basisoppervlak
+
+1)  Lokale minima opvullen (omdat anders watershed-analyse niet werkt). --\> Hoe
+    breed kijken? (50m gekozen)
+2)  Stroomrichting opmaken (pointer).
+
+
+```{r stroomrichting dtm rivieren, echo = FALSE, warning = FALSE}
+# Optimaliseer het startoppervlak (breach local minima)
+wbt_breach_depressions_least_cost(
+  dem = file.path(dir_temp, "dtm_rivieren.tif"),
+  output = file.path(dir_temp, "dtm_rivieren_breached.tif"),
+  dist = 50, # geen idee welke waarde ideaal is...
+  fill = TRUE
+)
+
+# Bereken flow direction op het kostoppervlak
+wbt_d8_pointer(
+  dem = file.path(dir_temp, "dtm_rivieren_breached.tif"),
+  output = file.path(dir_temp, "flow_dir.tif")
+)
+
+flow_dir <- rast(file.path(dir_temp, "flow_dir.tif"))
+plot(flow_dir)
+
+```
+
+### Stap 3: Groundwatershed afbakenen
+
+```{r watershed dtm rivieren, echo = FALSE}
+# Haal alle unieke ID's van de natuurgebieden op (behalve NA of 0)
+unieke_ids <- unique(natuur_r)[[1]]
+unieke_ids <- unieke_ids[!is.na(unieke_ids) & unieke_ids != 0]
+
+# Lijst klaarzetten voor de resultaten
+raster_lijst1 <- list()
+
+# Loop door de unieke ID's
+for (i in unieke_ids) {
+  
+    # Tijdelijke en output paden definiëren met het specifieke ID
+  f_temp_pour    <- file.path(dir_temp, paste0("temp_pour_", i, ".tif"))
+  f_output_raw   <- file.path(dir_temp, paste0("voedingsgebied_ruw_", i, ".tif"))
+  
+    # Alleen cellen met het huidige ID behouden, de rest wordt 0
+  temp_pour_rast <- ifel(natuur_r == i, i, 0)
+  writeRaster(temp_pour_rast, f_temp_pour, overwrite = TRUE)
+  
+  # Whitebox Watershed-berekening
+  wbt_watershed(
+    d8_pntr  = file.path(dir_temp, "flow_dir.tif"),
+    pour_pts = f_temp_pour, 
+    output   = f_output_raw
+  )
+  
+  # Inlezen, waarden omzetten naar specifiek cluster_id en toevoegen aan lijst
+  res_raster <- rast(f_output_raw)
+  res_raster <- ifel(res_raster > 0, i, NA)
+  raster_lijst1 <- c(raster_lijst1, res_raster)
+  
+  # Tijdelijk pour_point raster opruimen
+  file.remove(f_temp_pour)
+  
+  message(paste("Check: gebied", i, "verwerkt."))
+}
+
+# Combineren in één bestand
+# NULL-waarden er eerst uitfilteren
+raster_lijst1 <- raster_lijst1[!sapply(raster_lijst1, is.null)]
+
+if (length(raster_lijst1) > 0) {raster_samen <- sprc(raster_lijst1)
+voedingsgebied_ruw <- mosaic(raster_samen, fun = "max")
+  
+writeRaster(voedingsgebied_ruw, 
+               file.path(dir_temp, "voedingsgebied_ruw.tif"), 
+               overwrite = TRUE)
+  message("Succes! Alle gebieden zijn gecombineerd in 'voedingsgebied_ruw.tif'.")
+} else {
+  stop("Fout: De lijst met rasters is volledig leeg.")
+}
+
+plot(voedingsgebied_ruw)
+plot(natuur_vect, add = TRUE)
+
+```
+
+## 3. Resultaat verfijnen
+
+Het voedingsgebied van een rivier die door het natuurgebied stroomt zit
+waarschijnlijk mee vervat in voorgaande resultaten: punten die al afstromen naar
+rivier voor ze het natuurgebied bereikt verwijderen we daarom uit de resultaten.
+
+Daarvoor moeten we twee bronnen definiëren: het natuurgebied (ID 1) en de
+(delen van) rivieren buiten het natuurgebied (ID 2), die onderling concurreren
+voor grondwater. Via "cost allocation" op basis van de helling van 
+het basisoppervlak, bepalen we dan welke bron de laagste geaccumuleerde 
+kosten heeft. Enkel de cellen waarvoor het natuurgebied de laagste 
+geaccumuleerde kosten heeft behouden we.
+
+Berekening:
+
+1)  eerste een cost-distanceanalyse met een weerstandskaart (obv log(1/helling))
+    en de 2 mogelijke bronnen, (enkel versie met ganse natuurgebied als 
+    pour points gebruikt, andere versie houdt al rekening met rivierwerking)
+
+2)  dan een cost-allocation met het resultaat van de cost-distanceanalyse en de
+    2 mogelijke bronnen.
+    
+
+```{r voeding dtm rivieren verfijnd, log hellingweerstand, echo = FALSE, warning = FALSE}
+# Bereken helling
+wbt_slope(
+  dem = file.path(dir_temp, "dtm_rivieren_breached.tif"),
+  output =  file.path(dir_temp, "grad.tif")
+)
+grad <- rast(file.path(dir_temp, "grad.tif"))
+
+# helling als weerstand instellen, incl. log-transformatie
+# We gebruiken de negatieve log omdat we de inverse (1/x) willen
+grad_log <- -log10(grad)
+
+# herschalen met minimumwaarde (die waarschijnlijk negatief is of heel klein)
+min_val <- as.numeric(global(grad_log, "min", na.rm = TRUE))
+gradweerst <- (grad_log - min_val) + 1
+writeRaster(gradweerst, file.path(dir_temp, "gradweerst.tif"), overwrite = TRUE)
+
+# voedingsgebied rivier weghalen uit de resultaten
+# Lege lijst klaarzetten voor de resultaten
+raster_lijst2 <- list()
+
+# Loop door de unieke ID's
+for (i in unieke_ids) {
+  
+  # Dynamische paden instellen met het unieke ID
+  f_temp_natuur         <- file.path(dir_temp, paste0("temp_natuur_", i, ".tif"))
+  f_comp_source         <- file.path(dir_temp, paste0("comp_source_", i, ".tif"))
+  f_cost               <- file.path(dir_temp, paste0("cost_", i, ".tif"))
+  f_backlink           <- file.path(dir_temp, paste0("cost_backlink_", i, ".tif"))
+  f_allocatie          <- file.path(dir_temp, paste0("allocatie_", i, ".tif"))
+  f_voedingsgebied_ruw <- file.path(dir_temp, paste0("voedingsgebied_ruw_", i, ".tif"))
+  f_voedingsgebied_fin <- file.path(dir_temp, paste0("voedingsgebied_fin_", i, ".tif"))
+  
+  # Isoleer de huidige natuur-polygoon
+  natuur <- ifel(natuur_r == i, i, NA)
+  writeRaster(natuur, f_temp_natuur, overwrite = TRUE)
+  
+  # Competition source berekenen
+  buiten_natuur <- ifel(is.na(natuur_r), 1, 0)
+  rivieren_buiten_natuur <- rivieren_01 * buiten_natuur
+  comp_source <- ifel(is.na(natuur), 0, 1) + rivieren_buiten_natuur * 2
+  writeRaster(comp_source, f_comp_source, overwrite = TRUE)
+  
+  # Whitebox cost-allocatie-berekeningen
+  wbt_cost_distance(
+    source = f_comp_source,
+    cost = file.path(dir_temp, "gradweerst.tif"), 
+    out_accum = f_cost,
+    out_backlink = f_backlink
+  )
+  
+  wbt_cost_allocation(
+    source = f_comp_source,
+    output = f_allocatie,
+    backlink = f_backlink
+  )
+  
+  # Overlap met ruw voedingsgebied bepalen
+  alloc_map <- rast(f_allocatie)
+  voedingsgebied_land <- ifel(alloc_map == 1, i, NA)
+  voedingsgebied_ruw_rast <- rast(f_voedingsgebied_ruw)
+  voedingsgebied_fin <- ifel((voedingsgebied_ruw_rast > 0) & (voedingsgebied_land > 0), i, NA)
+  
+  # Opslaan van eindresultaat en toevoegen aan lijst
+  writeRaster(voedingsgebied_fin, f_voedingsgebied_fin, overwrite = TRUE)
+  raster_lijst2 <- c(raster_lijst2, voedingsgebied_fin)
+  
+  # Tijdelijke invoer-rasters opruimen
+  if (file.exists(f_temp_natuur)) file.remove(f_temp_natuur)
+  if (file.exists(f_cost)) file.remove(f_cost)
+  if (file.exists(f_backlink)) file.remove(f_backlink)
+  if (file.exists(f_comp_source)) file.remove(f_comp_source)
+  if (file.exists(f_allocatie)) file.remove(f_allocatie)
+  
+  message(paste("Check: Gebied", i, "verwerkt."))
+}
+
+# Combineren in één bestand 
+# Versie1: te geheugenintensief
+# Eventuele NULL-waarden eruit filteren
+# raster_lijst2 <- raster_lijst3[!sapply(raster_lijst2, is.null)]
+# 
+# if (length(raster_lijst3) > 0) {
+#   raster_samen <- sprc(raster_lijst2)
+#   
+#   # Voeg alles samen met 'max' voor eventuele overlaps
+#   afstroomgebied_fin1 <- mosaic(raster_samen, fun = "max")
+#   
+#   # Opslaan van het totale eindresultaat
+#   writeRaster(voedingsgebied_fin, 
+#                file.path(dir_result, "voedingsgebied_fin.tif"), 
+#                overwrite = TRUE)
+#   
+#   message("Succes! Alle gebieden zijn gecombineerd in 'voedingsgebied_fin.tif'.")
+#   } else {
+#   stop("Fout: Geen enkel finaal voedingsgebied gegenereerd.")
+#   }
+
+# Versie 2: minder geheugenverbruik
+# 1. Zoek alle losse finale tif-bestanden op die je in de loop hebt opgeslagen
+f_losse_outputs <- list.files(path = dir_temp, pattern = "^voedingsgebied_fin_.*\\.tif$", full.names = TRUE)
+
+if (length(f_losse_outputs) > 0) {
+  
+  # Voeg de bestandspaden samen tot één tekststring, gescheiden door een puntkomma
+  input_strings <- paste(f_losse_outputs, collapse = ";")
+  
+  # Laat WhiteboxTools de bestanden vanaf de harde schijf samenvoegen
+  wbt_mosaic(
+    inputs = input_strings,
+    output = file.path(dir_result, "voedingsgebied_whitebox.tif"),
+    method = "max" # Gebruik 'max' om bij eventuele overlap het hoogste ID te kiezen
+  )
+  
+  message("Succes! WhiteboxTools heeft de bestanden samengevoegd.")
+  
+} else {
+  stop("Fout: Geen losse afstroombestanden gevonden om samen te voegen.")
+}
+voedingsgebied_fin <- rast(file.path(dir_result, "voedingsgebied_whitebox.tif"))
+plot(voedingsgebied_fin)
+plot(natuur_vect, add = TRUE)
+```
