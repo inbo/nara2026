@@ -814,9 +814,23 @@ r_natuur
 
 # STAP 1b: geschiktheidskaart (aanpassen ifv scenario)
 # sc1: niet hag, akker lage geschiktheid, landbouwgras hogere geschiktheid, niet op intolerante natuur, natuur hoge geschiktheid
-geschikt_lu <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 103, 104, 105, 106, 801, 802), 0, ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205))))
 
-geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1, 0, ifel(akkers == 1, 1, ifel(ecosysteem_2022 == 301, 2, ifel(ecosysteem_2022 == 300, 3, ifel(r_natuur == 1 & ecosysteem_2022 %in% c(302, 400, 401, 403))))))
+# incompatibel landgebruik: ruimtebeslag + rivieren
+lu_intol <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 103, 104, 105, 106, 801, 802), 1, 0))
+
+reclass_lu <- c(
+  100,  106,  0,
+  200, 205,  0,
+  299, 300, ,
+  300, 301, 1
+  
+
+)
+
+geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1 | lu_intol == 1, 0, ifel(
+  akkers == 1, 1, ifel(
+    ecosysteem_2022 == 301, 2, ifel(
+      r_natuur == 0 & ecosysteem_2022 %in% c(300, 302, 400, 401, 403, 404)))))
 
 
 # Stap 3: Data omzetten naar een tabel voor exacte selectie
