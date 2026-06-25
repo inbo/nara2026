@@ -51,15 +51,16 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
+studiegebied <- "herk_mombeek"
+
 # Kies de bestanden die je nodig hebt
 
 targets <- c("gebied.shp", "ecosysteem.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp")
 
 # In welke folders zitten de data?
 
-search_paths <- c(
-  "C:/R/NARA2026/scenarios/rivierbeek/data",
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+  "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -137,13 +138,13 @@ stat_sectors <- stat_sectors %>%
 
 # 3. Totaal aantal residentiële pixels per volledige sector berekenen
 # We gebruiken 'sum' omdat de raster 1 is voor residentieel gebouw
-stat_sectors$pixels_totaal <- extract(res_gebouwen, vect(stat_sectors), fun = sum, na.rm = TRUE)[,2]
+stat_sectors$pixels_totaal <- terra::extract(res_gebouwen, vect(stat_sectors), fun = sum, na.rm = TRUE)[,2]
 
 # 4. Sectoren versnijden met het studiegebied (Clip)
 sectoren_clip <- st_intersection(stat_sectors, gebied)
 
 # 5. Aantal residentiële pixels in de versneden delen berekenen
-sectoren_clip$pixels_deel <- extract(res_gebouwen, vect(sectoren_clip), fun = sum, na.rm = TRUE)[,2]
+sectoren_clip$pixels_deel <- terra::extract(res_gebouwen, vect(sectoren_clip), fun = sum, na.rm = TRUE)[,2]
 
 # 6. Bevolking pro rata berekenen
 sectoren_resultaat <- sectoren_clip %>%
@@ -162,7 +163,7 @@ gemeente_studiegebied <- sectoren_resultaat %>%
   )
 
 # 8. Opslaan
-st_write(gemeente_studiegebied, "C:/R/NARA2026/scenarios/rivierbeek/gemeente_bevolking_studiegebied.shp")
+st_write(gemeente_studiegebied, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/gemeente_bevolking_studiegebied.shp"))
 
 ```
 
@@ -256,7 +257,7 @@ Het onthardingsdoel per gemeente is 1 m² per inwoner. Als een gemeente 1000 inw
 ```{r allocatie}
 
 # 1. Rasteriseer de gemeentes (CNIS5 = code gemeente)
-gemeente_rast <- rasterize(gemeente_studiegebied, geschiktheid_final, field = "CNIS5")
+gemeente_rast <- rasterize(gemeente_studiegebied, geschiktheid, field = "CNIS5")
 
 # 2. Maak een tabel met het doel per gemeente
 doelen <- gemeente_studiegebied %>%
@@ -308,6 +309,10 @@ totaal_cellen <- global(ontharding_kaart, "sum", na.rm=TRUE)
 print(paste("Totaal aantal ontharde cellen:", totaal_cellen))
 
 mapview(ontharding_kaart) + mapview(geschiktheid) + mapview(gemeente_studiegebied, zcol = "CNIS5")
+
+ontharding_1na <- ifel(ontharding_kaart == 0, NA, 1)
+mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
+  mapview(ontharding_1na, col.regions = "darkblue", na.color = "transparent") + mapview(gemeente_studiegebied, zcol = "CNIS5")
 ```
 
 ## 4. Afkoppeling gebouwen
@@ -346,10 +351,10 @@ Scenario's:
 
 # 1. Maak binair masker van bebouwde en onbebouwde cellen
 # Bebouwd (101) krijgt waarde 1, de rest NA
-bebouwd <- ifel(ecosysteem == 101, 1, NA)
+bebouwd <- ifel(ecosysteem_2022 == 101, 1, NA)
 
 # Niet-verhard (>= 103) krijgt waarde 1, de rest NA
-niet_verhard <- ifel(ecosysteem >= 103, 1, NA)
+niet_verhard <- ifel(ecosysteem_2022 >= 103, 1, NA)
 
 # 2. Identificeer de cellen die grenzen aan niet-verharde cellen
 # We kijken in een 3x3 window rondom elke bebouwde cel.
@@ -360,7 +365,7 @@ bebouwd_tuin <- mask(bebouwd, randen_masker, maskvalues = NA, updatevalue = NA)
 
 
 # Selecteer de gebouwpixels die in een gebied met riolering liggen
-bebouwd_riool <- mask(bebouwd, riolering)
+bebouwd_riool <- mask(bebouwd, st_transform(riolering, st_crs(bebouwd)))
 
 # combineer gebouw met riolering en tuin = potentieel infiltratie
 bebouwd_infiltratie <- bebouwd_riool * bebouwd_tuin
@@ -386,11 +391,11 @@ if(length(cel_nummers) > n_samples) {
 }
 
 # Maak een leeg raster en vul de random cellen
-infiltratie_sc <- rast(ecosysteem)
+infiltratie_sc <- rast(ecosysteem_2022)
 values(infiltratie_sc) <- NA
 infiltratie_sc[random_cel_nummers] <- 1
 
-mapview(infiltratie_sc, na.color = "transparent")
+mapview(infiltratie_sc, na.color = "transparent") + mapview(ontharding_1na, col.regions = "darkblue", na.color = "transparent")
 
 # 5. Resultaat opslaan of bekijken
 # writeRaster(infiltratie_sc, "infiltratie_sc.tif", overwrite = TRUE)
