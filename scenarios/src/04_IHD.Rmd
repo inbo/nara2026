@@ -612,14 +612,19 @@ Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oe
 ## 4. Scenario's
 
 ```{r beleidskaarten}
-# verrasteren beleidskaarten
+# verrasteren beleidskaarten (gebied = 1, rest = 0)
 r_hag <- ifel(is.na(hag), 0, 1) # hag = 1, rest  = 0
+
 r_rbh <- mask(rasterize(rbh, ecosysteem_2022, field = "rbh"), ecosysteem_2022, updatevalue = NA)
-subst(r_rbh, from = c("03", "04", "05"), to = 1, others = 0)
+
 r_rbh <- ifel(is.na(r_rbh), NA, ifel(r_rbh %in% c("03", "04", "05"), 1, 0))
-r_sbz <- rasterize(habrl, ecosysteem_2022, field = 2, background = 1)
-r_ven <- rasterize(ven, ecosysteem_2022, field = 2, background = 1)
-r_sbz_ven <- ifel(r_sbz == 2 | r_ven == 2, 2, 1)
+
+r_sbz <- mask(rasterize(habrl, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
+
+r_ven <- mask(rasterize(ven, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
+
+r_sbz_ven <- ifel(r_sbz == 1 | r_ven == 1, 1, 0)
+r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
 ```
 
 ### 4.1. Scenario 1
@@ -796,20 +801,36 @@ dist_tot_intact <- distance(intact_veen)
 # 2.1. Landbouwgebruik
 landbouw <- ifel(!is.na(lbgp_gewasgroep), 1, 0)
 # 2.2. Akkers
-akkers <- ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, 0)
+akkers <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, 0))
 # 2.3. HAG
-hag
+r_hag
 
 # 3. Natuur
 # 3.1. Zone te vrijwaren voor niet-combineerbare natuurdoelen
 natuur_intol <- intolerant_zone_veenherstel
 # 3.2. SBZ, VEN, groene bestemmingen
-
+r_natuur
 
 
 # STAP 1b: geschiktheidskaart (aanpassen ifv scenario)
+# sc1: niet hag, akker lage geschiktheid, landbouwgras hogere geschiktheid, niet op intolerante natuur, natuur hoge geschiktheid
 
-geschikt_sc1 <- 
+# incompatibel landgebruik: ruimtebeslag + rivieren
+lu_intol <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 103, 104, 105, 106, 801, 802), 1, 0))
+
+reclass_lu <- c(
+  100,  106,  0,
+  200, 205,  0,
+  299, 300, ,
+  300, 301, 1
+  
+
+)
+
+geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1 | lu_intol == 1, 0, ifel(
+  akkers == 1, 1, ifel(
+    ecosysteem_2022 == 301, 2, ifel(
+      r_natuur == 0 & ecosysteem_2022 %in% c(300, 302, 400, 401, 403, 404)))))
 
 
 # Stap 3: Data omzetten naar een tabel voor exacte selectie
