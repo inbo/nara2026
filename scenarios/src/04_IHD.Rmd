@@ -613,9 +613,10 @@ Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oe
 
 ```{r beleidskaarten}
 # verrasteren beleidskaarten
-r_hag <- ifel(is.na(hag), 1, 0)
-r_rbh <- rasterize(rbh, ecosysteem_2022, field = "rbh")
-r_rbh <- ifel(r_rbh %in% c("03", "04", "05"), 2, 1)
+r_hag <- ifel(is.na(hag), 0, 1) # hag = 1, rest  = 0
+r_rbh <- mask(rasterize(rbh, ecosysteem_2022, field = "rbh"), ecosysteem_2022, updatevalue = NA)
+subst(r_rbh, from = c("03", "04", "05"), to = 1, others = 0)
+r_rbh <- ifel(is.na(r_rbh), NA, ifel(r_rbh %in% c("03", "04", "05"), 1, 0))
 r_sbz <- rasterize(habrl, ecosysteem_2022, field = 2, background = 1)
 r_ven <- rasterize(ven, ecosysteem_2022, field = 2, background = 1)
 r_sbz_ven <- ifel(r_sbz == 2 | r_ven == 2, 2, 1)
