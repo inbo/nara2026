@@ -51,7 +51,7 @@ Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappe
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -283,7 +283,7 @@ named_colors <- rgb(clr_data$V2, clr_data$V3, clr_data$V4, maxColorValue = 255)
 names(named_colors) <- as.character(clr_data$V1)
 
 # Kleur voor aangepaste cellen in ecosysteem_aangepast
-named_colors["9999"] <- "#CCFF00" # voor infiltratie
+named_colors["9999"] <- "#FF00CC" # voor infiltratie
 named_colors["9998"] <- "#FF00CC" # voor verminderde drainage
 named_colors["9997"] <- "#00FFEC" # voor de combinatie (bij optie 1)
 
@@ -295,7 +295,7 @@ df_colors <- data.frame(
 )
 
 # Kies kaart: origineel (ecosysteem) of aangepaste versie (ecosysteem_infilt)
-kaart <- ecosysteem_combi
+kaart <- ecosysteem_infilt
 
 # aanwezige codes
 r_codes <- sort(unique(values(kaart)))
