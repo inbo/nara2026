@@ -44,6 +44,7 @@ De volgende datasets worden gebruikt:
 - toekomstlaag.shp -\> natuurdoelen
 - ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA) voor 2022
 - bever_kerngebied.shp -\>
+- wlas_owl_visdoelen.shp -\> lijnen van soortbeschermingsprogramma's van de vissoorten (spatial join met wlas)
 - veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
 - ffr_finaal_visie_2050.shp -\> riviersegmenten die vrijstromend moeten zijn in 2050
 - habrl.shp -\> habitatrichtlijngebieden (SBZ-H)
@@ -63,12 +64,12 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp","ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_zone_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_zone_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp")
 
 # In welke folders zitten de data?
 
@@ -160,7 +161,6 @@ list2env(data_list_ok, envir = .GlobalEnv)
   - **Veenherstel**: op plaatsen waar verdroogd veen hersteld wordt, stijgt het grondwater tot tegen het maaiveld. In die zones kunnen alleen vegetatiedoelen met een zeer nat/veenvormend grondwaterregime voorkomen.
   - **Vrijstromendheid**: op plaatsen waar rivieren vrijstromend worden, verruwt de rivierbedding waardoor de grondwaterstand in de vallei stijgt en kan de vallei overstromen. Ter hoogte van vrijstromende trajecten kunnen in de vallei alleen vegetatiedoelen voorkomen die compatibel zijn met winteroverstromingen (t100) en een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
   - **Habitat 3260 en vissoorten**: langs de onbevaarbare waterlooptrajecten die geselecteerd worden ifv de doelen wordt de hydromorfologie hersteld. Daarvoor wordt een meandergordel gereserveerd waarbinnen erosie en sedimentatie door rivierwerking de vrije hand krijgt. Meandering en waterplanten verruwen de rivierbedding waardoor de afvoer vertraagt en het rivierpeil stijgt. Dat leidt meestal tot een verhoging van de grondwaterstand in de vallei. Zonder verhoging van de rivierbodem kan hermeandering echter een verdere verdroging van de vallei in de hand werken. Binnen de vernattingszone kunnen alleen vegetatiedoelen voorkomen die compatibel zijn met een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
-    - De **oppervlaktedoelstelling voor 3260** per SBZ (doelstelling min actueel voorkomen) wordt gerealiseerd -\> van oppervlaktedoelstelling naar aantal cellen: een rivierbreedte van 4 à 5 m (rapporten Leyssen) komt ongeveer overeen met 40%-75% van de oppervlakte van een cel van 10 x 10 m. Gemakshalve gaan we ervan uit dat we de rivieroppervlakte de helft van de celoppervlakte bedraagt. Om de doeloppervlakte voor het habitattype te alloceren op de rasterkaart, moeten we dus twee keer zoveel cellen selecteren (bv. om 10 ha te realiseren, moeten we 200 cellen selecteren).
 
 #### Scenario 1
 
@@ -594,6 +594,7 @@ veen_verdroogd <- ifel(r_veen == 1 & glg_huidig != 1, 1, ifel(r_veen == 2 & (glg
 # Rivieren verwijderen uit veenlaag
 veen_verdroogd <- ifel(ecosysteem_2022 %in% c(801, 802) & veen_verdroogd > 0, NA, veen_verdroogd)
 
+
 ```
 
 ### 3.4. Vrijstromendheid
@@ -933,7 +934,7 @@ natuur_intol_raw <- ifel(intol_t100 == 1 | intol_vernat == 1, 1, 0)
 r_hag
 r_natuur # sbz + ven + groene bestemmingen
 
-# 4. # sc1: niet hag, niet bebouwing, niet akkers, niet op intolerante natuur, hogere geschiktheid binnne sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
+# 4. sc1: niet hag, niet bebouwing, niet akkers, niet op intolerante natuur, hogere geschiktheid binnne sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
 
 geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1 | lu_geschikt == 0, 0, ifel(r_natuur == 1, lu_geschikt + 1, lu_geschikt))
 
@@ -1054,6 +1055,247 @@ sc1_vrijstromend <- mask(vallei_allocatie, diepte)
 mapview(sc1_vrijstromend, na.color = "transparent") + mapview(natuur_intol, na.color = "transparent") + mapview(r_ffr, col.regions = "blue", na.color = "transparent") + mapview(mask_uitgebreid, na.color = "transparent") 
 
 mapview(natuur_intol_raw, na.color = "transparent") + mapview(natuur_intol, na.color = "transparent")
+```
+
+##### d) Beekherstel
+
+De oppervlaktedoelstelling per deelgebied voor habitattype 3260 wordt als volgt bepaald:
+
+- De meest recente IHD-rapportage (2025) schat de huidige oppervlakte van het habitattype op 284 ha met een afnemende trend en 11-25% onder de FRA. Dat betekent dat de FRA 312 - 355 ha bedraagt. De openstaande taakstelling is dus 28 - 71 ha. Als schatting voor de doelstelling in onze scenario's nemen we daarvan het gemiddelde (**50 ha**).
+
+- De doelstelling op Vlaams niveau verdelen we over de deelgebieden op basis van het proportioneel aandeel van de **zoekzone voor het habitattype** in de habitatrichtlijngebieden waarvoor het habitattype is aangemeld. De onderstaande tabel geeft de SBZ waarvoor 3260 is aangemeld en de doelstelling. Alleen voor BE2500004 is er volgens het S-IHD-besluit geen toename nodig.
+
+  |  |  |  |  |  |  |
+  |-------------|------------|------------|------------|------------|------------|
+  | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** |
+  | BE2100016 | toename | BE2100424 | toename | BE2200039 | toename |
+  | BE2100017 | toename | BE2200029 | toename | BE2200043 | toename |
+  | BE2100020 | toename | BE2200030 | toename | BE2300007 | toename |
+  | BE2100024 | toename | BE2200032 | toename | BE2500004 | behoud |
+  | BE2100026 | toename | BE2200033 | toename |  |  |
+  | BE2100040 | toename | BE2200034 | toename |  |  |
+
+- Om de oppervlaktedoelstelling per deelgebied om te zetten naar het aantal riviercellen dat 3260 moet worden, volgen we deze redenering:
+
+  - Volgens [Leyssen en Denys (2016)](https://publicaties.vlaanderen.be/view-file/19050) ligt de karakteristieke breedte van waterlopen met habitattype 3260 tussen 4 - 5 m. Dat komt ongeveer overeen met 40%-75% van de oppervlakte van een cel van 10 x 10 m. Gemakshalve gaan we ervan uit dat we de rivieroppervlakte de helft van de celoppervlakte bedraagt. Om de doeloppervlakte voor het habitattype te alloceren op de rasterkaart, moeten we dus twee keer zoveel cellen selecteren (bv. om 10 ha te realiseren, moeten we 20 ha cellen selecteren of 2000 cellen).
+
+```{r doel_3260}
+
+# Doelstelling deelgebied
+sbz_vl <- habrl201301 %>% #SBZ-H Vlaanderen
+  select(GEBCODE)
+zoekzone <- zoekzone3260
+
+# Selectie van sbz-h waarvoor 3260 is aangemeld en er een doelstelling voor toename is
+sbzh <- c("BE2100016", "BE2100017", "BE2100020", "BE2100024", "BE2100026", 
+          "BE2100040", "BE2100424", "BE2200029", "BE2200030", "BE2200032", 
+          "BE2200033", "BE2200034", "BE2200039", "BE2200043", "BE2300007")
+
+sbz_3260 <- sbz_vl[sbz_vl$GEBCODE %in% sbzh, ]
+
+# Lengte zoekzone binnen de SBZ met toename-doelstelling
+zoekzone <- st_transform(zoekzone, st_crs(ecosysteem_2022))
+zoekzone_sbz <- st_intersection(zoekzone, sbz_3260)
+lengte_totaal <- sum(st_length(zoekzone_sbz))
+
+# Aandeel van zoekzone binnen deelgebied
+gebied <- st_transform(gebied, st_crs(ecosysteem_2022))
+zoekzone_sbz_gebied <- st_intersection(zoekzone_sbz, gebied)
+
+# Doelstelling
+lengte_aandeel <- zoekzone_sbz_gebied %>%
+  mutate(lengte_segment = st_length(.)) %>%
+  st_drop_geometry() %>%
+  group_by(GEBCODE) %>%
+  summarise(lengte_binnen_m = sum(lengte_segment), .groups = "drop") %>%
+  mutate(lengte_aandeel = as.numeric(lengte_binnen_m / lengte_totaal)) %>%
+  mutate(opp_aandeel = lengte_aandeel * 50) # totaal Vlaanderen = 50 ha
+
+doel_cel <- lengte_aandeel %>%
+  summarize(round(sum(opp_aandeel) * 200, 0)) %>% # x2 x 100 voor aantal cellen
+  pull()
+```
+
+###### **Doelstelling alloceren**
+
+- STAP 1 - vha verrasteren en geschiktheid projecteren op riviercellen
+- STAP 2 - Plaatsen doeloppervlakte
+- STAP 3 - Vernattingszone afbakenen
+
+```{r beekherstel_sc1}
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 1 - Geschiktheid
+#///////////////////////////////////////////////////////////////////////////////
+
+# VHA -> selectie cf. vrijstromendheid sc3
+vha_select <- vha %>%
+  dplyr::filter(CATC %in% c(1, 2, 3) & (is.na(BEHEER) | !grepl("^P", BEHEER)) & (CODSTATOWL != "KWL" | is.na(CODSTATOWL)) & !CODTYPOWL %in% c("Pz", "Pb"))
+
+r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
+
+
+# 1. Geschikte ecosystemen (0, 1 en 2) -> waterlopen op NA zetten
+lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401,  403, 404, 701, 702), 2, ifel(ecosysteem_2022 %in% c(801, 802), NA, 1))))
+
+# 2. geschiktheid ifv natuurdoelen
+natuur_intol_raw <- ifel(is.na(intolerant_zone_vernatting), 0, 1)
+  # masker uitbreiden tot tegen waterloop
+  vha_binair <- ifel(is.na(r_vha), 0, 1)
+  natuur_intol_na <- ifel(natuur_intol_raw == 1, 1, NA)
+  
+  vha_uitgebreid <- buffer(r_vha, width = 30, background = 2)
+  mask_uitgebreid <- buffer(natuur_intol_na, width = 30, background = 2)
+
+natuur_intol <- ifel(natuur_intol_raw == 1, 1, ifel(
+  natuur_intol_raw == 0 & (vha_uitgebreid == 1 | vha_uitgebreid == 0) &
+    mask_uitgebreid == 1 & vha_binair == 0, 1, 0))
+
+# 3. geschiktheid ifv beleid
+r_hag
+r_natuur
+
+# Terrestrische geschiktheden projecteren op vha
+# ecosysteem en intolerante natuur komen tot tegen de waterloop -> 3x3 venster
+# de beleidskaarten liggen vaak iets verder -> 7x7 venster
+
+lu_geschikt_min <- focal(lu_geschikt, w = matrix(1, nrow = 3, ncol = 3), fun = "max", na.rm = TRUE)
+vha_lu <- mask(lu_geschikt_min, r_vha)
+
+natuur_intol_max <- focal(natuur_intol, w = matrix(1, nrow = 3, ncol = 3), fun = "max", na.rm = TRUE)
+vha_intol <- mask(natuur_intol_max, r_vha)
+
+hag_max <- focal(r_hag, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
+vha_hag <- mask(hag_max, r_vha)
+
+natuur_max <- focal(r_natuur, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
+vha_natuur <- mask(natuur_max, r_vha)
+
+
+# 4. zoekzone 3260
+geschikt_3260 <- rasterize(zoekzone3260, ecosysteem_2022, touches = TRUE, field = 1)
+geschikt_3260 <- ifel(!is.na(geschikt_3260), 1, 0)
+
+# 5. geschiktheid ifv visdoelen
+geschikt_vis <- rasterize(wlas_owl_visdoelen, ecosysteem_2022, touches = TRUE, field = 1)
+geschikt_vis <- ifel(!is.na(geschikt_vis), 1, 0)
+
+# Combinatie
+# sc1: niet hag, niet bebouwing, niet akkers, niet op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
+
+geschikt_sc1_pre <- ifel(vha_hag == 1 | vha_intol == 1 | vha_lu == 0, 0, ifel(vha_natuur == 1, vha_lu + 1, vha_lu))
+
+bonus_3260 <- ifel(is.na(geschikt3260), 0, ifel(geschikt3260 == 1, 1, 0))
+bonus_vis  <- ifel(is.na(geschikt_vis), 0, ifel(geschikt_vis == 1, 1, 0))
+
+geschikt_sc1 <- ifel(geschikt_sc1_pre == 0, 0, 
+                         geschikt_sc1_pre + bonus_3260 + bonus_vis)
+
+
+
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 2 - Plaatsen doeloppervlakte
+#///////////////////////////////////////////////////////////////////////////////
+
+sc1_mask <- ifel(geschikt_sc1 == 0, NA, 1)
+sc1_patches <- patches(sc1_mask, directions = 8)
+
+# patches < 50 cellen verwijderen
+f <- freq(sc1_patches)
+sc1_patches_clean <- sc1_patches
+sc1_patches_clean[sc1_patches_clean %in% f$value[f$count <= 50]] <- NA
+
+# Gemiddelde geschiktheid per cluster
+patches_geschiktheid <- zonal(x = geschikt_sc1, z = sc1_patches_clean, fun = "mean", na.rm = TRUE, as.raster = TRUE)
+
+# Combineer de patch-geschiktheid en de geschiktheid per cel in 1 object
+stapel <- c(geschikt_sc1, patches_geschiktheid, sc1_patches_clean)
+names(stapel) <- c("celgeschiktheid", "patchgeschiktheid", "patch")
+
+# Zet om naar een dataframe met behoud van het cel-ID. 
+df <- as.data.frame(stapel, cells = TRUE, na.rm = FALSE)
+
+# Filter zodat we alleen de patchcellen overhouden
+df_patch <- df[!is.na(df$patch), ]
+
+
+# Logica toepassen per reachID
+
+df_sorted <- df_patch %>%
+  arrange(desc(patchgeschiktheid), patch, desc(celgeschiktheid))
+
+# Voeg een unieke rij-ID toe om geselecteerde cellen makkelijk bij te houden
+df_sorted$row_id <- 1:nrow(df_sorted)
+
+geselecteerde_rijen <- c()
+
+# Haal de unieke patches op in de juiste volgorde van geschiktheid
+volgorde_patches <- df_sorted %>% 
+  distinct(patch, patchgeschiktheid) %>% 
+  arrange(desc(patchgeschiktheid)) %>% 
+  pull(patch)
+
+patch_index <- 1 # We beginnen bij de eerste (beste) patch
+
+
+# Loop door de patches (in blokken van 50 cellen opvullen)
+while (length(geselecteerde_rijen) < doel_cel && patch_index <= length(volgorde_patches)) {
+  huidige_patch <- volgorde_patches[patch_index]
+  # Filter de cellen van de huidige patch die nog NIET geselecteerd zijn
+  beschikbare_cellen <- df_sorted %>% 
+    filter(patch == huidige_patch, !(row_id %in% geselecteerde_rijen))
+  
+  aantal_beschikbaar <- nrow(beschikbare_cellen)
+  aantal_nodig <- doel_cel - length(geselecteerde_rijen)
+  
+  # Bepaal de gewenste blokgrootte (maximaal 50, of minder als we er bijna zijn)
+  blok_grootte <- min(50, aantal_nodig)
+  
+  if (aantal_beschikbaar >= blok_grootte) {
+    # Er zijn genoeg cellen om het (volgende) blok te vullen
+    gekozen_ids <- beschikbare_cellen$row_id[1:blok_grootte]
+    geselecteerde_rijen <- c(geselecteerde_rijen, gekozen_ids)
+    
+    # hoeveel cellen blijven er over in deze patch?
+    resterend_in_patch <- aantal_beschikbaar - blok_grootte
+    
+    if (resterend_in_patch < 50) {
+      # Minder dan 500 cellen over? Dan gaan we de volgende keer naar de volgende patch
+      patch_index <- patch_index + 1
+    }
+    # (Als er wel >= 500 over zijn, blijft patch_index gelijk en pakt de loop straks wéér een blok uit deze patch)
+    
+  } else {
+    # De patch heeft al minder dan het gewenste blok (500) over vanaf de start.
+    # We nemen alles wat er nog in zit mee.
+    gekozen_ids <- beschikbare_cellen$row_id
+    geselecteerde_rijen <- c(geselecteerde_rijen, gekozen_ids)
+    
+    # ...en we stappen direct over naar de volgende patch
+    patch_index <- patch_index + 1
+  }
+}
+
+
+df_selectie <- df_sorted %>% 
+  filter(row_id %in% geselecteerde_rijen)
+
+  
+# Kaart maken van geselecteerde cellen op basis van hun cel-ID
+
+beekherstel_final <- rast(ecosysteem_2022)
+values(beekherstel_final) <- NA # Zet alles op leeg (NA)
+
+# Wijs de reachID toe aan de geselecteerde celnummers
+beekherstel_final[df_selectie$cell] <- df_selectie$celgeschiktheid
+
+mapview(beekherstel_final, na.color = "transparent")
+
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 3 - Verfnattingszone afbakenen
+#///////////////////////////////////////////////////////////////////////////////
+
+
+
 ```
 
 ### 4.2. Scenario 2
@@ -1330,6 +1572,11 @@ mapview(sc2_vrijstromend, na.color = "transparent") + mapview(natuur_intol, na.c
 
 ```
 
+##### d) Beekherstel
+
+```{r beekherstel_sc2}
+```
+
 ### 4.3. Scenario 3
 
 ##### a) Bever
@@ -1549,3 +1796,10 @@ sc3_vrijstromend <- mask(vallei_allocatie, diepte)
 
 mapview(sc3_vrijstromend, na.color = "transparent") + mapview(r_ffr, col.regions = "blue", na.color = "transparent")
 ```
+
+##### d) Beekherstel
+
+```{r beekherstel_sc3}
+```
+
+### 
