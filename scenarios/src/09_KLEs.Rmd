@@ -26,15 +26,15 @@ library(leaflet) # Nodig voor colorFactor
 
 Het onderstaande script berekent het aandeel kleine landschapselementen per landbouwcel van de ecosysteemkaart in elk scenario. 
 
-1) Daarvoor maken we eerst een kaart van de huidige kleine landschapselementen met een resolutie van 10x10m: we voegen een kaart van het aandeel verplichte oeverzones per cel en samen met een kaart van het aandeel gras- en houtachtige kleine landschapselementen in landbouwgebied (geen poelen en grachten). Die kaart schalen we op tot een resolutie van 1 ha.
+1) Daarvoor maken we eerst een kaart van de huidige kleine landschapselementen met een resolutie van 10x10m: we voegen een kaart van het aandeel verplichte oeverzones per cel en samen met een kaart van het aandeel gras- en houtachtige kleine landschapselementen in landbouwgebied (geen poelen en grachten). De resulterende kaart schalen we op tot een resolutie van 1 ha.
 
-2) We berekenen het totale doeloppervlak aan KLE als 10% van het landbouwgebied, en het doeloppervlak van KLE in de prioritaire zones van elk scenario als 15% van het landbouwgebied in de prioritaire zones. Het verschil tussen doeloppervlak en huidige oppervlak is het nieuw in te vullen oppervlak per zone (prioritair en totaal). 
+2) We berekenen het totale doeloppervlak aan KLE voor scenario 1 en 2 als 10% van het landbouwgebied, en het doeloppervlak van KLE in de prioritaire zones van elk scenario als 15% van het landbouwgebied in de prioritaire zones. Het verschil tussen doeloppervlak en huidige oppervlak is het nieuw in te vullen oppervlak per zone (prioritair en totaal). In scenario 3 bedraagt het doeloppervlak buiten de prioritaire zones 10% van het restgebied.
 
-3) Prioritaire zones vullen we eerst in: het huidige aandeel KLE blijft behouden als het boven de 15% ligt, de rest vullen we proportioneel aan (tot max 15%: (15% - huidig) * schaalfactor) tot het totaal voor de prioritaire zone 15% bedraagt. Bij scenario 1 wordt dit voor de gehele zone (niet-HAG) berekend, bij scenario 2 en 3 per afstromingsgebied/gele & oranje erosiezone apart: halen we per deelzone de 15%?
+3) Prioritaire zones vullen we eerst in: het huidige aandeel KLE blijft behouden als het boven de 15% ligt, de rest vullen we proportioneel aan (tot max 15%: (15% - huidig) * schaalfactor) tot het totaal voor de prioritaire zone 15% bedraagt. Bij scenario 1 wordt dit voor de gehele zone (niet-HAG) berekend, bij scenario 2 en 3 per afstromingsgebied/oranje erosiezone apart: halen we per deelzone de 15%?
 
 4) Na de prioritaire zones vullen we de rest van het landbouwgebied op dezelfde manier proportioneel aan tot het totale doeloppervlak bereikt is.
 
-5) De som van huidig en aanvullend aandeel KLE geeft een kaart van het totale aandeel KLE met een resolutie van 1 ha. Die vormen we terug om tot een kaart met een resolutie van 10x10m. 
+5) De som van huidig en aanvullend aandeel KLE geeft een kaart van het totale aandeel KLE met een resolutie van 1 ha. Die kaart vormen we terug om tot een kaart met een resolutie van 10x10m. We voeren enkele correcties uit om de doeloppervlaktes ook op 10m niveau min of meer te laten kloppen. 
 
 ## 1. Data inladen en klaarmaken
 
@@ -63,9 +63,9 @@ De volgende datasets worden gebruikt:
 - deel_3_reclass_gewascode_nit.xlsx -\> tabel die teeltcodes verbind met nitraatgevoeligheid (1 = niet-nitraatgevoelig)
 - KLE.shp -\> KLE-polygonen in landbouwgebied
 - hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
-- afstroomgebied.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied
+- afstroomgebied_5m.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied
 - erosie.shp -\> polygonenkaart met de erosiegevoeligheidszones (groen, geel, oranje, rood, paars) 
-- geel_oranje.shp -\> polygonenkaart met de erosiegevoeligheidszones: enkel geel (erosiegevoeligheid: laag) en oranje (erosiegevoeligheid: medium)
+- geel_oranje.shp -\> polygonenkaart met de erosiegevoeligheidszones: enkel geel (erosiegevoeligheid: laag) en oranje (erosiegevoeligheid: medium) --> owv de grote oppervlakte geel, besluiten we enkel oranje gebieden prioritair in te vullen
 
 ```{r bestanden_folders}
 
