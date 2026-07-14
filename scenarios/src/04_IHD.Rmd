@@ -69,7 +69,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_zone_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp")
+targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_zone_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp")
 
 # In welke folders zitten de data?
 
@@ -1066,7 +1066,7 @@ De oppervlaktedoelstelling per deelgebied voor habitattype 3260 wordt als volgt 
 - De doelstelling op Vlaams niveau verdelen we over de deelgebieden op basis van het proportioneel aandeel van de **zoekzone voor het habitattype** in de habitatrichtlijngebieden waarvoor het habitattype is aangemeld. De onderstaande tabel geeft de SBZ waarvoor 3260 is aangemeld en de doelstelling. Alleen voor BE2500004 is er volgens het S-IHD-besluit geen toename nodig.
 
   |  |  |  |  |  |  |
-  |-------------|------------|------------|------------|------------|------------|
+  |------------|------------|------------|------------|------------|------------|
   | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** |
   | BE2100016 | toename | BE2100424 | toename | BE2200039 | toename |
   | BE2100017 | toename | BE2200029 | toename | BE2200043 | toename |
@@ -1119,8 +1119,18 @@ doel_cel <- lengte_aandeel %>%
 ###### **Doelstelling alloceren**
 
 - STAP 1 - vha verrasteren en geschiktheid projecteren op riviercellen
+  - Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking.
+  - De geschiktheid wordt bepaald door:
+    - het landgebruik op de oevers (akkers en bebouwde cellen zijn niet geschikt, semi-nat. gras, loofbos en moeras zijn heel geschikt, andere natuur matig geschikt)
+    - de combineerbaarheid van natuurdoelen met vernatting
+    - de ligging in HAG of in natuurgebied (SBZ-H, VEN of groene bestemming)
+    - de zoekzone voor habitat 3260 en de aanwezigheid van visdoelen (kleine modderkruiper, beekprik, rivierdonderpad)
+  - De terrestrische geschiktheden (landgebruik, natuurdoelen, beleid) worden geprojecteerd op de verrasterde VHA-cellen.
 - STAP 2 - Plaatsen doeloppervlakte
+  - De doeloppervlakte wordt geplaatst in clusters van 50 cellen (\~500 m).
+  - Eerst wordt het traject opgevuld met de hoogste gemiddelde geschiktheid. Binnen het traject worden de cellen opgevuld volgens hun individuele celgeschiktheid. Als er minder dan 50 cellen in een traject overblijven, wordt de volgende cluster van 50 cellen in het traject met de eerstvolgende gemiddelde geschiktheid geplaatst.
 - STAP 3 - Vernattingszone afbakenen
+  - De geplaatste cellen voor uitbreiding van habitat 3260 (STAP 2)
 
 ```{r beekherstel_sc1}
 #///////////////////////////////////////////////////////////////////////////////
@@ -1135,7 +1145,7 @@ r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
 
 
 # 1. Geschikte ecosystemen (0, 1 en 2) -> waterlopen op NA zetten
-lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401,  403, 404, 701, 702), 2, ifel(ecosysteem_2022 %in% c(801, 802), NA, 1))))
+lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401, 403, 404, 701, 702), 2, ifel(ecosysteem_2022 %in% c(801, 802), NA, 1))))
 
 # 2. geschiktheid ifv natuurdoelen
 natuur_intol_raw <- ifel(is.na(intolerant_zone_vernatting), 0, 1)
@@ -1184,11 +1194,12 @@ geschikt_vis <- ifel(!is.na(geschikt_vis), 1, 0)
 
 geschikt_sc1_pre <- ifel(vha_hag == 1 | vha_intol == 1 | vha_lu == 0, 0, ifel(vha_natuur == 1, vha_lu + 1, vha_lu))
 
-bonus_3260 <- ifel(is.na(geschikt3260), 0, ifel(geschikt3260 == 1, 1, 0))
+bonus_3260 <- ifel(is.na(geschikt_3260), 0, ifel(geschikt_3260 == 1, 1, 0))
 bonus_vis  <- ifel(is.na(geschikt_vis), 0, ifel(geschikt_vis == 1, 1, 0))
 
 geschikt_sc1 <- ifel(geschikt_sc1_pre == 0, 0, 
                          geschikt_sc1_pre + bonus_3260 + bonus_vis)
+
 
 
 
@@ -1259,13 +1270,13 @@ while (length(geselecteerde_rijen) < doel_cel && patch_index <= length(volgorde_
     resterend_in_patch <- aantal_beschikbaar - blok_grootte
     
     if (resterend_in_patch < 50) {
-      # Minder dan 500 cellen over? Dan gaan we de volgende keer naar de volgende patch
+      # Minder dan 50 cellen over? Dan gaan we de volgende keer naar de volgende patch
       patch_index <- patch_index + 1
     }
-    # (Als er wel >= 500 over zijn, blijft patch_index gelijk en pakt de loop straks wéér een blok uit deze patch)
+    # (Als er wel >= 50 over zijn, blijft patch_index gelijk en pakt de loop straks wéér een blok uit deze patch)
     
   } else {
-    # De patch heeft al minder dan het gewenste blok (500) over vanaf de start.
+    # De patch heeft al minder dan het gewenste blok (50) over vanaf de start.
     # We nemen alles wat er nog in zit mee.
     gekozen_ids <- beschikbare_cellen$row_id
     geselecteerde_rijen <- c(geselecteerde_rijen, gekozen_ids)
@@ -1290,11 +1301,119 @@ beekherstel_final[df_selectie$cell] <- df_selectie$celgeschiktheid
 
 mapview(beekherstel_final, na.color = "transparent")
 
-#///////////////////////////////////////////////////////////////////////////////
-# STAP 3 - Verfnattingszone afbakenen
-#///////////////////////////////////////////////////////////////////////////////
 
 
+
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 3 - Vernattingszone afbakenen
+#///////////////////////////////////////////////////////////////////////////////
+
+vallei <- ifel(overstromingsdiepte_t100_flu_plu > 0, 1, NA)
+
+# Tabel met vernattingsafstanden per textuurklasse
+dist_nat <- c(
+  "G" = 500, "Z" = 200, "S" = 200, "P" = 150, "L" = 100,
+  "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
+
+rat <- cats(textuur)[[1]] # Raster Attribute Table
+names(rat) <- c("value", "textuur")
+rat <- rat %>% 
+  select("value", "textuur")
+
+# Functie om dist voor combinaties van textuurklassen (bv. U-A-S) te berekenen
+calc_dist <- function(t_string) {
+  parts <- str_split(t_string, "-")[[1]]
+  vals <- dist_nat[parts]
+  return(mean(vals, na.rm = TRUE))
+}
+
+dist_values <- rat %>%
+  rowwise() %>%
+  mutate(afstand = calc_dist(textuur)) %>%
+  ungroup()
+
+
+vha_beekherstel <- project(beekherstel_final, ecosysteem_2022, method = "near")
+vha_beekherstel <- ifel(!is.na(vha_beekherstel), 1, NA)
+textuur <- project(textuur, ecosysteem_2022, method = "near")
+
+# 1. Bepaal de textuur per riviercel (dominante textuurklasse in de omgeving)
+# textuur thv riviercellen
+rivier_textuur_ruw <- mask(textuur, vha_beekherstel)
+# venster voor focal-analyse definiëren (cirkel van 50 m)
+w <- focalMat(vha_beekherstel, d = 50, type = "circle")
+w <- matrix(as.numeric(w > 0), nrow = nrow(w), ncol = ncol(w))
+# Meest voorkomende textuurklasse in en rond cel
+textuur_focal <- focal(rivier_textuur_ruw, w = w, fun = "modal", na.rm = TRUE)
+# raster bijsnijden om alleen vha over te houden
+rivier_textuur <- mask(textuur_focal, vha_beekherstel)
+
+# 2. Afstanden koppelen aan de textuurklassen
+rivier_afstanden <- subst(rivier_textuur, from = dist_values$textuur, to = dist_values$afstand)
+
+# 3. Riviercellen omzetten naar punten
+rivier_punten <- as.points(rivier_afstanden, na.rm = TRUE)
+rivier_punten$textuurkla <- as.numeric(rivier_punten$textuurkla)
+rivier_punten <- rivier_punten[rivier_punten$textuurkla > 0, ]
+
+
+# 4. Variabele buffer rond de cel-middelpunten
+buffer_polygons <- buffer(rivier_punten, width = "textuurkla")
+
+# 5. Verrasteren van het eindresultaat
+buffer_rast <- rasterize(
+  x = buffer_polygons, 
+  y = ecosysteem_2022, 
+  field = "textuurkla", 
+  fun = "min",       # Behoud de kleinste afstand als twee buffers overlappen
+  background = NA
+)
+
+
+# 1. Haal de unieke afstandswaarden op en sorteer van KLEIN naar GROOT
+unieke_afstanden <- as.numeric(unique(rivier_afstanden)[, 1])
+unieke_afstanden <- unieke_afstanden[!is.na(unieke_afstanden) & unieke_afstanden > 0]
+unieke_afstanden <- sort(unieke_afstanden)
+
+# 2. Maak een leeg basisraster aan voor de vallei
+vallei_rast <- rivier_afstanden * NA
+
+# 3. De Distance-Loop per afstandsklasse
+for (d in unieke_afstanden) {
+  
+  # A. Isoleer de riviercellen die exact deze afstand 'd' hebben
+  # Belangrijk: de rest MOET NA zijn, want distance() berekent de afstand TOT de niet-NA cellen.
+  rivier_specifiek <- ifel(rivier_afstanden == d, 1, NA)
+  
+  # B. Bereken de exacte afstand (in meters) van ELKE cel tot deze specifieke riviercellen
+  dist_kaart <- distance(rivier_specifiek)
+  
+  # C. Selecteer alle cellen waarvan de werkelijke afstand kleiner of gelijk is aan 'd'
+  vallei_zone_waarde <- ifel(dist_kaart <= d, d, NA)
+  
+  # D. Voeg samen met het hoofdraster
+  # Dankzij de sortering (klein naar groot) claimen kleinere buffers de cellen eerst.
+  vallei_rast <- cover(vallei_rast, vallei_zone_waarde)
+}
+
+# 4. Controleer het resultaat
+plot(vallei_rast, main = "Valleizone berekend via 'distance'")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Vernattingszone beperken tot grenzen overstromingskaart (t100)
+vernatting_rivier <- ifel(!is.na(buffer_rast * vallei), 1, NA)
 
 ```
 
