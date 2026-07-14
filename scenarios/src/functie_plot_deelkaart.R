@@ -2,9 +2,11 @@
 # De coördinaten (x_midden en y_midden) zijn het middelpunt van het vierkant
 # Extract coördinaten in QGIS via rechtermuisknop -> copy coordinate (EPSG:31370)
 
+180616.9,220406.9
+
 plot_part <- function(x) {
-  x_midden <- 180274.5
-  y_midden <- 215902.5
+  x_midden <- 180616.9
+  y_midden <- 220406.9
   # We nemen 500m naar links/rechts en naar boven/onder vanaf het midden
   extent <- ext(
     x_midden - 500, x_midden + 500, 
