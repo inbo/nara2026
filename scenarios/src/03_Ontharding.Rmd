@@ -169,19 +169,40 @@ st_write(gemeente_studiegebied, str_c("C:/R/NARA2026/nara2026-git/scenarios/", s
 
 ## 3. Ontharding
 
+[Scenario 1 en 2: nieuw onthardingsdoel op basis van BRV -\> De verhardingsgraad van het ruimtebeslag is ten laatste tegen 2050 opnieuw op het niveau van 2015. Volgens <https://betonmeter.be/> betekent dat 8.375 ha in harde bestemmingen en 10.999 ha in de zachte bestemmingen. Aanpak:
+
+- Doelbepaling harde bestemmingen: Per deelgebied de verharding (codes 101 en 102) in harde bestemmingen van ecosysteemkaart 2016 vergelijken met die van 2022
+  - De harde bestemmingen komen overeen met de bestemmingscategorieën ‘Wonen’ (01), ‘Recreatie’ (02), ‘Industrie – buiten poorten’ (07), ‘Industrie – poorten’ (7p) en delen van ‘Overig groen’ (04) en ‘Overige’ (08) van de [Ruimteboekhouding RSV](https://indicatoren.omgeving.vlaanderen.be/indicatoren/ruimteboekhouding-rsv) (laag rbh.shp). De harde delen van 'overig groen' zijn Ingerichte parkgebieden (bestemmingscode 0500) en buffergebieden (0600).
+- Doelbepaling zachte bestemmingen: 20% van de verharding in de niet-harde bestemmingen.
+- Plaatsing doelen:
+  - Op basis van [Kansenkaart onthardingswinst](https://www.vlaanderen.be/datavindplaats/catalogus/kansenkaart-onthardingswinst)?
+  - Tuinen
+
+Scenario 3:
+
+- Doel: 50% van laagste categorie wegen (landbouwwegen) verwijderen + alle [verspreide bebouwing](https://www.vlaanderen.be/datavindplaats/catalogus/kernen-linten-verspreide-bebouwing-in-vlaanderen-verspreide-bebouwing-toestand-2022) in overstromingsgevoelig gebied en in natuurnetwerken (-\> wat is dat? SBZH?)
+
+]
+
+**Oude versie:**
+
 De vorige stap berekent hoeveel inwoners er per gemeente zijn in het studiegebied. Op basis daarvan wordt het onthardingsdoel bepaald voor het deel van de gemeente dat in het studiegebied ligt (1 m² per inwoner). Het onthardingsdoel wordt vertaald in een aantal cellen (10m x 10m) waarvan het landgebruik moet veranderen. Alleen cellen die op de ecosysteemkaart code 102 hebben (stedelijk verhard) en die geen spoorweg of baanweg zijn, komen in aanmerking voor ontharding.
 
 De te ontharden cellen worden geselecteerd op basis van een geschiktheidskaart.
 
-### 3.1. Geschiktheidskaart
+### a) Scenario 1
+
+Verharde oppervlakte binnen kernen ontharden op publieke terreinen (totale opp. = 1 m² per inwoner - statbel)
+
+**Geschiktheidskaart**
 
 - **Verharde cellen** die **geen wegen** zijn in **woonkernen** -\> alleen cellen die code 102 hebben in de ecosysteemkaart én NA in de wegenkaart én code 1 in de kernenkaart komen in aanmerking voor ontharding.
 - De cellen worden bij voorkeur geselecteerd als ze eigendom zijn van een **lokale** (1), **regionale** (4) of **provinciale** overheid (9) of **OCMW** (5). Of indien het een **Publieke Levensbeschouwelijke Instelling** (8) is met een **onderwijs** (lu_niv2 = 35) of **zorgfunctie** (lu_niv2 = 33). De geschiktheid van de **andere publieke eigendommen** moet half zo groot zijn.
-- De publieke cellen worden bij voorkeur geselecteerd als een van de volgende landgebruiksfuncties hebben (lu_niv2): **overige bebouwde percelen** (1), **sportterreinen** (6), **overige recreatie** (8), **gezondheidszorg** (33), **katoren&administratie** (34), **onderwijs** (35) of **overige diensten** (36). De andere scores in kaart lu_niv2 zijn niet geschikt.
-- **Private cellen** met een onderwijsfunctie (35) zijn geschikt.
+- De publieke cellen worden bij voorkeur geselecteerd als ze een van de volgende landgebruiksfuncties hebben (lu_niv2): **overige bebouwde percelen** (1), **sportterreinen** (6), **overige recreatie** (8), **gezondheidszorg** (33), **katoren&administratie** (34), **onderwijs** (35) of **overige diensten** (36). De andere scores in kaart lu_niv2 zijn niet geschikt.
+- **Private cellen** met een onderwijsfunctie (35) zijn geschikt (selectie speelplaatsen).
 - De geschiktheid moet toenemen naarmate de **cluster** van aaneengesloten geschikte cellen groter is en de cluster compacter is (om langerekte bermen of wegen uit te sluiten).
 
-```{r geschiktheid}
+```{r geschiktheid_sc1}
 
 # 1. Harde randvoorwaarde (Masker)
 # Alleen 102 EN weg=1 EN kern=1
@@ -206,7 +227,7 @@ score_owner <- ifel(lu_niv2 %in% c(33, 35), # scholen & zorg op 1
 score_lu <- ifel((lu_niv2 %in% c(1, 6, 8, 33, 34, 35, 36)),
                   1, 0)
 
-# 4. Gecombineerde Basis-geschiktheid
+# 4. Gecombineerde basisgeschiktheid
 basis_geschiktheid <- score_owner * score_lu * masker
 
 
@@ -246,15 +267,14 @@ geschiktheid_combi <- basis_geschiktheid * log10(cluster_size + 1) * (compacthei
 geschiktheid <- ifel(geschiktheid_combi == 0, 1, geschiktheid_combi)
 
 
-# Opslaan
 # writeRaster(geschiktheid, "geschiktheidskaart_ontharding.tif", overwrite=TRUE)
 ```
 
-### 3.2. Cellen alloceren
+**Cellen alloceren**
 
 Het onthardingsdoel per gemeente is 1 m² per inwoner. Als een gemeente 1000 inwoners heeft, moet er dus 1000 m² onthard worden = 10 cellen van 10x10m. Die 10 cellen moeten geplaatst worden op verharde cellen volgens hun geschiktheid.
 
-```{r allocatie}
+```{r allocatie_sc1}
 
 # 1. Rasteriseer de gemeentes (CNIS5 = code gemeente)
 gemeente_rast <- rasterize(gemeente_studiegebied, geschiktheid, field = "CNIS5")
@@ -315,6 +335,37 @@ mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
   mapview(ontharding_1na, col.regions = "darkblue", na.color = "transparent") + mapview(gemeente_studiegebied, zcol = "CNIS5")
 ```
 
+### b) Scenario 2
+
+Verharde oppervlakte binnen kernen ontharden op de meest geschikte geschikte locaties (doorgrondkaart + infiltratiegebied)
+
+**Geschiktheidskaart**
+
+```{r geschiktheid_sc2}
+
+
+```
+
+**Cellen alloceren**
+
+```{r allocatie_sc2}
+
+```
+
+### c) Scenario 3
+
+100% verharde oppervlakte binnen kernen ontharden
+
+**Geschiktheidskaart**
+
+```{r geschiktheid_sc3}
+```
+
+**Cellen alloceren**
+
+```{r allocatie_sc3}
+```
+
 ## 4. Afkoppeling gebouwen
 
 We willen inschatten hoe ...
@@ -347,7 +398,9 @@ Scenario's:
 - scenario 2: 23% van bebouwde oppervlakte verdeeld over de bebouwde cellen (idem sc 1) die het **meest geschikt zijn voor infiltratie**
 - scenario 3: 100% van bebouwde oppervlakte (idem sc 1)
 
-```{r afkoppeling}
+#### a) Scenario 1
+
+```{r afkoppeling_sc1}
 
 # 1. Maak binair masker van bebouwde en onbebouwde cellen
 # Bebouwd (101) krijgt waarde 1, de rest NA
@@ -399,4 +452,18 @@ mapview(infiltratie_sc, na.color = "transparent") + mapview(ontharding_1na, col.
 
 # 5. Resultaat opslaan of bekijken
 # writeRaster(infiltratie_sc, "infiltratie_sc.tif", overwrite = TRUE)
+```
+
+#### b) Scenario 2
+
+```{r afkoppeling_sc2}
+
+
+```
+
+#### c) Scenario 3
+
+```{r afkoppeling_sc3}
+
+
 ```
