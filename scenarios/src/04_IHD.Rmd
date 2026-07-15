@@ -1066,7 +1066,7 @@ De oppervlaktedoelstelling per deelgebied voor habitattype 3260 wordt als volgt 
 - De doelstelling op Vlaams niveau verdelen we over de deelgebieden op basis van het proportioneel aandeel van de **zoekzone voor het habitattype** in de habitatrichtlijngebieden waarvoor het habitattype is aangemeld. De onderstaande tabel geeft de SBZ waarvoor 3260 is aangemeld en de doelstelling. Alleen voor BE2500004 is er volgens het S-IHD-besluit geen toename nodig.
 
   |  |  |  |  |  |  |
-  |------------|------------|------------|------------|------------|------------|
+  |----|----|----|----|----|----|
   | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** |
   | BE2100016 | toename | BE2100424 | toename | BE2200039 | toename |
   | BE2100017 | toename | BE2200029 | toename | BE2200043 | toename |
