@@ -29,7 +29,7 @@ library(progress)
 
 ## Overzicht en opzet
 
-Het script berekent de combineerbaarheid van natuur (Toekomstlaag, habitatkaart) met vernatting.
+Het script berekent de oppervlakte van droge natuurtypes in de verschillende watersysteemgebieden. De basiskaarten voor de natuurtypes zijn de habitatkaart (BWK) en de toekomstlaag v2025 die aangeeft waar welke natuur gerealiseerd moet worden. Per polygoon kunnen er meerdere natuurtypes (habitattypes en rbb's) met een verschillende bedekkingsgraad voorkomen (HAB1, HAB2, ...). Daarom selecteren we per polygoon alleen de natuurtypes die **minstens 30%** van de polygoon bedekken. Vervolgens worden de natuurtypes ingedeeld in **droge en natte types** (tabel droge_habitats.xlsx). Als er meerdere droge types in een polygoon voorkomen, wordt alleen het type met de **hoogste bedekkingsgraad** in rekening gebracht. Per polygoon met een droog natuurtype berekenen we de overlap met de watersysteemgebieden.
 
 ## 1. Data inladen en klaarmaken
 
@@ -95,7 +95,7 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 list2env(data_list, envir = .GlobalEnv)
 ```
 
-## 2. Vernatting
+## 2. Analyse
 
 ### Stap 1 - Selecteer natuur die minstens 30% van perceel bedekt
 
@@ -153,7 +153,7 @@ percelen_scores <- percelen_bwk_df %>%
   left_join(droge_habitats, by = c("HAB_type" = "habitat")) %>%
   filter(nat == "nee", !HAB_type %in% c("gh", "geen habitat", "geen vegetatie NSB")) |>
   group_by(ID_perceel) %>%
-  # Kies per perceel het vegetatietype met de laagste grondwaterstand
+  # Kies per perceel het vegetatietype met de hoogste bedekkingsgraad
   slice_max(bedekking, n = 1, with_ties = FALSE)
 
 # Voeg scores terug toe aan de vector data
@@ -170,7 +170,7 @@ percelen_scores <- percelen_toekomst_df %>%
   left_join(droge_habitats, by = c("HAB_type" = "habitat")) %>%
   filter(nat == "nee", !HAB_type %in% c("gh", "geen habitat", "geen vegetatie NSB")) |>
   group_by(ID_perceel) %>%
-  # Kies per perceel het vegetatietype met de laagste grondwaterstand
+  # Kies per perceel het vegetatietype met de hoogste bedekkingsgraad
   slice_max(bedekking, n = 1, with_ties = FALSE)
 
 # Voeg scores terug toe aan de vector data
