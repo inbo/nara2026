@@ -19,10 +19,7 @@ library(mapview)
 library(tools)     # Handig voor file_ext()
 library(beepr) # voor de grap
 library(leaflet) # Nodig voor colorFactor
-library(qgisprocess)
 library(exactextractr) # om snel statistieken op rasters te berekenen
-library(jsonlite)
-library(whitebox)
 library(progress)
 
 ```
@@ -30,6 +27,8 @@ library(progress)
 ## Overzicht en opzet
 
 Het script berekent de oppervlakte van droge natuurtypes in de verschillende watersysteemgebieden. De basiskaarten voor de natuurtypes zijn de habitatkaart (BWK) en de toekomstlaag v2025 die aangeeft waar welke natuur gerealiseerd moet worden. Per polygoon kunnen er meerdere natuurtypes (habitattypes en rbb's) met een verschillende bedekkingsgraad voorkomen (HAB1, HAB2, ...). Daarom selecteren we per polygoon alleen de natuurtypes die **minstens 30%** van de polygoon bedekken. Vervolgens worden de natuurtypes ingedeeld in **droge en natte types** (tabel droge_habitats.xlsx). Als er meerdere droge types in een polygoon voorkomen, wordt alleen het type met de **hoogste bedekkingsgraad** in rekening gebracht. Per polygoon met een droog natuurtype berekenen we de overlap met de watersysteemgebieden.
+
+![Figuur 1. Stappen voor de analyse van droge habitats in watersysteemgebieden.](images/methode_droge_habitats.png)
 
 ## 1. Data inladen en klaarmaken
 
@@ -184,19 +183,7 @@ percelen_toekomst_final <- percelen_toekomst %>%
 
 ```
 
-### Stap 3 - Bereken de oppervlakte in de watersysteemgebieden
-
-```{r watersysteem}
-
-# Zorg dat de coördinatensystemen exact gelijk zijn
-if (st_crs(percelen_bwk_final) != st_crs(watersysteem_finaal)) {
-  percelen_bwk_final <- st_transform(percelen_bwk_final, st_crs(watersysteem_finaal))
-}
-
-# Voeg een unieke ID en de totale oppervlakte (in m²) toe
-percelen_bwk_final <- percelen_bwk_final %>%
-  mutate(poly_id = row_number(), totale_opp = round(as.numeric(st_area(.))), 0)
-
+```{r binnen_sbz}
 
 #//////////////////////////////////////////////////////////////////////////////
 # Alleen bwk-polygonen binnen SBZ-H
@@ -219,10 +206,29 @@ percelen_in_sbz <- percelen_in_sbz |>
 
 #//////////////////////////////////////////////////////////////////////////////
 
+```
+
+### Stap 3 - Bereken de oppervlakte in de watersysteemgebieden
+
+```{r watersysteem}
+
+keuze <- "percelen_toekomst_final"
+
+percelen <- get(keuze)
+  
+# Zorg dat de coördinatensystemen exact gelijk zijn
+if (st_crs(percelen) != st_crs(watersysteem_finaal)) {
+  percelen <- st_transform(percelen, st_crs(watersysteem_finaal))
+}
+
+# Voeg een unieke ID en de totale oppervlakte (in m²) toe
+percelen <- percelen %>%
+  mutate(poly_id = row_number(), totale_opp = round(as.numeric(st_area(.))), 0)
+
 
 # Bereken de overlap tussen de cellen van de watersysteemkaart en de natuurpolygonen
-ext_list <- exact_extract(watersysteem_finaal, percelen_bwk_final, progress = TRUE)
-ext_list <- exact_extract(watersysteem_finaal, percelen_in_sbz, progress = TRUE)
+# 
+ext_list <- exact_extract(watersysteem_finaal, percelen, progress = TRUE)
 
 cel_oppervlakte <- 50 * 50 # oppervlakte rastercel 50x50m = 2500 m²
 
@@ -239,7 +245,7 @@ df_overlap <- bind_rows(ext_list, .id = "poly_id") %>%
   summarise(overlap_opp = sum(overlap_opp), .groups = "drop")
 
 # Koppel de originele oppervlakte terug
-df_percelen_basis <- st_drop_geometry(percelen_in_sbz) #!!
+df_percelen_basis <- st_drop_geometry(percelen) #AANPASSEN!
 df_overlap <- df_overlap %>%
   left_join(df_percelen_basis, by = "poly_id")
 
@@ -253,6 +259,7 @@ zone_namen <- data.frame(
 )
 
 # ANALYSE 1: GROOTSTE OVERLAP
+# Alleen het watersysteemgebied met de grootste overlap
 analyse_1_grootste_overlap <- df_overlap %>%
   group_by(poly_id) %>%
   slice_max(overlap_opp, n = 1, with_ties = FALSE) %>%
@@ -267,6 +274,7 @@ analyse_1_grootste_overlap <- df_overlap %>%
   relocate(gebied_naam, .after = zone_code)
 
 # ANALYSE 2: VOLLEDIG BINNEN ÉÉN ZONE
+# Alleen de percelen die volledig binnen 1 watersysteemgebied vallen
 analyse_2_volledig_binnen <- df_overlap %>%
   mutate(aandeel = overlap_opp / totale_opp) %>%
   filter(aandeel >= 0.999) %>% # 99.9% vangt afrondingsfoutjes op de pixelranden op
@@ -279,8 +287,9 @@ analyse_2_volledig_binnen <- df_overlap %>%
   left_join(zone_namen, by = "zone_code") %>%
   relocate(gebied_naam, .after = zone_code)
 
-# ANALYSE 1b: GROOTSTE OVERLAP - natuurtypes
-kruistabel <- df_overlap %>%
+# ANALYSE 3: per natuurtype
+# Oppervlakte per geselecteerd natuurtype (droge types, >= 30%, hoogste bedekking)
+analyse_3_types <- df_overlap %>%
   group_by(HAB_type, zone_code) %>%
   summarise(som_opp = round(sum(overlap_opp)/10000, 0), .groups = "drop") %>%
   left_join(zone_namen, by = "zone_code") |>
@@ -292,8 +301,11 @@ kruistabel <- df_overlap %>%
   ) %>% 
     arrange(HAB_type)
 
-# Toon resultaten
-print(analyse_1_grootste_overlap)
-print(analyse_2_volledig_binnen)
+
+# Resultaten wegschrijven als aparte dataframes
+assign(str_c("analyse1_", keuze), analyse_1_grootste_overlap)
+assign(str_c("analyse2_", keuze), analyse_2_volledig_binnen)
+assign(str_c("analyse3_", keuze), analyse_3_types)
+
 
 ```
