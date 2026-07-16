@@ -53,17 +53,16 @@ De dataset met de kaarten van de hcov-lagen staat in de folder `C:/R/NARA2026/ba
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem.tif" , "rivierb_buf.shp", "ecosysteem_2022.tif", "tabel_hcov.xlsx")
+targets <- c("ecosysteem.tif" , "gebied_buf.shp", "ecosysteem_2022.tif", "tabel_hcov.xlsx")
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"), "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -176,7 +175,7 @@ analyze_stack <- function(v) {
   types  <- v[(3*n_layers+1):(4*n_layers)]
   
   # Sorteer lagen van boven naar beneden op basis van de Top-waarde
-  order_idx <- order(tops, decreasing = TRUE)
+  order_idx <- order(tops, decreasing = TRUE, na.last = NA)
  
   # Versie 1: oorspronkelijke functie 
   total_D  <- 0
@@ -247,11 +246,11 @@ if (st_crs(clip_poly) != st_crs(result_ras)) {
 }
 result_ras <- mask(result_ras, clip_poly) # dit stukje kan je weglaten, zorgt voor NA-waarden aan de randen
 
-mapview(result_ras$totale_dikte_aquifer)
+plot(result_ras$totale_dikte_aquifer)
 
-mapview(result_ras$gemiddelde_ksat)
+plot(result_ras$gemiddelde_ksat)
 
-writeRaster(result_ras$totale_dikte_aquifer, str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/aquifer_hcov.tif"), overwrite = TRUE)
+writeRaster(result_ras$totale_dikte_aquifer, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/aquifer_hcov.tif"), overwrite = TRUE)
 
-writeRaster(result_ras$gemiddelde_ksat, str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/ksat_h_hcov.tif"), overwrite = TRUE)
+writeRaster(result_ras$gemiddelde_ksat, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ksat_h_hcov.tif"), overwrite = TRUE)
 ```
