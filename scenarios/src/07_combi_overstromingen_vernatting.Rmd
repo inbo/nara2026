@@ -65,7 +65,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -476,7 +476,74 @@ writeRaster(overstromingsvrije_clusters_bever, filename = str_c("C:/R/NARA2026/n
 
 #### a) Vernattingszone afbakenen
 
-```{r vernattingszone}
+Het script bakent rond rivieren die in aanmerking komen voor hydrologisch herstel een zone af waarbinnen de grondwatertafel kan stijgen door de opstuwing in de herstelde rivier. Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking.
+
+Voor de afbakening van de vernattingszone rond rivieren zijn er twee opties:
+
+- Optie 1 (preferentieel) steunt op de doorlatendheid van de bodem (textuur) en de ondergrond (watervoerende lagen van de HCOV). Op basis daarvan wordt een weerstandskaart gemaakt die als input gebruikt wordt voor een cost distance analyse. De maximaal toegelaten cost is bepaald door de cumulatieve cost op 200 m van een rivier in de best doorlatende zone. Die aanpak heeft als voordeel dat de vernattingszone varieert in functie van de doorlatendheid van de bodem in de hele vallei.
+- Optie 2 steunt op de doorlatendheid van de bodem (textuur) thv de rivier en bakent een vaste buffer per textuurklasse af. Dat heeft het voordeel van de eenvoud, maar negeert de doorlatendheid in de rest van de vallei. Een riviercel die op een veenbodem ligt, krijgt een brede buffer, ook als de bodem op 10 m van de rivier wijzigt in een kleibodem.
+
+##### Optie 1
+
+```{r vernattingszone_optie1}
+
+# 1. Waterlopen voor analyse
+vha_select <- vha %>%
+  dplyr::filter(CATC %in% c(1, 2, 3) & (is.na(BEHEER) | !grepl("^P", BEHEER)) & (CODSTATOWL != "KWL" | is.na(CODSTATOWL)) & !CODTYPOWL %in% c("Pz", "Pb"))
+
+r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
+
+# verticale doorlatendheid van de bodem (ksat) via textuur bodemkaart
+ksat_v <- c(
+  "G" = 10, "Z" = 1, "S" = 0.4, "P" = 0.15, "L" = 0.08,
+  "V" = 0.05, "M" = 0.03, "X" = 0.1, "A" = 0.01, "E" = 0.001, "U" = 0.0001)
+
+rat <- cats(textuur)[[1]]
+rat <- rat[1:2]
+names(rat) <- c("value", "textuur")
+
+# Functie om ksat voor combinaties van textuurklassen (bv. U-A-S) te berekenen
+calc_k <- function(t_string) {
+  parts <- str_split(t_string, "-")[[1]]
+  vals <- ksat_v[parts]
+  return(mean(vals, na.rm = TRUE))
+}
+
+ksat_values <- rat %>%
+  rowwise() %>%
+  mutate(ksat_waarde = calc_k(textuur)) %>%
+  ungroup()
+
+ksat_v_r <- classify(textuur, ksat_values[, c("value", "ksat_waarde")])
+
+# T (transmissiviteit (m2/d))
+# Begrens de aquiferdikte tot 20m om de transmissiviteit niet te groot te maken
+aquifer_20m <- clamp(aquifer_hcov, lower = 0, upper = 20)
+transmis <- ksat_h_hcov * (aquifer_20m + 0.1) # klein getal bij optellen om niet 0 te worden
+
+geleidbaarheid <- sqrt(transmis * ksat_v_r)
+weerstand <- 1 / (geleidbaarheid + 0.001)
+
+# Zoek de minimale frictiewaarde in het raster (de best doorlatende bodem, bijv. diep veen)
+f_min_val <- global(weerstand, fun = function(x) quantile(x, probs = 0.01, na.rm = TRUE))[[1]]
+
+# Maximale vernattingsafstand (200 meter) in de meest doorlatende bodem
+max_cost <- 200 * f_min_val
+
+# Riviercellen in weerstandskaart branden met waarde -999.
+weerstand_target <- weerstand
+weerstand_target[r_vha == 1] <- -999
+
+# Bereken de cost-distance (geaccumuleerde weerstand vanaf de riviercellen)
+r_cost_dist <- costDist(weerstand_target, target = -999)
+
+vernattingszone <- ifel(r_cost_dist <= max_cost, 1, NA)
+
+```
+
+##### Optie 2
+
+```{r vernattingszone_optie2}
 
 vallei <- ifel(overstromingsdiepte_t100_flu_plu > 0, 1, NA)
 vallei <- crop(vallei, ecosysteem_2022)
@@ -507,7 +574,7 @@ tbl_dist_nat <- rat %>%
 
 # Stap 2: De vernattingsafstanden koppelen aan de waterloopsegmenten
 
-# CRS van kaarten gelijkmaken + selectie VHA (alleen stromende waterlopen en kleinste weglaten)
+# CRS van kaarten gelijkmaken + selectie VHA (alleen stromende waterlopen en kleinste weglaten) -> polderlopen (Pz, Pb) nog verwijderen
 vha_select <- st_transform(vha, st_crs(ecosysteem_2022)) %>%
   dplyr::filter(CATC %in% c(1, 2, 3) & CODTYPOWL %in% c(NA, "Rzg", "Rg", "Rk", "Mlz", "RtNt", "BkK", "Bk", "BgK", "Bg", "Pz", "Pb"))
 
@@ -561,7 +628,7 @@ buffer_rast <- rasterize(
 
 # Stap 4: de vernattingsafstand beperken tot de overstromingszone
 
-# Vernattingszone beperken tot grenzen overstromingskaart (t100)
+# Vernattingszone beperken tot grenzen overstromingskaart (t100) -> weglaten, de t100 is op veel plaatsen te smal of afwezig
 vernattingszone <- ifel(!is.na(buffer_rast * vallei), 1, NA)
 ```
 
@@ -587,7 +654,7 @@ percelen_final <- merge(percelen, percelen_scores_glg, by.x = "row.names", by.y 
 # 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 r_base <- rast(ext(ecosysteem_2022), resolution = 10, crs = crs(ecosysteem_2022))
 
-# Rasteriseer de tolerantiescores naar 10x10m
+# Verraster de tolerantiescores naar 10x10m
 r_maxglg <- rasterize(percelen_final, r_base, field = "max_glg")
 
 
@@ -595,33 +662,77 @@ r_maxglg <- rasterize(percelen_final, r_base, field = "max_glg")
 combineerbaar_vernatting <- ifel(r_maxglg >= 4, 1, NA)
 
 # Alleen natuur in vernattingszone in rekening brengen
-combineerbaar_vernatting_t100 <- mask(combineerbaar_vernatting, vernattingszone)
+combineerbaar_vernattingszone <- mask(combineerbaar_vernatting, vernattingszone)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaar_vernatting_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaar_vernatting_t100.tif"), overwrite = TRUE)
+writeRaster(combineerbaar_vernattingszone, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaar_vernattingszone.tif"), overwrite = TRUE)
 ```
 
 ### 3.2. Zones vrijwaren van vernatting
 
-De aanpak is dezelfde als die voor overstromingen.
+##### Optie 1
 
-```{r zones_vernatting}
+-\> We draaien de stroomrichting van het model voor de afbakening van de vernattingszone om: in plaats van vanaf de rivier naar buiten te rekenen, rekenen we nu vanaf de conflictcellen naar de rivier. Ririviercellen die binnen het frictie-budget van een conflictcel liggen worden geselecteerd (score 1).
+
+```{r zones_vernatting_optie1}
+# Voor de selectie van riviercellen die niet hersteld mogen worden, gebruiken we de omgekeerde aanpak van die voor de afbakening van de vernattingszones.
+
+# Zorg dat de conflictkaart 1 is op de conflictlocaties en NA op de rest.
+r_conflict <- ifel(combineerbaar_vernattingszone == 1, 1, NA)
+
+# We nemen het weerstandsraster en branden de conflictcellen in met -999.
+weerstand_conflict <- weerstand
+weerstand_conflict[r_conflict == 1] <- -999
+
+# OPTIONEEL: Rivieren als barrière toevoegen
+# vha_terra <- vect(vha)
+# celgrootte <- res(vernattingszone)[1]
+# rivieren_buffer <- buffer(vha_terra, width = celgrootte / 2)
+# rivieren_raster <- rasterize(rivieren_buffer, vernattingszone, touches = TRUE, field = 1, background = NA)
+# 
+# rivier_barriere <- ifel(is.na(rivieren_raster), 0, NA)
+# 
+# weerstand_conflict <- weerstand_conflict + rivier_barriere
+
+# Bereken de kostenafstand vanaf de conflictlocaties de vallei in.
+# Dit geeft voor elke cel in de vallei aan hoe 'dichtbij' (in termen van weerstand)
+# het dichtstbijzijnde conflict ligt.
+r_cost_from_conflict <- costDist(weerstand_conflict, target = -999)
+
+vernattingszone_conflict <- ifel(r_cost_from_conflict * vernattingszone > max_cost, NA, 1)
+
+# We selecteren nu de riviercellen (r_vha == 1) die binnen het frictie-budget 
+# van een conflictcel liggen (r_cost_from_conflict <= max_cost).
+# Deze krijgen waarde 1, de rest wordt NA.
+intolerant_vha_vernatting <- ifel(r_vha == 1 & r_cost_from_conflict <= max_cost, 1, NA)
+
+# mapview(vernattingszone_conflict, col.regions = "lightblue", na.color = "transparent") + mapview(r_conflict, col.regions = "red", na.color = "transparent") + mapview(intolerant_vha_vernatting, na.color = "transparent")
+
+writeRaster(intolerant_vha_vernatting, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_vha_vernatting.tif"), overwrite = TRUE)
+```
+
+##### Optie 2
+
+-\> Volgt dezelfde aanpak als die voor overstromingen (niet kiezen omdat de overstromingscontouren op veel plaatsen afwezig zijn of veel kleiner zijn dan de vernattingszones)
+
+```{r zones_vernatting_optie2}
 
 # Stap 1 - Masker
 
 # 1.1. Alleen overstroombare cellen (t100)
 
 overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
+vernatting_barriere <- ifel(vernattingszone > 0, 0, NA)
 
 # 1.2. Rivieren als barrière toevoegen
 vha_terra <- vect(vha)
-celgrootte <- res(waterdiepte)[1]
+celgrootte <- res(vernattingszone)[1]
 rivieren_buffer <- buffer(vha_terra, width = celgrootte / 2)
-rivieren_raster <- rasterize(rivieren_buffer, waterdiepte, touches = TRUE, field = 1, background = NA)
+rivieren_raster <- rasterize(rivieren_buffer, vernattingszone, touches = TRUE, field = 1, background = NA)
 
 rivier_barriere <- ifel(is.na(rivieren_raster), 0, NA)
 
-mask <- ifel(is.na(rivier_barriere) | is.na(overstroombaar_barriere), NA, 0)
+mask <- ifel(is.na(rivier_barriere) | is.na(vernatting_barriere), NA, 0)
 
 # 1.3. Wegen als barriere toevoegen
 
