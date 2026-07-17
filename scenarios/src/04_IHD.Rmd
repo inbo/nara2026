@@ -56,11 +56,15 @@ De volgende datasets worden gebruikt:
 - textuur.tif -\> bodemtextuur
 - intolerant_zone_bever.tif -\> zone die niet mag overstromen door beverdammen om natuurdoelen te vrijwaren.
 - intolerant_zone_t100.tif -\> zone die niet mag overstromen onder t100 om natuurdoelen te vrijwaren.
-- intolerant_zone_veenherstel.tif -\> zone die niet mag vernatten om natuurdoelen te vrijwaren
+- intolerant_zone_veenherstel.tif -\> zone die niet mag vernatten bij veenherstel om natuurdoelen te vrijwaren
+- intolerant_vha_vernatting.tif -\> vha-cellen die niet in in aanmerking komen voor beekherstel om vernatting vanuit de rivier te vermijden ifv de realisatie van natuurdoelen
 - grondwaterregime_habitats.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
 - zoekzone3260.shp -\> lijnsegmenten van de zoekzone voor habitattype 3260
 - zonering_bever.shp -\> kernleefgebieden (1) en maatwerkgebieden (2) bever
 - lbgp_gewasgroep.tif -\> landbouwgebruikspercelen 2022 (voor afbakening zone landbouwgebruik)
+- aquifer_hcov.tif -\> diepte tot bovenkant eerste aquitard (zie script `x5_hcov_lagen_combineren`)
+- ksat_h_hcov.tif -\> gewogen gemiddeld ksat_h van de ondergrond tot top aquitard (zie script `x5_hcov_lagen_combineren`)
+- dhm.tif -\> hoogte (voor weerstand vernatting)
 
 ```{r bestanden_folders}
 
@@ -69,7 +73,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_zone_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp")
+targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif")
 
 # In welke folders zitten de data?
 
@@ -612,7 +616,9 @@ Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oe
 
 ## 4. Scenario's
 
-### 4.0. Beleidskaarten
+### 4.0. Hulpkaarten
+
+#### Beleid 
 
 ```{r beleidskaarten}
 # verrasteren beleidskaarten (gebied = 1, rest = 0)
@@ -628,6 +634,84 @@ r_ven <- mask(rasterize(ven, ecosysteem_2022, field = 1, background = 0), ecosys
 
 r_sbz_ven <- ifel(r_sbz == 1 | r_ven == 1, 1, 0)
 r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
+```
+
+#### Rivieren en vernattingsbuffers
+
+Selecteer en verraster de waterlopen die in aanmerking komen voor beekherstel en vrijstromendheid en bereken de buffer rond de waterlopen waarbinnen vernatting mogelijk is.
+
+- Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking.
+- De vernattingsbuffers worden benaderd op basis van de transmissiviteit ($D*k_{sat}$, met *D* de dikte (m) en *k~sat~* de **horizontale** geleidbaarheid (m²/d) van de watervoerende laag) en de verticale doorlatendheid (*k~v~*) van de bodem.
+
+```{r rivieren_en_vernattingsbuffer}
+
+#////////////////////////////////////////////////////////////////////////
+# STAP 1- Selectie van VHA-segmenten -> selectie cf. vrijstromendheid sc3
+#////////////////////////////////////////////////////////////////////////
+
+# 1. Waterlopen voor analyse
+vha_select <- vha %>%
+  dplyr::filter(CATC %in% c(1, 2, 3) & (is.na(BEHEER) | !grepl("^P", BEHEER)) & (CODSTATOWL != "KWL" | is.na(CODSTATOWL)) & !CODTYPOWL %in% c("Pz", "Pb"))
+
+r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
+
+# 2. OPTIONEEL: Kanalen en bevaarbare waterlopen (voor geschiktheidskaart)
+# Als er kanalen of bevaarbare waterlopen in de vernattingszone liggen, kan de rivier niet hersteld worden (te weinig ruimte, potentieel conflict met infrastructuur) <> herstel is wel mogelijk: zie extreem voorbeeld in Molenbeek-Bollaak
+# vha_kunst <- vha %>%
+#   dplyr::filter(CATC == 0 | CODSTATOWL == "KWL")
+# 
+# r_vha_kunst <- rasterize(vha_kunst, ecosysteem_2022, touches = TRUE, field = 1)
+
+
+#////////////////////////////////////////////////////////////////////////
+# STAP 2 - Buffer berekenen
+#////////////////////////////////////////////////////////////////////////
+
+# verticale doorlatendheid van de bodem (ksat) via textuur bodemkaart
+ksat_v <- c(
+  "G" = 10, "Z" = 1, "S" = 0.4, "P" = 0.15, "L" = 0.08,
+  "V" = 0.05, "M" = 0.03, "X" = 0.1, "A" = 0.01, "E" = 0.001, "U" = 0.0001)
+
+rat <- cats(textuur)[[1]]
+rat <- rat[1:2]
+names(rat) <- c("value", "textuur")
+
+# Functie om ksat voor combinaties van textuurklassen (bv. U-A-S) te berekenen
+calc_k <- function(t_string) {
+  parts <- str_split(t_string, "-")[[1]]
+  vals <- ksat_v[parts]
+  return(mean(vals, na.rm = TRUE))
+}
+
+ksat_values <- rat %>%
+  rowwise() %>%
+  mutate(ksat_waarde = calc_k(textuur)) %>%
+  ungroup()
+
+ksat_v_r <- classify(textuur, ksat_values[, c("value", "ksat_waarde")])
+
+# T (transmissiviteit (m2/d))
+# Begrens de aquiferdikte tot 20m om de transmissiviteit niet te groot te maken
+aquifer_20m <- clamp(aquifer_hcov, lower = 0, upper = 20)
+transmis <- ksat_h_hcov * (aquifer_20m + 0.1) # klein getal bij optellen om niet 0 te worden
+
+geleidbaarheid <- sqrt(transmis * ksat_v_r)
+weerstand <- 1 / (geleidbaarheid + 0.001)
+
+# Zoek de minimale frictiewaarde in het raster (de best doorlatende bodem, bijv. diep veen)
+f_min_val <- global(weerstand, fun = function(x) quantile(x, probs = 0.01, na.rm = TRUE))[[1]]
+
+# Maximale vernattingsafstand (200 meter) in de meest doorlatende bodem
+max_cost <- 200 * f_min_val
+
+# Riviercellen in weerstandskaart branden met waarde -999.
+weerstand_target <- weerstand
+weerstand_target[r_vha == 1] <- -999
+
+# Bereken de cost-distance (geaccumuleerde weerstand vanaf de riviercellen)
+r_cost_dist <- costDist(weerstand_target, target = -999)
+
+vha_buffer <- ifel(r_cost_dist <= max_cost, 1, NA)
 ```
 
 ### 4.1. Scenario 1
@@ -892,74 +976,129 @@ mapview(veen_verdroogd, na.color = "transparent") + mapview(sc1_veen, na.color =
 
 ```{r vrijstromendheid_sc1}
 
-# verrasteren van riviersegmenten veld 'reachID'
+# verrasteren van riviersegmenten die vrijstromend moeten worden veld 'reachID'
 ffr <- ffr_finaal_visie_2050 %>% select(reachID, ffr_fina_1) %>% filter(ffr_fina_1 == 1)
 ffr_rast <- rasterize(ffr, ecosysteem_2022, touches = TRUE, field = "reachID")
 ffr_rast <- mask(ffr_rast, ecosysteem_2022)
 
-# Stap 1: Buffer van 1 rastercel breed aanmaken om oevers af te bakenen
 
-# We gebruiken focal() met een 3x3 grid om de reachID's exact 1 cel in alle 8 richtingen (horizontaal, verticaal, diagonaal) uit te smeren.
-# Bij meerdere lijnsegmenten -> neem hoogste reachID.
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 1 - Geschiktheid
+#///////////////////////////////////////////////////////////////////////////////
 
-uitgebreid_rast <- focal(ffr_rast, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+# 1. Geschiktheid ecosystemen
 
-uitgebreid_rast[uitgebreid_rast == -Inf] <- NA # -Inf omzetten in NA
+# a) Bebouwing in vernattings- en overstromingszone -> niet geschikt 
+# Isoleer bebouwing in vernattingszone en overstromingszone
+buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu) | !is.na(vha_buffer), 1, NA)
+bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
+bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
-# Maskeer de oorspronkelijke lijncellen eruit met inverse = TRUE.
-oever_ffr <- mask(uitgebreid_rast, ffr_rast, inverse = TRUE)
-oever_ffr <- mask(oever_ffr, ecosysteem_2022)
+# Bereken de afstand (in meters) van elke cel tot de dichtstbijzijnde bebouwing
+dist_tot_bebouwing <- distance(bebouwing_in_buffer)
 
-# Scenariostap //////////////////////////////////////////////////////////////
+fw <- focalMat(r_vha, d = 200, type = "circle") # diepte vernattingszone = max 200 m
+fw[fw > 0] <- 1  # Verander de gewichten in harde 1-en
 
-# Stap 2: masker maken van cellen die niet geschikt zijn voor vrijstromendheid
+# Voer de focal-analyse uit (sommeer alle bebouwingscellen binnen het venster)
+bebouwing_focal <- focal(bebouwing_in_buffer, w = fw, fun = "sum", na.rm = TRUE)
 
-# 1. Geschikte ecosystemen (0, 1 en 2)
-lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401,  403, 404, 701, 702), 2, 1)))
+# Houd alleen de vha-cellen over met minder dan 5 bebouwingscellen in hun vernattings- en overstromingsgebied
+vha_bebouwing <- ifel(r_vha == 1 & bebouwing_focal > 5, 1, NA)
+vha_bebouwing <- ifel(is.na(vha_bebouwing) & r_vha == 1, 0, vha_bebouwing)
+
+# b) Geschiktheid ecosystemen in vernattings- en overstromingszone (0, 1, 2 en 3) -> waterlopen op NA zetten
+lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(
+  ecosysteem_2022 %in% c(101, 102), 0, ifel(
+    ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, ifel(
+      ecosysteem_2022 %in% c(302, 400, 401, 403, 404, 701, 702), 3, ifel(
+        ecosysteem_2022 %in% c(801, 802), NA, 2)))))
+
+# lu_geschikt in vernattingsbuffer
+lu_in_buffer <- buffer * lu_geschikt
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # max 200 m
+fw[fw > 0] <- 1
+
+# Voer de focal-analyse uit (gemiddelde geschiktheid)
+lu_focal <- focal(lu_in_buffer, w = fw, fun = "mean", na.rm = TRUE)
+
 
 # 2. Combineerbaarheid met overstromingen en vernatting (1 = intolerant)
 intol_t100 <- ifel(is.na(intolerant_zone_t100), 0, 1)
-intol_vernat <- ifel(is.na(intolerant_zone_vernatting), 0, 1)
-natuur_intol_raw <- ifel(intol_t100 == 1 | intol_vernat == 1, 1, 0)
-  # masker uitbreiden tot tegen waterloop
-  vha_binair <- ifel(is.na(r_vha), 0, 1)
-  natuur_intol_na <- ifel(natuur_intol_raw == 1, 1, NA)
-  
-  oever_uitgebreid <- buffer(oever_ffr, width = 30, background = 2)
-  mask_uitgebreid <- buffer(natuur_intol_na, width = 30, background = 2)
 
-  natuur_intol <- ifel(natuur_intol_raw == 1, 1, ifel(
-    natuur_intol_raw == 0 & (oever_uitgebreid == 1 | oever_uitgebreid == 0) & mask_uitgebreid == 1 & vha_binair == 0, 1, 0))
-  
+intol_vernat <- ifel(is.na(intolerant_vha_vernatting), 0, 1)
+
 
 # 3. Beleid
 r_hag
 r_natuur # sbz + ven + groene bestemmingen
 
-# 4. sc1: niet hag, niet bebouwing, niet akkers, niet op intolerante natuur, hogere geschiktheid binnne sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
+# Terrestrische geschiktheden projecteren op vha
+# intolerante natuur -> 3x3 venster
+# de beleidskaarten liggen vaak iets verder -> 7x7 venster
 
-geschikt_sc1 <- ifel(r_hag == 1 | natuur_intol == 1 | lu_geschikt == 0, 0, ifel(r_natuur == 1, lu_geschikt + 1, lu_geschikt))
+intol_t100_max <- focal(intol_t100, w = matrix(1, nrow = 5, ncol = 5), fun = "max", na.rm = TRUE) 
+
+hag_max <- focal(r_hag, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
+vha_hag <- mask(hag_max, r_vha)
+
+natuur_max <- focal(r_natuur, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
+
+# 4. Geschiktheidskaart - sc1: niet hag, niet bebouwing, niet op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid, akkers laagste geschiktheid
+
+# selecteer de ffr-cellen die geschikt zijn
+niet_geschikt_sc1 <- ifel(vha_bebouwing == 1 | vha_hag == 1 | intol_t100_max == 1 | intol_vernat == 1, 0, 1)
+ffr_geschikt <- ifel(ffr_rast * niet_geschikt_sc1 == 0, NA, ffr_rast)
+
+geschikt_sc1 <- ifel(natuur_max == 1, lu_focal + 1, lu_focal)
+
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 2 - Oevers afbakenen
+#///////////////////////////////////////////////////////////////////////////////
+
+# Buffer van 1 rastercel breed aanmaken om oevers af te bakenen (regel vrijstromendheid: max. 40% van de totale oeverlengte mag bedijkt zijn)
+
+# We gebruiken focal() met een 3x3 grid om de reachID's exact 1 cel in alle 8 richtingen (horizontaal, verticaal, diagonaal) uit te smeren.
+# Bij meerdere lijnsegmenten -> neem hoogste reachID.
+
+uitgebreid_rast <- focal(ffr_geschikt, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+
+uitgebreid_rast[uitgebreid_rast == -Inf] <- NA # -Inf omzetten in NA
+
+# Maskeer de oorspronkelijke lijncellen eruit met inverse = TRUE.
+oever_ffr <- mask(uitgebreid_rast, ffr_geschikt, inverse = TRUE)
+oever_ffr <- mask(oever_ffr, ecosysteem_2022)
 
 
-# Stap 3: Dataframe maken voor de selectie van geschikte cellen
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 3 - Plaatsen doeloppervlakte
+#///////////////////////////////////////////////////////////////////////////////
 
-# Combineer het buffer-raster en het geschiktheidsmasker in 1 object
+# Dataframe maken voor de selectie van geschikte cellen
+
+# Combineer het oeverraster en het geschiktheidsmasker in 1 object
 stapel <- c(oever_ffr, geschikt_sc1)
 names(stapel) <- c("reachID", "geschiktheid")
 
 # Zet om naar een dataframe met behoud van het cel-ID. 
 df <- as.data.frame(stapel, cells = TRUE, na.rm = FALSE)
 
-# Filter zodat we alleen de cellen overhouden die daadwerkelijk in een buffer vallen
+# Filter zodat we alleen de cellen overhouden die daadwerkelijk in een oever vallen
 df_buf <- df[!is.na(df$reachID), ]
 
 
 # Stap 4: Logica toepassen per reachID (80% en geschiktheid)
 
+# Bepaal hoeveel 80% van de totale buffercellen voor elke reach is
+df_doel <- as.data.frame(ffr_rast, na.rm = FALSE) |>
+  filter(!is.na(reachID)) |>
+  group_by(reachID) |>
+  summarise(aantal_nodig = round(n() * 0.80))
+
 geselecteerde_cellen <- df_buf %>%
+  left_join(df_doel, by = "reachID") |>
   group_by(reachID) %>%
-  # Bepaal hoeveel 80% van de totale buffercellen voor deze reach is
-  mutate(aantal_nodig = round(n() * 0.80)) %>%
   # Verwijder ongeschikte cellen (waarde 0)
   filter(geschiktheid > 0) %>%
   # Sorteer aflopend op geschiktheid per reachID (.by_group = TRUE)
@@ -992,22 +1131,48 @@ ffr_final_clean <- ffr_patches
 ffr_final_clean[ffr_final_clean %in% f$value[f$count <= 5]] <- NA
 
 
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 4 - Van oevercellen naar overstroombare en vernatte vallei
+#///////////////////////////////////////////////////////////////////////////////
 
-# Stap 6: van oevercellen naar overstroombare vallei
+# 1. Vernattingszone
+# Van de geselecteerde oevers terug naar riviercellen
+oever_focal <- focal(ffr_final_clean, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+
+# Ruim de -Inf waarden op
+oever_focal[oever_focal == -Inf] <- NA
+
+# Behoud alleen de riviercellen
+ffr_rivier <- mask(ffr_geschikt, oever_focal)
+
+vha_beekherstel <- ifel(!is.na(ffr_rivier), 1, NA)
+
+# Riviercellen in weerstandskaart vernatting branden met waarde -999.
+weerstand_target <- weerstand
+weerstand_target[vha_beekherstel == 1] <- -999
+
+# Bereken de cost-distance (geaccumuleerde weerstand vanaf de riviercellen)
+r_cost_dist <- costDist(weerstand_target, target = -999)
+
+ffr_vernatting <- ifel(r_cost_dist <= max_cost, 1, NA)
+
+
+# 2. Overstromingszone
+
 # Zones van de vallei aanduiden die kunnen overstromen bij vrijstromendheid
 
 diepte <- overstromingsdiepte_t100_flu_plu
 r_ffr <- ifel(ffr_final_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De ffr-lijnsegmenten zijn maar een selectie van de vha-lijnen.
-r_vha <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1)
+vha_r <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1)
 
 
 # Stap 6.1. - oevercellen langs vha selecteren (aanpak cf verrastering ffr)
-vha_buffer <- focal(r_vha, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+vha_buffer <- focal(vha_r, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
 vha_buffer[vha_buffer == -Inf] <- NA
 # Riviercellen verwijderen.
-oever_zone <- mask(vha_buffer, r_vha, inverse = TRUE)
+oever_zone <- mask(vha_buffer, vha_r, inverse = TRUE)
 
 # Stap 6.2. - oeverzone opsplitsen in:
 # cellen die mogen overstromen (waarde 1 in r_ffr)
@@ -1027,8 +1192,8 @@ begaanbaar_grid <- ifel(!is.na(diepte) | !is.na(oever_zone), 1, NA)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
 # De rivier is een barrière + oeverzone wegknippen anders glipt de distance-analyse langs de oevers naar naburige zones
-begaanbaar_grid[!is.na(r_vha)] <- NA
-begaanbaar_grid[!is.na(r_vha) | !is.na(oever_zone)] <- NA
+begaanbaar_grid[!is.na(vha_r)] <- NA
+begaanbaar_grid[!is.na(vha_r) | !is.na(oever_zone)] <- NA
 
 # Grid A: afstand tot de WEL-overstroombare oevers
 grid_wel <- begaanbaar_grid
@@ -1052,11 +1217,12 @@ vallei_allocatie <- ifel(
 )
 
 # Resultaat maskeren met t100-kaart
-sc1_vrijstromend <- mask(vallei_allocatie, diepte)
+ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
-mapview(sc1_vrijstromend, na.color = "transparent") + mapview(natuur_intol, na.color = "transparent") + mapview(r_ffr, col.regions = "blue", na.color = "transparent") + mapview(mask_uitgebreid, na.color = "transparent") 
 
-mapview(natuur_intol_raw, na.color = "transparent") + mapview(natuur_intol, na.color = "transparent")
+sc1_vrijstromend <- ifel(!is.na(ffr_vernatting) | !is.na(ffr_overstroombaar), 1, NA)
+
+plot(sc1_vrijstromend)
 ```
 
 ##### d) Beekherstel
@@ -1120,180 +1286,11 @@ doel_cel <- lengte_aandeel %>%
   pull()
 ```
 
-###### Rivieren en vernattingsbuffers
-
-```{r rivieren_en_buffer}
-
-#////////////////////////////////////////////////////////////////////////
-# STAP 1- Selectie van VHA-segmenten -> selectie cf. vrijstromendheid sc3
-#////////////////////////////////////////////////////////////////////////
-
-# 1. Waterlopen voor analyse
-vha_select <- vha %>%
-  dplyr::filter(CATC %in% c(1, 2, 3) & (is.na(BEHEER) | !grepl("^P", BEHEER)) & (CODSTATOWL != "KWL" | is.na(CODSTATOWL)) & !CODTYPOWL %in% c("Pz", "Pb"))
-
-r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
-
-# 2. Kanalen en bevaarbare waterlopen (voor geschiktheidskaart)
-vha_kunst <- vha %>%
-  dplyr::filter(CATC == 0 | CODSTATOWL == "KWL")
-
-r_vha_kunst <- rasterize(vha_kunst, ecosysteem_2022, touches = TRUE, field = 1)
-
-
-#////////////////////////////////////////////////////////////////////////
-# STAP 2- Vernattingsbuffer rond VHA
-#////////////////////////////////////////////////////////////////////////
-
-# Tabel met vernattingsafstanden per textuurklasse
-dist_nat <- c(
-  "G" = 500, "Z" = 200, "S" = 200, "P" = 150, "L" = 100,
-  "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
-
-rat <- cats(textuur)[[1]] # Raster Attribute Table
-names(rat) <- c("value", "textuur")
-rat <- rat %>% 
-  select("value", "textuur")
-
-# Functie om dist voor combinaties van textuurklassen (bv. U-A-S) te berekenen
-calc_dist <- function(t_string) {
-  parts <- str_split(t_string, "-")[[1]]
-  vals <- dist_nat[parts]
-  return(mean(vals, na.rm = TRUE))
-}
-
-dist_values <- rat %>%
-  rowwise() %>%
-  mutate(afstand = calc_dist(textuur)) %>%
-  ungroup()
-
-
-
-#////////////////////////////////////////////////////////////////////////
-# STAP 3 - Buffer berekenen
-#////////////////////////////////////////////////////////////////////////
-
-# 1. Bepaal de textuur per riviercel (dominante textuurklasse in de omgeving)
-# textuur thv riviercellen
-rivier_textuur_ruw <- mask(textuur, r_vha)
-# venster voor focal-analyse definiëren (cirkel van 50 m)
-w <- focalMat(r_vha, d = 250, type = "circle")
-w <- matrix(as.numeric(w > 0), nrow = nrow(w), ncol = ncol(w))
-# Meest voorkomende textuurklasse in en rond cel
-textuur_focal <- focal(rivier_textuur_ruw, w = w, fun = "modal", na.rm = TRUE)
-# raster bijsnijden om alleen vha over te houden
-rivier_textuur <- mask(textuur_focal, r_vha)
-
-# 2. Reclass textuurklassen naar afstanden
-rivier_afstanden <- subst(rivier_textuur, from = dist_values$value, to = dist_values$afstand, raw = TRUE)
-# Verwijder onzichtbare categorie-stickers
-levels(rivier_afstanden) <- NULL
-
-# 3. Haal de unieke afstandswaarden op en sorteer van KLEIN naar GROOT
-unieke_afstanden <- as.numeric(unique(rivier_afstanden)[, 1])
-unieke_afstanden <- unieke_afstanden[!is.na(unieke_afstanden) & unieke_afstanden > 0]
-unieke_afstanden <- sort(unieke_afstanden)
-
-# 4. Bereken voor elke afstandsklasse de afstandskaart
-dist_lijst <- list()
-
-for (d in unieke_afstanden) {
-  # Isoleer de riviercellen van exact deze klasse
-  rivier_specifiek <- ifel(rivier_afstanden == d, 1, NA)
-  # Bereken de afstand tot deze specifieke klasse en sla op in de lijst
-  dist_lijst[[as.character(d)]] <- distance(rivier_specifiek)
-}
-
-# Combineer alle afstandskaarten in één multi-layer raster
-dist_stack <- rast(dist_lijst)
-
-# 5. Bepaal welke riviercel het dichtstbij ligt
-# which.min() geeft per cel de index (1, 2, 3...) van de laag met de kleinste afstand
-dichtstbijzijnde_index <- which.min(dist_stack)
-
-# Vertaal de indexen  terug naar afstandswaarden (30, 100, 500, ...)
-max_toegestane_afstand <- subst(dichtstbijzijnde_index, from = 1:length(unieke_afstanden), to = unieke_afstanden)
-
-# 6. Bereken de absolute minimale afstand tot de dichtstbijzijnde riviercel
-min_werkelijke_afstand <- min(dist_stack)
-
-# 7. Filter de bufferzone: een cel krijgt de waarde van de dichtstbijzijnde buffer, maar alleen als de werkelijke afstand kleiner of gelijk is aan die buffer.
-vha_buffer <- ifel(min_werkelijke_afstand <= max_toegestane_afstand, max_toegestane_afstand, NA)
-
-
-mapview(vha_buffer, na.color = "transparent")
-```
-
-```{r}
-
-
-
-
-
-# --- 1. DATA INLEZEN (Pas de paden aan naar jouw eigen bestanden) ---
-# r_river <- rast("rivier_cellen.tif")         # Code 1 voor rivier, rest NA
-# r_texture <- rast("bodemtextuur.tif")       # Textuurklassen (Z, S, L, E, V, ...)
-# r_aquifer_thickness <- rast("dikte_aq.tif")  # Dikte watervoerende laag (m)
-# r_kh <- rast("k_horiz.tif")                  # Horizontale K (m/dag of m2/dag)
-# r_gw_depth <- rast("gw_diepte.tif")          # Huidige grondwaterdiepte onder maaiveld (m)
-
-# --- 2. TRANSMISSIVITEIT (T) BEREKENEN ---
-# Als je kaart 'r_kh' al in m²/d is (T), kun je deze stap overslaan.
-# Als 'r_kh' in m/d is: T = Kh * D
-r_T <- r_kh * r_aquifer_thickness
-
-# --- 3. VERTICALE WEERSTAND (c) BEREKENEN ---
-# Maak een vertaaltabel voor Kv op basis van Belgische bodemtextuur
-kv_rules <- data.frame(
-  from = c("Z", "S", "P", "L", "A", "E", "U", "V"),
-  to   = c(2.0, 0.8, 0.2, 0.08, 0.02, 0.005, 0.001, 0.01)
-)
-
-# Reclassify het textuurraster naar Kv (m/dag)
-r_Kv <- subst(r_texture, from = kv_rules$from, to = kv_rules$to)
-
-# Dikte van de top/deklaag (D_top). 
-# Heb je hier geen kaart van? Neem dan een realistische constante, bijv. 1.5 meter.
-r_D_top <- 1.5 
-
-# Bereken c (in dagen)
-r_c <- r_D_top / r_Kv
-
-# --- 4. DEMPINGSLENGTE (lambda) & FRICTIE BEREKENEN ---
-r_lambda <- sqrt(r_T * r_c)
-r_friction <- 1 / r_lambda
-
-# --- 5. COST-DISTANCE BEREKENEN ---
-# terra::costDist heeft een raster nodig waar de startpunten (rivier) een unieke waarde hebben.
-# We kopiëren het frictieraster en 'branden' de riviercellen erin met waarde -999.
-r_friction_target <- r_friction
-r_friction_target[r_river == 1] <- -999
-
-# Bereken de cost-distance (geaccumuleerde frictie vanaf de riviercellen)
-r_cost_dist <- costDist(r_friction_target, target = -999)
-
-# --- 6. GRONDWATERSTIJGING EN VERNATTINGSBUFFER BEPALEN ---
-s0 <- 1.0 # Scenario: peilopzet in de rivier is bijvoorbeeld 1.0 meter
-
-# Bereken de grondwaterpeilstijging s(x) per cel
-r_head_rise <- s0 * exp(-r_cost_dist)
-
-# Bepaal waar het grondwater tot 0.5 m onder het maaiveld stijgt.
-# Dit hangt af van de huidige grondwaterdiepte (r_gw_depth).
-# De benodigde stijging om de doeldiepte te halen is: (huidige diepte - 0.5 meter)
-r_buffer <- r_head_rise >= (r_gw_depth - 0.5)
-
-# --- 7. VISUALISATIE EN EXPORT ---
-plot(r_buffer, main = "Dynamische Vernattingsbuffer")
-# writeRaster(r_buffer, "vernatting_buffer_dynamisch.tif", overwrite = TRUE)
-```
-
 ###### **Doelstelling alloceren**
 
-- STAP 1 - vha verrasteren en geschiktheid projecteren op riviercellen
-  - Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking.
+- STAP 1 - geschiktheid projecteren op riviercellen
   - De geschiktheid wordt bepaald door:
-    - het landgebruik op de oevers (akkers en bebouwde cellen zijn niet geschikt, semi-nat. gras, loofbos en moeras zijn heel geschikt, andere natuur matig geschikt)
+    - het landgebruik op de oevers (bebouwde cellen zijn niet geschikt, semi-nat. gras, loofbos en moeras zijn heel geschikt, andere natuur matig geschikt, akkers hebben een lage geschiktheid)
     - de combineerbaarheid van natuurdoelen met vernatting
     - de ligging in HAG of in natuurgebied (SBZ-H, VEN of groene bestemming)
     - de zoekzone voor habitat 3260 en de aanwezigheid van visdoelen (kleine modderkruiper, beekprik, rivierdonderpad)
@@ -1302,8 +1299,7 @@ plot(r_buffer, main = "Dynamische Vernattingsbuffer")
   - De doeloppervlakte wordt geplaatst in clusters van 50 cellen (\~500 m).
   - Eerst wordt het traject opgevuld met de hoogste gemiddelde geschiktheid. Binnen het traject worden de cellen opgevuld volgens hun individuele celgeschiktheid. Als er minder dan 50 cellen in een traject overblijven, wordt de volgende cluster van 50 cellen in het traject met de eerstvolgende gemiddelde geschiktheid geplaatst.
 - STAP 3 - Vernattingszone afbakenen
-  - De geplaatste cellen voor uitbreiding van habitat 3260 (STAP 2)
-  - 
+  - Rond de geplaatste cellen voor uitbreiding van habitat 3260 (STAP 2) wordt de vernattingszone afgebakend.
 
 ```{r beekherstel_sc1}
 
@@ -1311,37 +1307,58 @@ plot(r_buffer, main = "Dynamische Vernattingsbuffer")
 # STAP 1 - Geschiktheid
 #///////////////////////////////////////////////////////////////////////////////
 
-bebouwing_clean <- ifel(ecosysteem_2022 == 101 | landgebruik == 102, 1, NA)
+# 1. Geschikte ecosystemen
 
-# 1. Geschikte ecosystemen (0, 1 en 2) -> waterlopen op NA zetten
-lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102, 201, 202, 203, 204, 205), 0, ifel(ecosysteem_2022 %in% c(302, 400, 401, 403, 404, 701, 702), 2, ifel(ecosysteem_2022 %in% c(801, 802), NA, 1))))
+# a) Bebouwing in vernattingszone -> niet geschikt 
+# Isoleer bebouwing in vernattingsbuffer
+bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
+bebouwing_in_buffer <- ifel(vha_buffer == 1 & bebouwing == 1, 1, NA)
+
+# Bereken de afstand (in meters) van elke cel tot de dichtstbijzijnde bebouwing
+dist_tot_bebouwing <- distance(bebouwing_in_buffer)
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # diepte vernattingszone = max 200 m
+fw[fw > 0] <- 1  # Verander de gewichten in harde 1-en
+
+# Voer de focal-analyse uit (sommeer alle bebouwingscellen binnen het venster)
+bebouwing_focal <- focal(bebouwing_in_buffer, w = fw, fun = "sum", na.rm = TRUE)
+
+# Houd alleen de vha-cellen over met minder dan 5 bebouwingscellen in hun vernattingsgebied
+vha_bebouwing <- ifel(r_vha == 1 & bebouwing_focal > 5, 1, NA)
+vha_bebouwing <- ifel(is.na(vha_bebouwing) & r_vha == 1, 0, vha_bebouwing)
+
+# mapview(r_vha, col.regions = "blue", na.color = "transparent") + mapview(bebouwing_in_buffer, na.color = "transparent") + mapview(vha_bebouwing, col.regions = "yellow", na.color = "transparent")
+
+
+# b) Geschiktheid ecosystemen in vernattingszone (0, 1, 2 en 3) -> waterlopen op NA zetten
+lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(
+  ecosysteem_2022 %in% c(101, 102), 0, ifel(
+    ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, ifel(
+      ecosysteem_2022 %in% c(302, 400, 401, 403, 404, 701, 702), 3, ifel(
+        ecosysteem_2022 %in% c(801, 802), NA, 2)))))
+
+# lu_geschikt in vernattingsbuffer
+lu_in_buffer <- vha_buffer * lu_geschikt
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # max 200 m
+fw[fw > 0] <- 1
+
+# Voer de focal-analyse uit (gemiddelde geschiktheid)
+lu_focal <- focal(lu_in_buffer, w = fw, fun = "mean", na.rm = TRUE)
+
+# vha-cellen met gemiddelde lu_geschiktheid
+vha_lu <- r_vha * lu_focal
 
 # 2. geschiktheid ifv natuurdoelen
-natuur_intol_raw <- ifel(is.na(intolerant_zone_vernatting), 0, 1)
-  # masker uitbreiden tot tegen waterloop
-  vha_binair <- ifel(is.na(r_vha), 0, 1)
-  natuur_intol_na <- ifel(natuur_intol_raw == 1, 1, NA)
-  
-  vha_uitgebreid <- buffer(r_vha, width = 30, background = 2)
-  mask_uitgebreid <- buffer(natuur_intol_na, width = 30, background = 2)
-
-natuur_intol <- ifel(natuur_intol_raw == 1, 1, ifel(
-  natuur_intol_raw == 0 & (vha_uitgebreid == 1 | vha_uitgebreid == 0) &
-    mask_uitgebreid == 1 & vha_binair == 0, 1, 0))
+vha_intol <- intolerant_vha_vernatting
+vha_intol <- ifel(is.na(vha_intol) & r_vha == 1, 0, vha_intol)
 
 # 3. Geschiktheid ifv beleid
 r_hag
 r_natuur
 
 # Terrestrische geschiktheden projecteren op vha
-# ecosysteem en intolerante natuur komen tot tegen de waterloop -> 3x3 venster
 # de beleidskaarten liggen vaak iets verder -> 7x7 venster
-
-lu_geschikt_min <- focal(lu_geschikt, w = matrix(1, nrow = 3, ncol = 3), fun = "max", na.rm = TRUE)
-vha_lu <- mask(lu_geschikt_min, r_vha)
-
-natuur_intol_max <- focal(natuur_intol, w = matrix(1, nrow = 3, ncol = 3), fun = "max", na.rm = TRUE)
-vha_intol <- mask(natuur_intol_max, r_vha)
 
 hag_max <- focal(r_hag, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
 vha_hag <- mask(hag_max, r_vha)
@@ -1359,9 +1376,9 @@ geschikt_vis <- rasterize(wlas_owl_visdoelen, ecosysteem_2022, touches = TRUE, f
 geschikt_vis <- ifel(!is.na(geschikt_vis), 1, 0)
 
 # Combinatie
-# sc1: niet hag, niet bebouwing, niet akkers, niet op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
+# sc1: niet hag, niet bebouwing, niet op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid, akkers laagste geschiktheid
 
-geschikt_sc1_pre <- ifel(vha_hag == 1 | vha_intol == 1 | vha_lu == 0, 0, ifel(vha_natuur == 1, vha_lu + 1, vha_lu))
+geschikt_sc1_pre <- ifel(vha_hag == 1 | vha_intol == 1 | vha_bebouwing == 1, 0, ifel(vha_natuur == 1, vha_lu + 1, vha_lu))
 
 bonus_3260 <- ifel(is.na(geschikt_3260), 0, ifel(geschikt_3260 == 1, 1, 0))
 bonus_vis  <- ifel(is.na(geschikt_vis), 0, ifel(geschikt_vis == 1, 1, 0))
@@ -1382,6 +1399,8 @@ sc1_patches <- patches(sc1_mask, directions = 8)
 f <- freq(sc1_patches)
 sc1_patches_clean <- sc1_patches
 sc1_patches_clean[sc1_patches_clean %in% f$value[f$count <= 50]] <- NA
+
+# mapview(sc1_patches, na.color = "transparent") + mapview(patches_geschiktheid, na.color = "transparent")
 
 # Gemiddelde geschiktheid per cluster
 patches_geschiktheid <- zonal(x = geschikt_sc1, z = sc1_patches_clean, fun = "mean", na.rm = TRUE, as.raster = TRUE)
@@ -1438,10 +1457,10 @@ while (length(geselecteerde_rijen) < doel_cel && patch_index <= length(volgorde_
     resterend_in_patch <- aantal_beschikbaar - blok_grootte
     
     if (resterend_in_patch < 50) {
-      # Minder dan 50 cellen over? Dan gaan we de volgende keer naar de volgende patch
+      # Minder dan 50 cellen over? Dan gaan we naar de volgende patch
       patch_index <- patch_index + 1
     }
-    # (Als er wel >= 50 over zijn, blijft patch_index gelijk en pakt de loop straks wéér een blok uit deze patch)
+    # (Als er wel >= 50 over zijn, blijft patch_index gelijk en pakt de loop een nieuw blok uit deze patch)
     
   } else {
     # De patch heeft al minder dan het gewenste blok (50) over vanaf de start.
@@ -1461,74 +1480,30 @@ df_selectie <- df_sorted %>%
   
 # Kaart maken van geselecteerde cellen op basis van hun cel-ID
 
-beekherstel_final <- rast(ecosysteem_2022)
+beekherstel_final <- rast(geschikt_sc1)
 values(beekherstel_final) <- NA # Zet alles op leeg (NA)
 
-# Wijs de reachID toe aan de geselecteerde celnummers
+# Wijs de geschiktheid toe aan de geselecteerde celnummers
 beekherstel_final[df_selectie$cell] <- df_selectie$celgeschiktheid
-
-mapview(beekherstel_final, col.regions = "red",  na.color = "transparent")
-
 
 
 #///////////////////////////////////////////////////////////////////////////////
 # STAP 3 - Vernattingszone afbakenen
 #///////////////////////////////////////////////////////////////////////////////
 
-vha_beekherstel <- project(beekherstel_final, ecosysteem_2022, method = "near")
-vha_beekherstel <- ifel(!is.na(vha_beekherstel), 1, NA)
-textuur <- project(textuur, ecosysteem_2022, method = "near")
+vha_beekherstel <- ifel(!is.na(beekherstel_final), 1, NA)
 
+# Riviercellen in weerstandskaart branden met waarde -999.
+weerstand_target <- weerstand
+weerstand_target[vha_beekherstel == 1] <- -999
 
-# 1. Bepaal de textuur per riviercel (dominante textuurklasse in de omgeving)
-# textuur thv riviercellen
-rivier_textuur_ruw <- mask(textuur, vha_beekherstel)
-# venster voor focal-analyse definiëren (cirkel van 50 m)
-w <- focalMat(vha_beekherstel, d = 250, type = "circle")
-w <- matrix(as.numeric(w > 0), nrow = nrow(w), ncol = ncol(w))
-# Meest voorkomende textuurklasse in en rond cel
-textuur_focal <- focal(rivier_textuur_ruw, w = w, fun = "modal", na.rm = TRUE)
-# raster bijsnijden om alleen vha over te houden
-rivier_textuur <- mask(textuur_focal, vha_beekherstel)
+# Bereken de cost-distance (geaccumuleerde weerstand vanaf de riviercellen)
+r_cost_dist <- costDist(weerstand_target, target = -999)
 
-# 2. Reclass textuurklassen naar afstanden
-rivier_afstanden <- subst(rivier_textuur, from = dist_values$value, to = dist_values$afstand, raw = TRUE)
-# Verwijder onzichtbare categorie-stickers
-levels(rivier_afstanden) <- NULL
+sc1_beekherstel <- ifel(r_cost_dist <= max_cost, 1, NA)
 
-# 3. Haal de unieke afstandswaarden op en sorteer van KLEIN naar GROOT
-unieke_afstanden <- as.numeric(unique(rivier_afstanden)[, 1])
-unieke_afstanden <- unieke_afstanden[!is.na(unieke_afstanden) & unieke_afstanden > 0]
-unieke_afstanden <- sort(unieke_afstanden)
+# mapview(sc1_beekherstel, col.regions = "lightblue",  na.color = "transparent") + mapview(beekherstel_final, col.regions = "red",  na.color = "transparent")
 
-# 4. Bereken voor elke afstandsklasse de afstandskaart
-dist_lijst <- list()
-
-for (d in unieke_afstanden) {
-  # Isoleer de riviercellen van exact deze klasse
-  rivier_specifiek <- ifel(rivier_afstanden == d, 1, NA)
-  # Bereken de afstand tot deze specifieke klasse en sla op in de lijst
-  dist_lijst[[as.character(d)]] <- distance(rivier_specifiek)
-}
-
-# Combineer alle afstandskaarten in één multi-layer raster
-dist_stack <- rast(dist_lijst)
-
-# 5. Bepaal welke riviercel het dichtstbij ligt
-# which.min() geeft per cel de index (1, 2, 3...) van de laag met de kleinste afstand
-dichtstbijzijnde_index <- which.min(dist_stack)
-
-# Vertaal de indexen  terug naar afstandswaarden (30, 100, 500, ...)
-max_toegestane_afstand <- subst(dichtstbijzijnde_index, from = 1:length(unieke_afstanden), to = unieke_afstanden)
-
-# 6. Bereken de absolute minimale afstand tot de dichtstbijzijnde riviercel
-min_werkelijke_afstand <- min(dist_stack)
-
-# 7. Filter de bufferzone: een cel krijgt de waarde van de dichtstbijzijnde buffer, maar alleen als de werkelijke afstand kleiner of gelijk is aan die buffer.
-sc1_beekherstel <- ifel(min_werkelijke_afstand <= max_toegestane_afstand, max_toegestane_afstand, NA)
-
-
-# mapview(vallei_rast, na.color = "transparent")
 
 ```
 
@@ -1651,62 +1626,124 @@ mapview(veen_verdroogd, na.color = "transparent") + mapview(sc2_veen, na.color =
 
 ```{r vrijstromendheid_sc2}
 
-# verrasteren van riviersegmenten veld 'reachID'
+# verrasteren van riviersegmenten die vrijstromend moeten worden veld 'reachID'
 ffr <- ffr_finaal_visie_2050 %>% select(reachID, ffr_fina_1) %>% filter(ffr_fina_1 == 1)
 ffr_rast <- rasterize(ffr, ecosysteem_2022, touches = TRUE, field = "reachID")
 ffr_rast <- mask(ffr_rast, ecosysteem_2022)
 
-# Stap 1: Buffer van 1 rastercel breed aanmaken om oevers af te bakenen
+
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 1 - Geschiktheid
+#///////////////////////////////////////////////////////////////////////////////
+
+# 1. Geschiktheid ecosystemen
+
+# a) Bebouwing in vernattings- en overstromingszone -> niet geschikt 
+# Isoleer bebouwing in vernattingszone en overstromingszone
+buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu) | !is.na(vha_buffer), 1, NA)
+bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
+bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
+
+# Bereken de afstand (in meters) van elke cel tot de dichtstbijzijnde bebouwing
+dist_tot_bebouwing <- distance(bebouwing_in_buffer)
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # diepte vernattingszone = max 200 m
+fw[fw > 0] <- 1  # Verander de gewichten in harde 1-en
+
+# Voer de focal-analyse uit (sommeer alle bebouwingscellen binnen het venster)
+bebouwing_focal <- focal(bebouwing_in_buffer, w = fw, fun = "sum", na.rm = TRUE)
+
+# Houd alleen de vha-cellen over met minder dan 5 bebouwingscellen in hun vernattings- en overstromingsgebied
+vha_bebouwing <- ifel(r_vha == 1 & bebouwing_focal > 5, 1, NA)
+vha_bebouwing <- ifel(is.na(vha_bebouwing) & r_vha == 1, 0, vha_bebouwing)
+
+# b) Geschiktheid ecosystemen in vernattings- en overstromingszone (0, 1, 2 en 3) -> waterlopen op NA zetten
+lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(
+  ecosysteem_2022 %in% c(101, 102), 0, ifel(
+    ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, ifel(
+      ecosysteem_2022 %in% c(302, 400, 401, 403, 404, 701, 702), 3, ifel(
+        ecosysteem_2022 %in% c(801, 802), NA, 2)))))
+
+# lu_geschikt in vernattingsbuffer
+lu_in_buffer <- buffer * lu_geschikt
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # max 200 m
+fw[fw > 0] <- 1
+
+# Voer de focal-analyse uit (gemiddelde geschiktheid)
+lu_focal <- focal(lu_in_buffer, w = fw, fun = "mean", na.rm = TRUE)
+
+
+# 2. Combineerbaarheid met overstromingen en vernatting (1 = intolerant)
+# -> Telt niet mee in scenario 2
+
+
+# 3. Beleid
+# r_hag -> telt niet mee in scenario 2
+r_natuur # sbz + ven + groene bestemmingen
+
+# Terrestrische geschiktheden projecteren op vha
+# intolerante natuur -> 3x3 venster
+# de beleidskaarten liggen vaak iets verder -> 7x7 venster
+
+natuur_max <- focal(r_natuur, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
+
+# 4. Geschiktheidskaart - sc2: hag mag, niet bebouwing, mag op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid, akkers laagste geschiktheid
+
+# selecteer de ffr-cellen die geschikt zijn (alleen bebouwing telt mee)
+niet_geschikt_sc2 <- ifel(vha_bebouwing == 1, 0, 1)
+ffr_geschikt <- ifel(ffr_rast * niet_geschikt_sc2 == 0, NA, ffr_rast)
+
+geschikt_sc2 <- ifel(natuur_max == 1, lu_focal + 1, lu_focal)
+
+
+
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 2 - Oevers afbakenen
+#///////////////////////////////////////////////////////////////////////////////
+
+# Buffer van 1 rastercel breed aanmaken om oevers af te bakenen (regel vrijstromendheid: max. 40% van de totale oeverlengte mag bedijkt zijn)
 
 # We gebruiken focal() met een 3x3 grid om de reachID's exact 1 cel in alle 8 richtingen (horizontaal, verticaal, diagonaal) uit te smeren.
 # Bij meerdere lijnsegmenten -> neem hoogste reachID.
 
-uitgebreid_rast <- focal(ffr_rast, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+uitgebreid_rast <- focal(ffr_geschikt, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
 
 uitgebreid_rast[uitgebreid_rast == -Inf] <- NA # -Inf omzetten in NA
 
 # Maskeer de oorspronkelijke lijncellen eruit met inverse = TRUE.
-oever_ffr <- mask(uitgebreid_rast, ffr_rast, inverse = TRUE)
+oever_ffr <- mask(uitgebreid_rast, ffr_geschikt, inverse = TRUE)
 oever_ffr <- mask(oever_ffr, ecosysteem_2022)
 
-# Scenariostap //////////////////////////////////////////////////////////////
 
-# Stap 2: masker maken van cellen die niet geschikt zijn voor vrijstromendheid
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 3 - Plaatsen doeloppervlakte
+#///////////////////////////////////////////////////////////////////////////////
 
-# 1. Geschikte ecosystemen (0, 1 (akker), 2 en 3)
-lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(101, 102), 0, ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, ifel(ecosysteem_2022 %in% c(302, 400, 401,  403, 404, 701, 702), 3, 2))))
+# Dataframe maken voor de selectie van geschikte cellen
 
-# 2. Combineerbaarheid met overstromingen en vernatting (1 = intolerant)
-# -> telt niet mee in sc2
-
-# 3. Beleid
-r_hag
-r_natuur # sbz + ven + groene bestemmingen
-
-# 4. sc2: hag mag, niet bebouwing, akkers laagste geschiktheid, intolerante natuur mag, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
-
-geschikt_sc2 <- ifel(lu_geschikt == 0, 0, ifel(r_natuur == 1, lu_geschikt + 1, lu_geschikt))
-
-
-# Stap 3: Dataframe maken voor de selectie van geschikte cellen
-
-# Combineer het buffer-raster en het geschiktheidsmasker in 1 object
+# Combineer het oeverraster en het geschiktheidsmasker in 1 object
 stapel <- c(oever_ffr, geschikt_sc2)
 names(stapel) <- c("reachID", "geschiktheid")
 
 # Zet om naar een dataframe met behoud van het cel-ID. 
 df <- as.data.frame(stapel, cells = TRUE, na.rm = FALSE)
 
-# Filter zodat we alleen de cellen overhouden die daadwerkelijk in een buffer vallen
+# Filter zodat we alleen de cellen overhouden die daadwerkelijk in een oever vallen
 df_buf <- df[!is.na(df$reachID), ]
 
 
 # Stap 4: Logica toepassen per reachID (80% en geschiktheid)
 
+# Bepaal hoeveel 80% van de totale buffercellen voor elke reach is
+df_doel <- as.data.frame(ffr_rast, na.rm = FALSE) |>
+  filter(!is.na(reachID)) |>
+  group_by(reachID) |>
+  summarise(aantal_nodig = round(n() * 0.80))
+
 geselecteerde_cellen <- df_buf %>%
+  left_join(df_doel, by = "reachID") |>
   group_by(reachID) %>%
-  # Bepaal hoeveel 80% van de totale buffercellen voor deze reach is
-  mutate(aantal_nodig = round(n() * 0.80)) %>%
   # Verwijder ongeschikte cellen (waarde 0)
   filter(geschiktheid > 0) %>%
   # Sorteer aflopend op geschiktheid per reachID (.by_group = TRUE)
@@ -1739,22 +1776,48 @@ ffr_final_clean <- ffr_patches
 ffr_final_clean[ffr_final_clean %in% f$value[f$count <= 5]] <- NA
 
 
+#///////////////////////////////////////////////////////////////////////////////
+# STAP 4 - Van oevercellen naar overstroombare en vernatte vallei
+#///////////////////////////////////////////////////////////////////////////////
 
-# Stap 6: van oevercellen naar overstroombare vallei
+# 1. Vernattingszone
+# Van de geselecteerde oevers terug naar riviercellen
+oever_focal <- focal(ffr_final_clean, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+
+# Ruim de -Inf waarden op
+oever_focal[oever_focal == -Inf] <- NA
+
+# Behoud alleen de riviercellen
+ffr_rivier <- mask(ffr_geschikt, oever_focal)
+
+vha_beekherstel <- ifel(!is.na(ffr_rivier), 1, NA)
+
+# Riviercellen in weerstandskaart vernatting branden met waarde -999.
+weerstand_target <- weerstand
+weerstand_target[vha_beekherstel == 1] <- -999
+
+# Bereken de cost-distance (geaccumuleerde weerstand vanaf de riviercellen)
+r_cost_dist <- costDist(weerstand_target, target = -999)
+
+ffr_vernatting <- ifel(r_cost_dist <= max_cost, 1, NA)
+
+
+# 2. Overstromingszone
+
 # Zones van de vallei aanduiden die kunnen overstromen bij vrijstromendheid
 
 diepte <- overstromingsdiepte_t100_flu_plu
 r_ffr <- ifel(ffr_final_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De ffr-lijnsegmenten zijn maar een selectie van de vha-lijnen.
-r_vha <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1)
+vha_r <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1)
 
 
 # Stap 6.1. - oevercellen langs vha selecteren (aanpak cf verrastering ffr)
-vha_buffer <- focal(r_vha, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
+vha_buffer <- focal(vha_r, w = matrix(1, 3, 3), fun = max, na.rm = TRUE)
 vha_buffer[vha_buffer == -Inf] <- NA
 # Riviercellen verwijderen.
-oever_zone <- mask(vha_buffer, r_vha, inverse = TRUE)
+oever_zone <- mask(vha_buffer, vha_r, inverse = TRUE)
 
 # Stap 6.2. - oeverzone opsplitsen in:
 # cellen die mogen overstromen (waarde 1 in r_ffr)
@@ -1774,8 +1837,8 @@ begaanbaar_grid <- ifel(!is.na(diepte) | !is.na(oever_zone), 1, NA)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
 # De rivier is een barrière + oeverzone wegknippen anders glipt de distance-analyse langs de oevers naar naburige zones
-begaanbaar_grid[!is.na(r_vha)] <- NA
-begaanbaar_grid[!is.na(r_vha) | !is.na(oever_zone)] <- NA
+begaanbaar_grid[!is.na(vha_r)] <- NA
+begaanbaar_grid[!is.na(vha_r) | !is.na(oever_zone)] <- NA
 
 # Grid A: afstand tot de WEL-overstroombare oevers
 grid_wel <- begaanbaar_grid
@@ -1799,9 +1862,12 @@ vallei_allocatie <- ifel(
 )
 
 # Resultaat maskeren met t100-kaart
-sc2_vrijstromend <- mask(vallei_allocatie, diepte)
+ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
-mapview(sc2_vrijstromend, na.color = "transparent") + mapview(natuur_intol, na.color = "transparent") + mapview(r_ffr, col.regions = "blue", na.color = "transparent") + mapview(mask_uitgebreid, na.color = "transparent") 
+
+sc2_vrijstromend <- ifel(!is.na(ffr_vernatting) | !is.na(ffr_overstroombaar), 1, NA)
+
+plot(sc2_vrijstromend)
 
 
 ```
@@ -1820,33 +1886,55 @@ mapview(sc2_vrijstromend, na.color = "transparent") + mapview(natuur_intol, na.c
 # STAP 1 - Geschiktheid
 #///////////////////////////////////////////////////////////////////////////////
 
-# VHA -> selectie cf. vrijstromendheid sc3
-vha_select <- vha %>%
-  dplyr::filter(CATC %in% c(1, 2, 3) & (is.na(BEHEER) | !grepl("^P", BEHEER)) & (CODSTATOWL != "KWL" | is.na(CODSTATOWL)) & !CODTYPOWL %in% c("Pz", "Pb"))
+# 1. Geschikte ecosystemen
 
-r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
+# a) Bebouwing in vernattingszone -> niet geschikt 
+# Isoleer bebouwing in vernattingsbuffer
+bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
+bebouwing_in_buffer <- ifel(vha_buffer == 1 & bebouwing == 1, 1, NA)
+
+# Bereken de afstand (in meters) van elke cel tot de dichtstbijzijnde bebouwing
+dist_tot_bebouwing <- distance(bebouwing_in_buffer)
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # diepte vernattingszone = max 200 m
+fw[fw > 0] <- 1  # Verander de gewichten in harde 1-en
+
+# Voer de focal-analyse uit (sommeer alle bebouwingscellen binnen het venster)
+bebouwing_focal <- focal(bebouwing_in_buffer, w = fw, fun = "sum", na.rm = TRUE)
+
+# Houd alleen de vha-cellen over met minder dan 5 bebouwingscellen in hun vernattingsgebied
+vha_bebouwing <- ifel(r_vha == 1 & bebouwing_focal > 5, 1, NA)
+vha_bebouwing <- ifel(is.na(vha_bebouwing) & r_vha == 1, 0, vha_bebouwing)
 
 
-# 1. Geschikte ecosystemen (0, 1, 2 en 3) -> waterlopen op NA zetten
+# b) Geschiktheid ecosystemen in vernattingszone (0, 1, 2 en 3) -> waterlopen op NA zetten
 lu_geschikt <- ifel(is.na(ecosysteem_2022), NA, ifel(
   ecosysteem_2022 %in% c(101, 102), 0, ifel(
     ecosysteem_2022 %in% c(201, 202, 203, 204, 205), 1, ifel(
       ecosysteem_2022 %in% c(302, 400, 401, 403, 404, 701, 702), 3, ifel(
         ecosysteem_2022 %in% c(801, 802), NA, 2)))))
 
+# lu_geschikt in vernattingsbuffer
+lu_in_buffer <- vha_buffer * lu_geschikt
+
+fw <- focalMat(r_vha, d = 200, type = "circle") # max 200 m
+fw[fw > 0] <- 1
+
+# Voer de focal-analyse uit (gemiddelde geschiktheid)
+lu_focal <- focal(lu_in_buffer, w = fw, fun = "mean", na.rm = TRUE)
+
+# vha-cellen met gemiddelde lu_geschiktheid
+vha_lu <- r_vha * lu_focal
+
 # 2. geschiktheid ifv natuurdoelen
-# telt niet mee in scenario 2
+# -> Telt niet mee in scenario 2
 
 # 3. Geschiktheid ifv beleid
 r_hag
 r_natuur
 
 # Terrestrische geschiktheden projecteren op vha
-# ecosysteem komt tot tegen de waterloop -> 3x3 venster
 # de beleidskaarten liggen vaak iets verder -> 7x7 venster
-
-lu_geschikt_min <- focal(lu_geschikt, w = matrix(1, nrow = 3, ncol = 3), fun = "max", na.rm = TRUE)
-vha_lu <- mask(lu_geschikt_min, r_vha)
 
 hag_max <- focal(r_hag, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
 vha_hag <- mask(hag_max, r_vha)
@@ -1864,9 +1952,9 @@ geschikt_vis <- rasterize(wlas_owl_visdoelen, ecosysteem_2022, touches = TRUE, f
 geschikt_vis <- ifel(!is.na(geschikt_vis), 1, 0)
 
 # Combinatie
-# sc2: hag mag, niet bebouwing, akkers laagste geschiktheid, intolerante natuur mag, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid
+# sc2: hag mag, niet bebouwing, mag op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid, akkers laagste geschiktheid -> verschil met sc1 = wel in HAG en op intolerante natuur -> visdoelen en zoekzone zijn doorslaggevend
 
-geschikt_sc2_pre <- ifel(vha_lu == 0, 0, ifel(vha_natuur == 1, vha_lu + 1, vha_lu))
+geschikt_sc2_pre <- ifel(vha_bebouwing == 1, 0, ifel(vha_natuur == 1, vha_lu + 1, vha_lu))
 
 bonus_3260 <- ifel(is.na(geschikt_3260), 0, ifel(geschikt_3260 == 1, 1, 0))
 bonus_vis  <- ifel(is.na(geschikt_vis), 0, ifel(geschikt_vis == 1, 1, 0))
@@ -1887,6 +1975,8 @@ sc2_patches <- patches(sc2_mask, directions = 8)
 f <- freq(sc2_patches)
 sc2_patches_clean <- sc2_patches
 sc2_patches_clean[sc2_patches_clean %in% f$value[f$count <= 50]] <- NA
+
+# mapview(sc2_patches, na.color = "transparent") + mapview(patches_geschiktheid, na.color = "transparent")
 
 # Gemiddelde geschiktheid per cluster
 patches_geschiktheid <- zonal(x = geschikt_sc2, z = sc2_patches_clean, fun = "mean", na.rm = TRUE, as.raster = TRUE)
@@ -1943,10 +2033,10 @@ while (length(geselecteerde_rijen) < doel_cel && patch_index <= length(volgorde_
     resterend_in_patch <- aantal_beschikbaar - blok_grootte
     
     if (resterend_in_patch < 50) {
-      # Minder dan 50 cellen over? Dan gaan we de volgende keer naar de volgende patch
+      # Minder dan 50 cellen over? Dan gaan we naar de volgende patch
       patch_index <- patch_index + 1
     }
-    # (Als er wel >= 50 over zijn, blijft patch_index gelijk en pakt de loop straks wéér een blok uit deze patch)
+    # (Als er wel >= 50 over zijn, blijft patch_index gelijk en pakt de loop een nieuw blok uit deze patch)
     
   } else {
     # De patch heeft al minder dan het gewenste blok (50) over vanaf de start.
@@ -1966,94 +2056,30 @@ df_selectie <- df_sorted %>%
 
 # Kaart maken van geselecteerde cellen op basis van hun cel-ID
 
-beekherstel_final <- rast(ecosysteem_2022)
+beekherstel_final <- rast(geschikt_sc2)
 values(beekherstel_final) <- NA # Zet alles op leeg (NA)
 
-# Wijs de reachID toe aan de geselecteerde celnummers
+# Wijs de geschiktheid toe aan de geselecteerde celnummers
 beekherstel_final[df_selectie$cell] <- df_selectie$celgeschiktheid
-
-mapview(beekherstel_final, col.regions = "red",  na.color = "transparent")
-
-
 
 
 #///////////////////////////////////////////////////////////////////////////////
 # STAP 3 - Vernattingszone afbakenen
 #///////////////////////////////////////////////////////////////////////////////
 
-# Tabel met vernattingsafstanden per textuurklasse
-dist_nat <- c(
-  "G" = 500, "Z" = 200, "S" = 200, "P" = 150, "L" = 100,
-  "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
+vha_beekherstel <- ifel(!is.na(beekherstel_final), 1, NA)
 
-rat <- cats(textuur)[[1]] # Raster Attribute Table
-names(rat) <- c("value", "textuur")
-rat <- rat %>% 
-  select("value", "textuur")
+# Riviercellen in weerstandskaart branden met waarde -999.
+weerstand_target <- weerstand
+weerstand_target[vha_beekherstel == 1] <- -999
 
-# Functie om dist voor combinaties van textuurklassen (bv. U-A-S) te berekenen
-calc_dist <- function(t_string) {
-  parts <- str_split(t_string, "-")[[1]]
-  vals <- dist_nat[parts]
-  return(mean(vals, na.rm = TRUE))
-}
+# Bereken de cost-distance (geaccumuleerde weerstand vanaf de riviercellen)
+r_cost_dist <- costDist(weerstand_target, target = -999)
 
-dist_values <- rat %>%
-  rowwise() %>%
-  mutate(afstand = calc_dist(textuur)) %>%
-  ungroup()
+sc2_beekherstel <- ifel(r_cost_dist <= max_cost, 1, NA)
 
-vha_beekherstel <- project(beekherstel_final, ecosysteem_2022, method = "near")
-vha_beekherstel <- ifel(!is.na(vha_beekherstel), 1, NA)
-textuur <- project(textuur, ecosysteem_2022, method = "near")
+# mapview(sc2_beekherstel, col.regions = "lightblue",  na.color = "transparent") + mapview(beekherstel_final, col.regions = "red",  na.color = "transparent")
 
-
-# 1. Bepaal de textuur per riviercel (dominante textuurklasse in de omgeving)
-# textuur thv riviercellen
-rivier_textuur_ruw <- mask(textuur, vha_beekherstel)
-# venster voor focal-analyse definiëren (cirkel van 50 m)
-w <- focalMat(vha_beekherstel, d = 250, type = "circle")
-w <- matrix(as.numeric(w > 0), nrow = nrow(w), ncol = ncol(w))
-# Meest voorkomende textuurklasse in en rond cel
-textuur_focal <- focal(rivier_textuur_ruw, w = w, fun = "modal", na.rm = TRUE)
-# raster bijsnijden om alleen vha over te houden
-rivier_textuur <- mask(textuur_focal, vha_beekherstel)
-
-# 2. Reclass textuurklassen naar afstanden
-rivier_afstanden <- subst(rivier_textuur, from = dist_values$value, to = dist_values$afstand, raw = TRUE)
-# Verwijder onzichtbare categorie-stickers
-levels(rivier_afstanden) <- NULL
-
-# 3. Haal de unieke afstandswaarden op en sorteer van KLEIN naar GROOT
-unieke_afstanden <- as.numeric(unique(rivier_afstanden)[, 1])
-unieke_afstanden <- unieke_afstanden[!is.na(unieke_afstanden) & unieke_afstanden > 0]
-unieke_afstanden <- sort(unieke_afstanden)
-
-# 4. Bereken voor elke afstandsklasse de afstandskaart
-dist_lijst <- list()
-
-for (d in unieke_afstanden) {
-  # Isoleer de riviercellen van exact deze klasse
-  rivier_specifiek <- ifel(rivier_afstanden == d, 1, NA)
-  # Bereken de afstand tot deze specifieke klasse en sla op in de lijst
-  dist_lijst[[as.character(d)]] <- distance(rivier_specifiek)
-}
-
-# Combineer alle afstandskaarten in één multi-layer raster
-dist_stack <- rast(dist_lijst)
-
-# 5. Bepaal welke riviercel het dichtstbij ligt
-# which.min() geeft per cel de index (1, 2, 3...) van de laag met de kleinste afstand
-dichtstbijzijnde_index <- which.min(dist_stack)
-
-# Vertaal de indexen  terug naar afstandswaarden (30, 100, 500, ...)
-max_toegestane_afstand <- subst(dichtstbijzijnde_index, from = 1:length(unieke_afstanden), to = unieke_afstanden)
-
-# 6. Bereken de absolute minimale afstand tot de dichtstbijzijnde riviercel
-min_werkelijke_afstand <- min(dist_stack)
-
-# 7. Filter de bufferzone: een cel krijgt de waarde van de dichtstbijzijnde buffer, maar alleen als de werkelijke afstand kleiner of gelijk is aan die buffer.
-sc2_beekherstel <- ifel(min_werkelijke_afstand <= max_toegestane_afstand, max_toegestane_afstand, NA)
 
 
 mapview(sc2_beekherstel, col.regions = "red", na.color = "transparent") + mapview(sc1_beekherstel, col.regions = "blue", na.color = "transparent")
