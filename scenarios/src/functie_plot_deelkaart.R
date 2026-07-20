@@ -8,7 +8,7 @@
 188649.9,216777.6 # Tielen (bever)
 189899.9,209902.6 # de zegge (bever)
 
-plot_part <- function(x, col, add = FALSE) {
+plot_part <- function(x, col, type = NULL, add = FALSE) {
   x_midden <- 189899.9
   y_midden <- 209902.6
   # We nemen 500m naar links/rechts en naar boven/onder vanaf het midden
@@ -18,7 +18,7 @@ plot_part <- function(x, col, add = FALSE) {
   )
   # Knip de rasterkaart bij met deze extent
   plot_crop <- crop(x, extent)
-  plot(plot_crop, col = col, add = add)
+  plot(plot_crop, col = col, type = type, add = add)
 }
 
 # plot_part(kaart)
