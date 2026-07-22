@@ -476,7 +476,13 @@ writeRaster(overstromingsvrije_clusters_bever, filename = str_c("C:/R/NARA2026/n
 
 #### a) Vernattingszone afbakenen
 
-Het script bakent rond rivieren die in aanmerking komen voor hydrologisch herstel een zone af waarbinnen de grondwatertafel kan stijgen door de opstuwing in de herstelde rivier. Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking.
+Het script bakent rond rivieren die in aanmerking komen voor hydrologisch herstel een zone af waarbinnen de grondwatertafel kan stijgen door de opstuwing in de herstelde rivier. Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking. In de zone rond waterlopen die hydrologisch hersteld zijn, nemen we aan dat het grondwater stijgt tot 0.5 m onder het maaiveld. Vegetaties met een vochtig of droog grondwaterregime kunnen daar in de problemen komen.
+
+- Grondwaterregimes (GLG, m onder maaiveld) voor grondwaterafhankelijke terrestrische habitattypen en rbb (signaalkaart):
+  - zeer nat/veenvormend: 0 - 0.25 m
+  - nat (niet veenvormend): 0.25 - 0.5 m
+  - vochtig: 0.5 - 1.2 m
+  - lokaal vochtig of droog: \> 1.2 m
 
 Voor de afbakening van de vernattingszone rond rivieren zijn er twee opties:
 
