@@ -39,32 +39,30 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 De volgende datasets worden gebruikt:
 
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
-- natdoel.tif -\> verrasterde percelen van de toekomstlaag_v2025 -\> veld HAB1
-- bwk_habitat.shp -\> habitatkaart (habitat, onzeker habitat, deels habitat)
-- toekomstlaag.shp -\> natuurdoelen
-- ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA) voor 2022
-- bever_kerngebied.shp -\>
-- wlas_owl_visdoelen.shp -\> lijnen van soortbeschermingsprogramma's van de vissoorten (spatial join met wlas)
-- veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
-- ffr_finaal_visie_2050.shp -\> riviersegmenten die vrijstromend moeten zijn in 2050
-- habrl.shp -\> habitatrichtlijngebieden (SBZ-H)
-- ven.shp -\> VEN-gebieden
-- rbh.shp -\> ruimteboekhouding voor gebieden met groene gewestplanbestemming
-- hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
-- overstromingsdiepte_t100_flu_plu.tif -\> overstroombaar gebied (t100, fluviale en pluviale overstromingsgebieden gecombineerd -\> zie ArcGIS script)
-- vha.shp -\> waterlopen
-- textuur.tif -\> bodemtextuur
-- intolerant_zone_bever.tif -\> zone die niet mag overstromen door beverdammen om natuurdoelen te vrijwaren.
-- intolerant_zone_t100.tif -\> zone die niet mag overstromen onder t100 om natuurdoelen te vrijwaren.
-- intolerant_zone_veenherstel.tif -\> zone die niet mag vernatten bij veenherstel om natuurdoelen te vrijwaren
-- intolerant_vha_vernatting.tif -\> vha-cellen die niet in in aanmerking komen voor beekherstel om vernatting vanuit de rivier te vermijden ifv de realisatie van natuurdoelen
-- grondwaterregime_habitats.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
-- zoekzone3260.shp -\> lijnsegmenten van de zoekzone voor habitattype 3260
-- zonering_bever.shp -\> kernleefgebieden (1) en maatwerkgebieden (2) bever
-- lbgp_gewasgroep.tif -\> landbouwgebruikspercelen 2022 (voor afbakening zone landbouwgebruik)
+- habrl201301.shp -\> SBZ-H schaal **Vlaanderen**
+- habrl.shp -\> SBZ-H schaal deelgebied
+- ven.shp -\> VEN-gebieden schaal deelgebied
+- rbh.shp -\> ruimteboekhouding schaal deelgebied
+- hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG (schaal deelgebied)
+- ecosysteem_2022.tif -\> ecosysteemkaart voor 2022 (FLEA) schaal deelgebied
+- bwk_habitat.shp -\> BWK habitatkaart (habitat, onzeker habitat, deels habitat)
+- toekomstlaag.shp -\> polygonen natuurdoelen versie 2025 - schaal deelgebied
+- wlas_owl_visdoelen.shp -\> lijnen van soortbeschermingsprogramma's van de vissoorten (spatial join met wlas) - schaal **Vlaanderen**
+- veen1970_poly.shp -\> veenkaart INBO (bodem + bwk) - schaal **Vlaanderen**
+- ffr_finaal_visie_2050.shp -\> riviersegmenten die vrijstromend moeten zijn in 2050 - schaal **Vlaanderen**
+- overstromingsdiepte_t100_flu_plu.tif -\> overstroombaar gebied (t100, fluviale en pluviale overstromingsgebieden gecombineerd -\> zie ArcGIS script) - schaal deelgebied
+- vha.shp -\> waterlopen schaal deelgebied
+- textuur.tif -\> bodemtextuur schaal deelgebied
+- intolerant_zone_bever.tif -\> zone die niet mag overstromen door beverdammen om natuurdoelen te vrijwaren - schaal deelgebied
+- intolerant_zone_t100.tif -\> zone die niet mag overstromen onder t100 om natuurdoelen te vrijwaren -schaal deelgebied
+- intolerant_zone_veenherstel.tif -\> zone die niet mag vernatten bij veenherstel om natuurdoelen te vrijwaren - schaal deelgebied
+- intolerant_vha_vernatting.tif -\> vha-cellen die niet in in aanmerking komen voor beekherstel om vernatting vanuit de rivier te vermijden ifv de realisatie van natuurdoelen - schaal deelgebied
+- zoekzone3260.shp -\> lijnsegmenten van de zoekzone voor habitattype 3260 - schaal **Vlaanderen**
+- zonering_bever.shp -\> kernleefgebieden (1) en maatwerkgebieden (2) bever - schaal **Vlaanderen**
+- lbgp_gewasgroep.tif -\> landbouwgebruikspercelen 2022 (voor afbakening zone landbouwgebruik veenherstel) - schaal deelgebied
 - aquifer_hcov.tif -\> diepte tot bovenkant eerste aquitard (zie script `x5_hcov_lagen_combineren`)
 - ksat_h_hcov.tif -\> gewogen gemiddeld ksat_h van de ondergrond tot top aquitard (zie script `x5_hcov_lagen_combineren`)
-- dhm.tif -\> hoogte (voor weerstand vernatting)
+- grondwaterregime_habitats.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
 
 ```{r bestanden_folders}
 
@@ -73,7 +71,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "combineerbaarheid_t100.tif", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "textuur.tif", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif")
+targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif")
 
 # In welke folders zitten de data?
 
@@ -199,15 +197,40 @@ In scenario 3 realiseren we maximaal waterregulerende NbO in de gebieden die er 
 
 ## 3. Geschiktheidskaarten
 
-### 3.1. Bever - leefgebied
+### 3.2. Tolerantie hoge grondwaterstand
+
+- Tabel inladen met grondwaterregimes (overgenomen uit de methode voor de opmaak van de signaalkaart)
+- 
+
+## 4. Scenario's
+
+### 4.0. Hulpkaarten
+
+#### Beleidskaarten
+
+```{r beleidskaarten}
+# verrasteren beleidskaarten (gebied = 1, rest = 0)
+r_hag <- ifel(is.na(hag), 0, 1) # hag = 1, rest  = 0
+
+r_rbh <- mask(rasterize(rbh, ecosysteem_2022, field = "rbh"), ecosysteem_2022, updatevalue = NA)
+
+r_rbh <- ifel(is.na(r_rbh), NA, ifel(r_rbh %in% c("03", "04", "05"), 1, 0))
+
+r_sbz <- mask(rasterize(habrl, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
+
+r_ven <- mask(rasterize(ven, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
+
+r_sbz_ven <- ifel(r_sbz == 1 | r_ven == 1, 1, 0)
+r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
+```
+
+#### Leefgebied bever
 
 De analyse selecteert de waterloopsegmenten die als territorium kunnen dienen voor bever én waar het waarschijnlijk is dat er beverdammen gebouwd worden. Dammen worden voornamelijk gebouwd in kleinere, ondiepe waterlopen waar de bever het waterpeil moet reguleren om veiligheid (onderwater toegang tot de burcht) en voedseltoegang te garanderen. In grote, diepe rivieren graven ze eerder burchten of holen in de oever.
 
 In optie 1 vertrekken we van de zoneringskaart van ANB die aangeeft waar de kernleefgebieden en maatwerkgebieden zijn. De kaart is een beleidsmatige afweging en op dit moment nog in vooronderzoek. Indien we de voorlopige beleidskaart niet mogen gebruiken voor de analyses, vallen we terug op optie 2. Daarbij bakenen we de potentiële leefgebieden af op basis van de meest recente inventaris van beverterritoria.
 
-##### Optie 1 - zoneringskaart ANB
-
-```{r deel1_zonering}
+```{r leefgebied_bever}
 
 vha_raw <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/wlas_owl.shp")
 
@@ -220,7 +243,7 @@ zonering_vha <- vha_raw %>% st_join(zonering_bever, join = st_relate, pattern = 
 zonering_vha <- st_transform(zonering_vha, crs(ecosysteem_2022))
 ```
 
-##### Optie 2 - eigen analyse
+**Optie 2**
 
 Op basis van de huidige locaties van beverterritoria identificeren we zones in de vallei die door beverdammen onder water zouden kunnen komen. Het script zet de puntlocaties van de beverterritoria om naar riviertrajecten
 
@@ -228,11 +251,7 @@ Op basis van de huidige locaties van beverterritoria identificeren we zones in d
 - Stap 2: voor elk beverterritorium berekenen we de riviercellen die op minder dan 750 m van de puntlocatie liggen. Door zowel de stroomop- als stroomafwaartsgelegen riviercellen te selecteren, bakenen we een leefgebied van ongeveer 1500 m af.
   - Stap 2b: de resultaten van de territoria samenvoegen
 
-```{r deel1_territoria}
-
-#///////////////////////////////////////
-# DEEL 1 - beverterritoria identificeren
-# //////////////////////////////////////
+```{r leefgebied_bever_optie2}
 
 # Stap 0 - Data inladen en klaarmaken
 
@@ -395,136 +414,9 @@ if (length(clusters_bebouwd) > 0) {
   leefgebied_final <- mask(leefgebied_raster, clusters_gefilterd)
 }
 
-
-# writeRaster(leefgebied_final, "C:/GIS/NARA2026/3_Scenarios/bever_leefgebied_vlaanderen_10m_fin.tif", overwrite = TRUE)
-# 
-# writeRaster(lu_bebouwd, "C:/GIS/NARA2026/3_Scenarios/lu_bebouwd.tif", overwrite = TRUE)
-# 
-# st_write(bevers_snapped, "C:/GIS/NARA2026/3_Scenarios/bevers_snapped.shp", delete_layer = TRUE)
-# 
-# st_write(bevers_sf, "C:/GIS/NARA2026/3_Scenarios/bevers_all.shp", delete_layer = TRUE)
-
 ```
 
-### 3.2. Tolerantie hoge grondwaterstand
-
-- Tabel inladen met grondwaterregimes (overgenomen uit de methode voor de opmaak van de signaalkaart)
-- Grondwaterregimes (GLG, m onder maaiveld) voor grondwaterafhankelijke terrestrische habitattypen en rbb (signaalkaart):
-  - zeer nat/veenvormend: 0 - 0.25 m
-  - nat (niet veenvormend): 0.25 - 0.5 m
-  - vochtig: 0.5 - 1.2 m
-  - lokaal vochtig of droog: \> 1.2 m
-- In de zone rond waterlopen die hydrologisch herstel zijn, nemen we aan dat het grondwater stijgt tot 0.5 m onder het maaiveld. Vegetaties met een vochtig of droog grondwaterregime kunnen daar in de problemen komen.
-  - Afbakening zone:
-
-#### a) Vernattingszone
-
-We gaan ervan uit dat de grondwaterstand stijgt in de vallei van een ecologisch herstelde rivier. Als een ruwe benadering voor de reikwijdte van de vernatting in de vallei gebruiken we een vaste afstand tot de rivier die we laten variëren i.f.v. de bodemtextuur. Dat is een zeer sterke vereenvoudiging en onvoldoende voor lokale analyses, maar biedt ons voor de scenario's de mogelijkheid om de belangrijkste geologische verschillen binnen en tussen de cases in rekening te brengen.
-
-- Stap 1: tabel maken voor de omzetting van bodemtextuur naar vernattingsafstanden
-- Stap 2: de dominante textuurklasse thv de waterloopsegmenten bepalen en op basis van de textuurklasse de vernattingsafstand toekennen aan de segmenten
-- Stap 3: een buffer rond elke waterloop afbakenen op basis van de vernattingsafstand en het resultaat verrasteren
-- Stap 4: de vernattingszone beperken tot de overstroombare zone van de vallei. De laatste stap zorgt ervoor dat de vernatting in smalle valleien niet kan 'ontsnappen' uit de vallei.
-
-```{r vernattingszone}
-
-vallei <- ifel(overstromingsdiepte_t100_flu_plu > 0, 1, NA)
-
-# Stap 1: tabel met vernattingsafstanden maken 
-
-# Tabel met vernattingsafstanden per textuurklasse
-dist_nat <- c(
-  "G" = 500, "Z" = 200, "S" = 200, "P" = 150, "L" = 100,
-  "V" = 500, "M" = 30, "X" = 30, "A" = 100, "E" = 30, "U" = 30)
-
-rat <- cats(textuur)[[1]] # Raster Attribute Table
-names(rat) <- c("value", "textuur")
-rat <- rat %>% 
-  select("value", "textuur")
-
-# Functie om dist voor combinaties van textuurklassen (bv. U-A-S) te berekenen
-calc_dist <- function(t_string) {
-  parts <- str_split(t_string, "-")[[1]]
-  vals <- dist_nat[parts]
-  return(mean(vals, na.rm = TRUE))
-}
-
-tbl_dist_nat <- rat %>%
-  rowwise() %>%
-  mutate(afstand = calc_dist(textuur)) %>%
-  ungroup()
-
-# Stap 2: De vernattingsafstanden koppelen aan de waterloopsegmenten
-
-# CRS van kaarten gelijkmaken + selectie VHA (alleen stromende waterlopen en kleinste weglaten)
-vha_select <- st_transform(vha, st_crs(ecosysteem_2022)) %>%
-  dplyr::filter(CATC %in% c(1, 2, 3) & CODTYPOWL %in% c(NA, "Rzg", "Rg", "Rk", "Mlz", "RtNt", "BkK", "Bk", "BgK", "Bg", "Pz", "Pb"))
-
-textuur <- project(textuur, ecosysteem_2022)
-
-# Dominante textuurklasse per lijnsegment bepalen
-ext_waarden <- terra::extract(textuur, vha_select, touches = TRUE)
-
-# Functie om de modus (meest voorkomende waarde) te berekenen
-get_mode <- function(x) {
-  x <- na.omit(x)
-  if (length(x) == 0) return(NA)
-  ux <- unique(x)
-  ux[which.max(tabulate(match(x, ux)))]
-}
-
-# De naam van de rasterkolom dynamisch ophalen
-raster_naam <- names(textuur)[1]
-
-# Bereken de dominante klasse per uniek ID
-dominante_klassen <- ext_waarden %>%
-  filter(!is.na(.data[[raster_naam]])) %>% 
-  group_by(ID) %>%
-  summarise(dominante_klasse = get_mode(.data[[raster_naam]]))
-
-# Afstanden koppelen uit dist_values
-dominante_klassen <- dominante_klassen %>%
-  left_join(tbl_dist_nat, by = c("dominante_klasse" = "textuur"))
-
-# Voeg een ID toe aan de originele waterlopen om te kunnen matchen
-vha_select$ID <- 1:nrow(vha_select)
-vha_met_afstand <- vha_select %>%
-  left_join(dominante_klassen, by = "ID") %>%
-  filter(!is.na(afstand))
-
-
-# Stap 3: buffer rond de vha-segmenten maken
-
-# Variabele buffer aanmaken
-vha_buffer <- st_buffer(vha_met_afstand, dist = vha_met_afstand$afstand)
-
-# Verrasteren van het eindresultaat
-buffer_vector <- vect(vha_buffer) # Omzetten naar terra-formaat
-buffer_rast <- rasterize(
-  x = buffer_vector, 
-  y = ecosysteem_2022, 
-  field = "afstand", 
-  fun = "min", 
-  background = NA
-)
-
-# Stap 4: de vernattingsafstand beperken tot de overstromingszone
-
-# Vernattingszone beperken tot grenzen overstromingskaart (t100)
-vernatting_rivier <- ifel(!is.na(buffer_rast * vallei), 1, NA)
-
-```
-
-#### b) Intolerante natuurdoelen
-
-```{r grondwaterregime}
-
-regime <- grondwaterregime_habitats
-
-
-```
-
-### 3.3. Veenherstel - verdroogd veen
+#### Verdroogd veen
 
 - We gaan ervan uit dat de grondwaterstand tegen het maaiveld moet staan voor de instandhouding van oppervlakteveen en maximaal 0.5 m onder het maaiveld mag zakken voor ondiep veen.
 - Op veel plaatsen is de grondwaterstand verlaagd om de bodem geschikt te maken voor menselijk gebruik, zoals land- en bosbouw en bebouwing. We gaan uit van de volgende assumpties:
@@ -541,7 +433,7 @@ veen <- veen1970_poly
 r_base <- rast(ext(ecosysteem_2022), resolution = 10, crs = crs(ecosysteem_2022))
 
 r_veen   <- crop(rasterize(veen1970_poly, r_base, field = "gridcode"), ecosysteem_2022)
-r_veen <- mask(r_veen, ecosysteem_2022)
+r_veen <- mask(r_veen, ecosysteem_2022) # 1 = ondiep veen; 2 = oppervlakkig veen
 
 
 # Stap 2 - Habitatkaart verrasteren: natste habitats of rbb's per perceel (minstens 30% bedekking)
@@ -598,42 +490,6 @@ veen_verdroogd <- ifel(r_veen == 1 & glg_huidig != 1, 1, ifel(r_veen == 2 & (glg
 # Rivieren verwijderen uit veenlaag
 veen_verdroogd <- ifel(ecosysteem_2022 %in% c(801, 802) & veen_verdroogd > 0, NA, veen_verdroogd)
 
-
-```
-
-### 3.4. Vrijstromendheid
-
-Vrijstomendheid = de totale lengte van laterale barrières (linker en rechter oever samen) mag maximaal 40% van de lengte van het riviersegment bedragen. De lengte van de oevers bedraagt twee keer de lengte van de rivier, waardoor er dus maximaal langs 20% van de oevers een barrière mag zijn (80% moet barriérevrij blijven). We benaderen dat als volgt:
-
-- We verrasteren de riviersegmenten die tegen 2050 vrijstromend moeten zijn. 80% van het aantal cellen dat direct tegen deze riviercellen ligt moet geschikt zijn voor vrijstromendheid (op de overige 20% mogen nog dijken of oeververstevigingen aanwezig zijn).
-
-### 3.5. Beekherstel
-
-```{r 3260}
-
-
-```
-
-## 4. Scenario's
-
-### 4.0. Hulpkaarten
-
-#### Beleid
-
-```{r beleidskaarten}
-# verrasteren beleidskaarten (gebied = 1, rest = 0)
-r_hag <- ifel(is.na(hag), 0, 1) # hag = 1, rest  = 0
-
-r_rbh <- mask(rasterize(rbh, ecosysteem_2022, field = "rbh"), ecosysteem_2022, updatevalue = NA)
-
-r_rbh <- ifel(is.na(r_rbh), NA, ifel(r_rbh %in% c("03", "04", "05"), 1, 0))
-
-r_sbz <- mask(rasterize(habrl, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
-
-r_ven <- mask(rasterize(ven, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
-
-r_sbz_ven <- ifel(r_sbz == 1 | r_ven == 1, 1, 0)
-r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
 ```
 
 #### Rivieren en vernattingsbuffers
@@ -641,13 +497,10 @@ r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
 Selecteer en verraster de waterlopen die in aanmerking komen voor beekherstel en vrijstromendheid en bereken de buffer rond de waterlopen waarbinnen vernatting mogelijk is.
 
 - Alleen de niet-kunstmatige onbevaarbare waterlopen van 1ste tot en met derde categorie die niet beheerd worden door de polders komen in aanmerking.
-- De vernattingsbuffers worden benaderd op basis van de transmissiviteit ($D*k_{sat}$, met *D* de dikte (m) en *k~sat~* de **horizontale** geleidbaarheid (m²/d) van de watervoerende laag) en de verticale doorlatendheid (*k~v~*) van de bodem.
 
-```{r rivieren_en_vernattingsbuffer}
+```{r rivieren_selectie}
 
-#////////////////////////////////////////////////////////////////////////
-# STAP 1- Selectie van VHA-segmenten -> selectie cf. vrijstromendheid sc3
-#////////////////////////////////////////////////////////////////////////
+# Selectie van VHA-segmenten -> selectie cf. vrijstromendheid sc3
 
 # 1. Waterlopen voor analyse
 vha_select <- vha %>%
@@ -661,11 +514,13 @@ r_vha <- rasterize(vha_select, ecosysteem_2022, touches = TRUE, field = 1)
 #   dplyr::filter(CATC == 0 | CODSTATOWL == "KWL")
 # 
 # r_vha_kunst <- rasterize(vha_kunst, ecosysteem_2022, touches = TRUE, field = 1)
+```
 
+- We gaan ervan uit dat de grondwaterstand stijgt in de vallei van een ecologisch herstelde rivier. Voor een ruwe benadering van de reikwijdte van de vernatting in de vallei baseren we ons op de hydraulische geleidbaarheid van de bodem en de ondergrond. Dat is een sterke vereenvoudiging en onvoldoende voor lokale analyses, maar biedt ons voor de scenario's de mogelijkheid om de belangrijkste geologische verschillen binnen en tussen de cases in rekening te brengen. De vernattingsbuffers worden benaderd op basis van de transmissiviteit ($D*k_{sat}$, met *D* de dikte (m) en *k~sat~* de **horizontale** geleidbaarheid (m²/d) van de watervoerende laag) en de verticale doorlatendheid (*k~v~*) van de bodem.
 
-#////////////////////////////////////////////////////////////////////////
-# STAP 2 - Vernattingsbuffer berekenen
-#////////////////////////////////////////////////////////////////////////
+```{r vernattingsbuffer}
+
+# Vernattingsbuffer berekenen
 
 # verticale doorlatendheid van de bodem (ksat) via textuur bodemkaart
 ksat_v <- c(
@@ -962,18 +817,27 @@ sc1_veen <- ifel(veen_verdroogd == 1, 0, NA)
 sc1_veen[cellen_landbouw$cell] <- 1
 sc1_veen[cellen_rest$cell] <- 2
 
-sc1_veenherstel <- ifel(!is.na(sc1_veen) & sc1_veen == 0, NA, sc1_veen)
+sc1_veenherstel <- ifel(is.na(sc1_veen) | sc1_veen == 0, NA, 1)
+
+sc1_veenherstel <- ifel(!is.na(sc1_veenherstel) & !is.na(r_veen), r_veen, NA)
+
 # mapview(veen_verdroogd, na.color = "transparent") + mapview(sc1_veen, na.color = "transparent") + mapview(landbouw, na.color = "transparent")
 
 ```
 
 ##### c) Vrijstromendheid
 
-- Masker geschikt voor vrijstromendheid:
+Vrijstromendheid = de totale lengte van laterale barrières (linker en rechter oever samen) mag maximaal 40% van de lengte van het riviersegment bedragen. De lengte van de oevers bedraagt twee keer de lengte van de rivier, waardoor er dus maximaal langs 20% van de oevers een barrière mag zijn (80% moet barriérevrij blijven). We benaderen dat als volgt:
+
+- We verrasteren de riviersegmenten die tegen 2050 vrijstromend moeten zijn. 80% van het aantal cellen dat direct tegen deze riviercellen ligt moet geschikt zijn voor vrijstromendheid (op de overige 20% mogen nog dijken of oeververstevigingen aanwezig zijn).
+- Geschiktheid voor vrijstromendheid:
   - buiten HAG
   - bij voorkeur in SBZ, groene bestemming of VEN
   - niet-combineerbare natuurcellen vrijwaren
   - bij voorkeur op natuurlijk grasland, bos of moeras
+
+<!-- -->
+
 - Plaats het aantal cellen dat overeenkomt met 80% van de oevercellen per reachID
 - Selecteer de overstroombare cellen in de vallei die grenzen aan de oevercellen die geselecteerd zijn om barrièrevrij te worden onder vrijstromende omstandigheden.
   - Via een distance-analyse worden de fluviale en pluviale overstromingscellen (t100) toegewezen aan oevercellen die barrièrevrij zijn.
@@ -1754,7 +1618,9 @@ sc2_veen <- ifel(veen_verdroogd == 1, 0, NA)
 sc2_veen[cellen_landbouw$cell] <- 1
 sc2_veen[cellen_rest$cell] <- 2
 
-sc2_veenherstel <- ifel(!is.na(sc2_veen) & sc2_veen == 0, NA, sc2_veen)
+sc2_veenherstel <- ifel(is.na(sc2_veen) | sc2_veen == 0, NA, 1)
+
+sc2_veenherstel <- ifel(!is.na(sc2_veenherstel) & !is.na(r_veen), r_veen, NA)
 
 # mapview(veen_verdroogd, na.color = "transparent") + mapview(sc2_veen, na.color = "transparent")
 ```
@@ -2388,8 +2254,9 @@ Scenario 3: alle verdroogde veenbodems herstellen
 # Alle verdroogde veengronden worden vernat -> vernatting in landbouwgebruik krijgt code 1, vernatting buiten landbouwgebruik krijgt code 2
 sc3_veen <- ifel(is.na(veen_verdroogd), NA, ifel(veen_verdroogd == 1 & landbouw == 1, 1, 2))
 
-sc3_veenherstel <- ifel(!is.na(sc3_veen) & sc3_veen == 0, NA, sc3_veen)
+sc3_veenherstel <- ifel(is.na(sc3_veen) | sc3_veen == 0, NA, 1)
 
+sc3_veenherstel <- ifel(!is.na(sc3_veenherstel) & !is.na(r_veen), r_veen, NA)
 
 # mapview(veen_verdroogd, na.color = "transparent") + mapview(sc3_veen, na.color = "transparent")
 ```
@@ -2637,7 +2504,18 @@ Zit vervat in vrijstromendheid
 
 ```
 
-## Alles combineren
+## 5. Alles combineren
+
+- scx_bever: overstroombare delen = 1000
+- scx_veenherstel: vernattingszone =
+- scx_vrijstromend:
+- scx_beekherstel:
+
+veenherstel = 1 of 2 -\> zeer natte vegetatie
+
+beekherstel = 10 -\> zeer nat tot nat
+
+overstromingen = 100
 
 ```{r combineren}
 rcl_matrix <- matrix(c(
@@ -2668,11 +2546,6 @@ sc1_ihd <- sum(stapel_sc1, na.rm = TRUE)
 
 plot(sc1_ihd)
 plot(sc1_ihd, type = "classes")
-
-# bever = 1000 -> 91E0 of moeras
-# veenherstel = 1 of 2 -> zeer natte vegetatie
-# beekherstel = 10 -> zeer nat tot nat
-# overstromingen = 100
 
 
 
