@@ -2639,4 +2639,9 @@ writeRaster(ecosysteem_sc1, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
 writeRaster(ecosysteem_sc2, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc2.tif"), overwrite = TRUE)
 
 writeRaster(ecosysteem_sc3, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc3.tif"), overwrite = TRUE)
+
+
+# Opkuisen bestanden uit environment
+
+rm(list = setdiff(ls(), c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")))
 ```
