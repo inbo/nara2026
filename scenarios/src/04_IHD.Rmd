@@ -63,6 +63,7 @@ De volgende datasets worden gebruikt:
 - aquifer_hcov.tif -\> diepte tot bovenkant eerste aquitard (zie script `x5_hcov_lagen_combineren`)
 - ksat_h_hcov.tif -\> gewogen gemiddeld ksat_h van de ondergrond tot top aquitard (zie script `x5_hcov_lagen_combineren`)
 - grondwaterregime_habitats.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
+- deel_3_reclass_lu.xlsx -\> tabel met codes om de ecosysteemkaart aan te passen ifv vernatting en overstroming.
 
 ```{r bestanden_folders}
 
@@ -71,7 +72,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif")
+targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "deel_3_reclass_lu.xlsx")
 
 # In welke folders zitten de data?
 
@@ -160,7 +161,7 @@ list2env(data_list_ok, envir = .GlobalEnv)
     -\> We brengen de risico's van **overstromingen met eutroof water** apart in beeld.
 - Voor de analyse nemen we de **terrestrische natuurdoelen als uitgangspunt** en gaan we na in welke mate ze op hun huidige of voorziene locatie haalbaar zijn onder een meer natuurlijk watersysteem. Meer concreet gaan we na welke terrestrische doelen conflicteren met aquatische natuurdoelen (vrijstromendheid, instandhouding bever, vissoorten, habitat 3260 en veenherstel). De **toekomstkaart** (v2025) die aangeeft waar welke terrestrische habitattypes en regionaal belangrijke biotopen gerealiseerd moeten worden, vormt de basis voor de analyse. Die terrestrische natuurdoelen worden in de scenario's als volgt aangepast in functie van de realisatie van aquatische doelen:
   - **Bever**: op plaatsen waar bever getolereerd wordt, worden vegetatiedoelen die niet combineerbaar zijn met een langdurige zomeroverstroming (cf. benadering SBP bever) vervangen door een vegetatietype dat wel combineerbaar is.
-  - **Veenherstel**: op plaatsen waar verdroogd veen hersteld wordt, stijgt het grondwater tot tegen het maaiveld. In die zones kunnen alleen vegetatiedoelen met een zeer nat/veenvormend grondwaterregime voorkomen.
+  - **Veenherstel**: op plaatsen waar verdroogd oppervlakkig veen hersteld wordt, stijgt het grondwater tot tegen het maaiveld. In die zones kunnen alleen vegetatiedoelen met een zeer nat/veenvormend grondwaterregime voorkomen. Bij hersteld ondiep veen stijgt het grondwater tot minstens 0.5 m onder het maaiveld. In die zones kunnen ook vegetatiedoelen met een nat grondwaterregime voorkomen.
   - **Vrijstromendheid**: op plaatsen waar rivieren vrijstromend worden, verruwt de rivierbedding waardoor de grondwaterstand in de vallei stijgt en kan de vallei overstromen. Ter hoogte van vrijstromende trajecten kunnen in de vallei alleen vegetatiedoelen voorkomen die compatibel zijn met winteroverstromingen (t100) en een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
   - **Habitat 3260 en vissoorten**: langs de onbevaarbare waterlooptrajecten die geselecteerd worden ifv de doelen wordt de hydromorfologie hersteld. Daarvoor wordt een meandergordel gereserveerd waarbinnen erosie en sedimentatie door rivierwerking de vrije hand krijgt. Meandering en waterplanten verruwen de rivierbedding waardoor de afvoer vertraagt en het rivierpeil stijgt. Dat leidt meestal tot een verhoging van de grondwaterstand in de vallei. Zonder verhoging van de rivierbodem kan hermeandering echter een verdere verdroging van de vallei in de hand werken. Binnen de vernattingszone kunnen alleen vegetatiedoelen voorkomen die compatibel zijn met een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
 
@@ -195,16 +196,9 @@ In scenario 3 realiseren we maximaal waterregulerende NbO in de gebieden die er 
 - **Bever**: wordt toegelaten in alle waterlopen \>= categorie 2 waar aan hydromorfologisch herstel gewerkt wordt (**+ waar er op dit moment beverterritoria zijn? = kernleefgebieden**). In de overstroombare delen komen alleen vegetaties voor die combineerbaar zijn met zomeroverstromingen.
 - **Veenherstel**: [Alle verdroogde veengebieden]{.underline} worden hersteld. De bodembedekking thv de veengebieden wordt aangepast in een combineerbaar ecosysteemtype (open vegetaties of elzenbroekbos - 91E0).
 
-## 3. Geschiktheidskaarten
+## 3. Scenario's
 
-### 3.2. Tolerantie hoge grondwaterstand
-
-- Tabel inladen met grondwaterregimes (overgenomen uit de methode voor de opmaak van de signaalkaart)
-- 
-
-## 4. Scenario's
-
-### 4.0. Hulpkaarten
+### 3.0. Hulpkaarten
 
 #### Beleidskaarten
 
@@ -569,7 +563,7 @@ r_cost_dist <- costDist(weerstand_target, target = -999)
 vha_buffer <- ifel(r_cost_dist <= max_cost, 1, NA)
 ```
 
-### 4.1. Scenario 1
+### 3.1. Scenario 1
 
 ##### a) Bever
 
@@ -581,6 +575,7 @@ vha_buffer <- ifel(r_cost_dist <= max_cost, 1, NA)
 
 # Kaart Vlaanderen clippen met studiegebied en verrasteren
 # Alleen leefgebieden in case
+gebied <- st_transform(gebied, crs(zonering_vha))
 leefgebied_case <- st_intersection(zonering_vha, gebied)
 leefgebied_r <- rasterize(leefgebied_case, ecosysteem_2022, touches = TRUE, field = "Zonering") %>% project(ecosysteem_2022)
 
@@ -835,9 +830,6 @@ Vrijstromendheid = de totale lengte van laterale barrières (linker en rechter o
   - bij voorkeur in SBZ, groene bestemming of VEN
   - niet-combineerbare natuurcellen vrijwaren
   - bij voorkeur op natuurlijk grasland, bos of moeras
-
-<!-- -->
-
 - Plaats het aantal cellen dat overeenkomt met 80% van de oevercellen per reachID
 - Selecteer de overstroombare cellen in de vallei die grenzen aan de oevercellen die geselecteerd zijn om barrièrevrij te worden onder vrijstromende omstandigheden.
   - Via een distance-analyse worden de fluviale en pluviale overstromingscellen (t100) toegewezen aan oevercellen die barrièrevrij zijn.
@@ -1089,7 +1081,7 @@ vallei_allocatie <- ifel(
 ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
 
-sc1_vrijstromend <- ifel(!is.na(ffr_vernatting) | !is.na(ffr_overstroombaar), 1, NA)
+# sc1_vrijstromend <- ifel(!is.na(ffr_vernatting) | !is.na(ffr_overstroombaar), 1, NA)
 
 sc1_vrijstromend <- ifel(!is.na(ffr_vernatting) & !is.na(ffr_overstroombaar), 110, ifel(!is.na(ffr_vernatting) & is.na(ffr_overstroombaar), 10, ifel(is.na(ffr_vernatting) & !is.na(ffr_overstroombaar), 100, NA)))
 ```
@@ -1104,15 +1096,23 @@ De oppervlaktedoelstelling per deelgebied voor habitattype 3260 wordt als volgt 
 
 - De doelstelling op Vlaams niveau verdelen we over de deelgebieden op basis van het proportioneel aandeel van de **zoekzone voor het habitattype** in de habitatrichtlijngebieden waarvoor het habitattype is aangemeld. De onderstaande tabel geeft de SBZ waarvoor 3260 is aangemeld en de doelstelling. Alleen voor BE2500004 is er volgens het S-IHD-besluit geen toename nodig.
 
-  |  |  |  |  |  |  |
-  |------------|------------|------------|------------|------------|------------|
-  | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** |
-  | BE2100016 | toename | BE2100424 | toename | BE2200039 | toename |
-  | BE2100017 | toename | BE2200029 | toename | BE2200043 | toename |
-  | BE2100020 | toename | BE2200030 | toename | BE2300007 | toename |
-  | BE2100024 | toename | BE2200032 | toename | BE2500004 | behoud |
-  | BE2100026 | toename | BE2200033 | toename |  |  |
-  | BE2100040 | toename | BE2200034 | toename |  |  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  |           |                  |           |                  |           |                  |
+  +===========+==================+===========+==================+===========+==================+
+  | **SBZ**   | **doelstelling** | **SBZ**   | **doelstelling** | **SBZ**   | **doelstelling** |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100016 | toename          | BE2100424 | toename          | BE2200039 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100017 | toename          | BE2200029 | toename          | BE2200043 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100020 | toename          | BE2200030 | toename          | BE2300007 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100024 | toename          | BE2200032 | toename          | BE2500004 | behoud           |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100026 | toename          | BE2200033 | toename          |           |                  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100040 | toename          | BE2200034 | toename          |           |                  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
 
 - Om de oppervlaktedoelstelling per deelgebied om te zetten naar het aantal riviercellen dat 3260 moet worden, volgen we deze redenering:
 
@@ -1376,7 +1376,7 @@ sc1_beekherstel <- ifel(r_cost_dist <= max_cost, 10, NA)
 
 ```
 
-### 4.2. Scenario 2
+### 3.2. Scenario 2
 
 ##### a) Bever
 
@@ -1874,7 +1874,7 @@ vallei_allocatie <- ifel(
 ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
 
-sc2_vrijstromend <- ifel(!is.na(ffr_vernatting) | !is.na(ffr_overstroombaar), 1, NA)
+# sc2_vrijstromend <- ifel(!is.na(ffr_vernatting) | !is.na(ffr_overstroombaar), 1, NA)
 
 sc2_vrijstromend <- ifel(!is.na(ffr_vernatting) & !is.na(ffr_overstroombaar), 110, ifel(!is.na(ffr_vernatting) & is.na(ffr_overstroombaar), 10, ifel(is.na(ffr_vernatting) & !is.na(ffr_overstroombaar), 100, NA)))
 
@@ -2094,7 +2094,7 @@ sc2_beekherstel <- ifel(r_cost_dist <= max_cost, 10, NA)
 
 ```
 
-### 4.3. Scenario 3
+### 3.3. Scenario 3
 
 ##### a) Bever
 
@@ -2229,8 +2229,8 @@ vallei_allocatie <- ifel(
 )
 
 # Resultaat maskeren met t100-kaart
-bever_overstroombaar <- mask(vallei_allocatie, diepte)
 
+bever_overstroombaar <- ifel(!is.na(vallei_allocatie) & !is.na(diepte), 1, NA)
 
 sc3_bever <- ifel(!is.na(bever_overstroombaar), 1000, NA)
 
@@ -2499,59 +2499,86 @@ sc3_vrijstromend <- ifel(!is.na(ffr_vernatting) & !is.na(ffr_overstroombaar), 11
 
 Zit vervat in vrijstromendheid
 
-```{r beekherstel_sc3}
-
-
-```
-
-## 5. Alles combineren
+## 4. Alles combineren
 
 - scx_bever: overstroombare delen = 1000
-- scx_veenherstel: vernattingszone =
-- scx_vrijstromend:
-- scx_beekherstel:
+- scx_veenherstel: vernattingszone = 1 ondiep veen ; 2 = oppervlakkig veen
+- scx_vrijstromend: vernattingszone = 10 ; overstromingszone = 100 ; vernat + overstroming = 110
+- scx_beekherstel: vernattingszone = 10
 
-veenherstel = 1 of 2 -\> zeer natte vegetatie
+De onderstaande tabel geeft aan hoe de codes uit de ecosysteemkaart al dan niet verschuiven onder invloed van vernatting en overstromingen. De ecosysteemkaart geeft alleen de grote ecosysteemgroepen weer (bv. semi-natuurlijke graslanden). Die groepen omvatten meestal zeer diverse vegetatietypes die verschillende toleranties voor vernatting en overstromingen hebben. De tabel kan dan aangeven dat er geen verschuiving tussen de ecosysteemgroepen plaatsvindt, maar binnen de groepen kunnen de vegetatietypes wel veranderen.
 
-beekherstel = 10 -\> zeer nat tot nat
-
-overstromingen = 100
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
+|                                                                                           |                                    |                                          |
++===========================================================================================+====================================+==========================================+
+| **Code**                                                                                  | **landbouw**                       | **natuur**                               |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
+| \> 1000 (bever actief)                                                                    | landbouw wordt natuur (701 of 401) | open natuur wordt 701 of 401 (moerasbos) |
+|                                                                                           |                                    |                                          |
+|                                                                                           |                                    | naaldbos (402) wordt 401                 |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
+| 2, 12 (oppervlakkig veen zonder overstromingen)                                           | landbouw wordt natuur (702 of 401) | open natuur wordt 702 of 401 (moerasbos) |
+|                                                                                           |                                    |                                          |
+|                                                                                           |                                    | naaldbos (402) wordt 401                 |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
+| 102, 112 (opp. veen met overstromingen)                                                   | landbouw wordt natuur (701 of 401) | open natuur wordt 701 of 401 (moerasbos) |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
+| 1, 10, 11, 100, 101, 110, 111 (ondiep veen, en vernatting al dan niet met overstromingen) | landbouw wordt 302                 | open natuur: codes behouden              |
+|                                                                                           |                                    |                                          |
+|                                                                                           |                                    | bos wordt valleibos (401)                |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
 
 ```{r combineren}
+
+#/////////////////////////////////////////////////////////////
+# STAP 1 - combineren deelanalyses in effectkaart
+#/////////////////////////////////////////////////////////////
+
 rcl_matrix <- matrix(c(
-  1,    1,
+  1,    3,
   2,    1,
-  10,   2,
-  11,   2,
-  12,   2,
+  10,   3,
+  11,   3,
+  12,   1,
   100,  3,
   101,  3,
-  102,  3,
+  102,  2,
   110,  3,
   111,  3,
-  112,  3,
+  112,  2,
   1000, 4,
   1001, 4,
   1002, 4,
   1010, 4,
   1011, 4,
-  1100, 4
-), ncol = 2, byrow = TRUE)
+  1012, 4,
+  1100, 4,
+  1101, 4,
+  1102, 4,
+  1110, 4,
+  1111, 4,
+  1112, 4
+  ), ncol = 2, byrow = TRUE)
 
-r_nieuw <- classify(r, rcl = rcl_matrix)
 
 stapel_sc1 <- c(sc1_bever, sc1_beekherstel, sc1_vrijstromend, sc1_veenherstel)
 
 sc1_ihd <- sum(stapel_sc1, na.rm = TRUE)
 
+sc1_ihd_rcl <- classify(sc1_ihd, rcl = rcl_matrix)
+
+
 plot(sc1_ihd)
 plot(sc1_ihd, type = "classes")
+plot(sc1_ihd_rcl, type = "classes")
 
 
 
 stapel_sc2 <- c(sc2_bever, sc2_beekherstel, sc2_vrijstromend, sc2_veenherstel)
 
 sc2_ihd <- sum(stapel_sc2, na.rm = TRUE)
+
+sc2_ihd_rcl <- classify(sc2_ihd, rcl = rcl_matrix)
 
 plot(sc2_ihd)
 plot(sc2_ihd, type = "classes")
@@ -2562,8 +2589,54 @@ stapel_sc3 <- c(sc3_bever, sc3_vrijstromend, sc3_veenherstel)
 
 sc3_ihd <- sum(stapel_sc3, na.rm = TRUE)
 
+sc3_ihd_rcl <- classify(sc3_ihd, rcl = rcl_matrix)
+
 plot(sc3_ihd)
 plot(sc3_ihd, type = "classes")
 
 plot_part(sc3_ihd, type = "classes")
+
+
+
+#/////////////////////////////////////////////////////////////
+# STAP 2 - aanpassen ecosysteemkaart
+#/////////////////////////////////////////////////////////////
+
+# Aanpassen ecosysteemkaart
+# reclasstabel inladen
+lookup <- deel_3_reclass_lu |>
+  select(code, "1", "2", "3", "4")
+
+eco_1 <- subst(ecosysteem_2022, from = lookup$code, to = lookup[["1"]])
+eco_2 <- subst(ecosysteem_2022, from = lookup$code, to = lookup[["2"]])
+eco_3 <- subst(ecosysteem_2022, from = lookup$code, to = lookup[["3"]])
+eco_4 <- subst(ecosysteem_2022, from = lookup$code, to = lookup[["4"]])
+
+# Combineer alles
+ecosysteem_sc1 <- ifel(sc1_ihd_rcl == 1, eco_1,
+                  ifel(sc1_ihd_rcl == 2, eco_2,
+                       ifel(sc1_ihd_rcl == 3, eco_3,
+                            ifel(sc1_ihd_rcl == 4, eco_4, 
+                                 ecosysteem_2022))))
+ecosysteem_sc1 <- cover(ecosysteem_sc1, ecosysteem_2022)
+
+ecosysteem_sc2 <- ifel(sc2_ihd_rcl == 1, eco_1,
+                       ifel(sc2_ihd_rcl == 2, eco_2,
+                            ifel(sc2_ihd_rcl == 3, eco_3,
+                                 ifel(sc2_ihd_rcl == 4, eco_4, 
+                                      ecosysteem_2022))))
+ecosysteem_sc2 <- cover(ecosysteem_sc2, ecosysteem_2022)
+
+ecosysteem_sc3 <- ifel(sc3_ihd_rcl == 1, eco_1,
+                       ifel(sc3_ihd_rcl == 2, eco_2,
+                            ifel(sc3_ihd_rcl == 3, eco_3,
+                                 ifel(sc3_ihd_rcl == 4, eco_4, 
+                                      ecosysteem_2022))))
+ecosysteem_sc3 <- cover(ecosysteem_sc3, ecosysteem_2022)
+
+writeRaster(ecosysteem_sc1, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc1.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_sc2, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc2.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_sc3, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc3.tif"), overwrite = TRUE)
 ```
