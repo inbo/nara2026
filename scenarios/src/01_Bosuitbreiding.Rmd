@@ -135,112 +135,6 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 list2env(data_list_ok, envir = .GlobalEnv)
 ```
 
-De data zitten en een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
-
-Het script laadt automatisch alle **rasters** (tif-bestanden) op in de datafolder. Je kan ook een deel van de rasters selecteren via `targets`. Voorlopige lijst met rasters in de folder: "doorgrond", "droogtegevoelig", "ecosysteem", "erosie", "gebied_nit", "gewestplan_hfdc", "hag", "kernen", "natdoel", "peilgestuurd", "permnat", "publiek_kad", "publiek_owner", "rbh", "sbz", "tempnat", "ven_ivon", "watersysteem".
-
-De tif-bestanden per studiegebied worden aangemaakt in ArcGIS met het script `kaarten_r_scenarios` (Q:\Projects\PRJ\_NARA_2026\\3_scenarios\scenarios.tbx).
-
-De **vectorbestanden** moet je manueel inladen. Het bestand `gebied.shp` is de polygoon van het studiegebied (zonder buffer). De AGNAS-bosuitbreidingspolygonen staan in de map met de bestanden die voor elk studiegebied hetzelfde zijn (`/scenarios/data`).
-
-Na het inladen van de rasters en de vectorbestanden, worden de **rasters bijgeknipt** met de polygoon `gebied`. In ArcGIS worden de rasters immers aangemaakt op basis van een gebufferde polygoon. Die buffer is vooral nodig om het dtm voldoende breed te maken (de infiltratiegebieden liggen soms buiten de polygonen van de deelbekkens waarin het studiegebied ligt). De buffer rond de deelbekkens is nu `1.5 km` en kan aangepast worden in het ArcGIS-model.
-
-In de laatste stap worden de **tabellen** ingeladen die gebruikt worden voor het herklasseren van de rasters.
-
-```{r data, message=FALSE, warning=FALSE }
-
-studiegebied <- "rivierbeek"
-
-# 1. Rasterbestanden
-path <- here(studiegebied, "data")
-
-# Definieer de gewenste bestanden
-targets <- c("ecosysteem", "gewestplan_hfdc", "hag", "kernen", 
-             "natdoel", "publiek_kad", "rbh", "sbz", "ven_ivon")
-
-# Haal de volledige lijst met rasters op en filter op de targets
-tif_files <- list.files(path, pattern = "\\.tif$", full.names = TRUE)
-names(tif_files) <- file_path_sans_ext(basename(tif_files))
-tif_files_select <- tif_files[names(tif_files) %in% targets]
-
-master_path <- tif_files[grepl("ecosysteem", names(tif_files))][1]
-master_template <- rast(master_path)
-
-# Lees de rasters in en zet op dezelfde CRS als de ecosysteemkaart
-raster_list <- lapply(tif_files_select, function(f) {
-  r <- rast(f)
-  if (crs(r) != crs(master_template)) {
-    r <- project(r, master_template, method = "near")
-  }
-  if (ext(r) != ext(master_template) || any(res(r) != res(master_template))) {
-    r <- resample(r, master_template, method = "near")
-  }
-  return(r)
-})
-
-# Laadt de rasters in de Global environment
-list2env(raster_list, envir = .GlobalEnv)
-
-
-# 2. Vectorbestanden
-
-vha <- st_read(str_c(path,"/", "vha.shp")) %>% st_make_valid()
-vha <- st_transform(vha, crs(ecosysteem))
-gebied <- st_read(str_c(path,"/", "gebied.shp")) %>% st_make_valid()
-gebied <- st_transform(gebied, crs(ecosysteem))
-
-# Agnaspolygonen bosuitbreiding
-bbox <- st_bbox(gebied) # afbakening van het studiegebied voor selectie van de Agnas-polygonen
-
-# polygonen van bestaand bos volgens AGNAS
-# selectie_bos <- st_read(str_c(here(), "/data/", "agnas_bestaandbos.shp"), 
-#                         wkt_filter = st_as_text(st_as_sfc(bbox))) %>% st_make_valid() %>% st_transform(crs(ecosysteem))
-
-# cirkels van bosuitbreidingslocaties volgens AGNAS -> de agnas-polygonen staan in de map ../data
-selectie_bosuitb <- st_read(str_c(here(), "/data/", "agnas_bosuitbreiding.shp"), wkt_filter = st_as_text(st_as_sfc(bbox))) %>%
-  st_make_valid() %>%
-  st_transform(crs(ecosysteem))
-
-# agnas_bestaandbos <- selectie_bos[gebied, ] |> 
-#   st_union() |> 
-#   st_collection_extract("POLYGON") |> 
-#   st_cast("POLYGON") |>
-#   st_as_sf() |>
-#   mutate(cluster_id = row_number())
-
-agnas_bosuitbreiding <- selectie_bosuitb[st_intersects(selectie_bosuitb, gebied, sparse = FALSE), ]
-
-# # bestaand bos thv bosuitbreidingslocaties
-# agnas_boslocaties <- agnas_bestaandbos[agnas_bosuitbreiding, ] |> 
-#   st_union()
-
-
-# Bijknippen rasters met polygoon gebied (extent is gebied + 1.5 km)
-rasters_geclipt <- lapply(targets, function(nm) {
-  r <- get(nm)
-  r_crop <- crop(r, gebied)
-  r_mask <- mask(r_crop, gebied)
-  return(r_mask)
-})
-
-names(rasters_geclipt) <- targets
-list2env(rasters_geclipt, envir = .GlobalEnv)
-
-# 3. Tabellen
-
-# 1. tabel om kaart publieke eigendommen (publiek_kad) om te zetten in kaart met
-# cellen die vergroenbaar zijn (= niet bebouwd of moeilijk aanpasbare cellen zoals kerkhoven)
-tbl_publiek <- read_excel(str_c(here(),"/data/", "deel_3_reclass_publiekpercelen.xlsx"))
-
-# 2. tabel om de lu-kaart (ecosysteem) te reclassen voor geschiktheid bosuitbreiding,
-# terrestrische natuurtypes (landnat), water (water), stedelijk gebied (stedelijk) of landbouw
-tbl_lu <- read_excel(str_c(here(),"/data/", "deel_3_reclass_lu.xlsx"))
-
-# 3. tabel om de natuurdoelenkaart te reclassen naar bos of gwates
-tbl_natdoel <- read_excel(str_c(here(),"/data/", "deel_3_reclass_natdoel.xlsx"))
-
-```
-
 ## 2. Scenario's bosuitbreiding
 
 ### 2.0. Hulpkaarten
@@ -270,13 +164,15 @@ r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
 ```{r bosuitbreidingslocaties}
 
 # Agnaspolygonen bosuitbreiding
+gebied <- st_transform(gebied, crs(ecosysteem_2022))
+
 bbox <- st_bbox(gebied) # afbakening van het studiegebied voor selectie van de Agnas-polygonen
 
 # cirkels van bosuitbreidingslocaties volgens AGNAS 
 selectie_bosuitb <- agnas_bosuitbreiding %>%
+  st_transform(crs(ecosysteem_2022)) |>
   st_filter(st_as_sfc(bbox)) %>%
-  st_make_valid() %>%
-  st_transform(crs(ecosysteem_2022))
+  st_make_valid()
 
 agnas_bosuitbreiding <- selectie_bosuitb[st_intersects(selectie_bosuitb, gebied, sparse = FALSE), ]
 
@@ -683,7 +579,7 @@ while (huidig_aantal < doel_aantal_cellen) {
 
 bosuitbreiding_sc1 <- bosuitbreiding
 
-mapview(bosuitbreiding_sc1, na.color = "transparent")
+# mapview(bosuitbreiding_sc1, na.color = "transparent")
 ```
 
 ### 2.2. Scenario 2
@@ -716,6 +612,7 @@ De geschiktheid is lager in HAG -\> strafpunt voor cellen in HAG, maar geen uits
 bestaand_bos <- ifel(ecosysteem_2022 %in% c(103, 400, 401, 402, 403), 1, NA)
 
 nat_bebos <- ifel(!is.na(natdoel) & natdoel == 1 & is.na(bestaand_bos), 1, NA) # te bebossen ifv natuurdoelen
+nat_bebos <- mask(nat_bebos, ecosysteem_2022)
 # bossnippers < 0.5 ha verwijderen
 bebos_patches <- patches(nat_bebos, directions = 8)
 f2 <- freq(bebos_patches)
@@ -890,7 +787,36 @@ while (huidig_aantal < doel_aantal_cellen) {
 
 bosuitbreiding_sc2 <- bosuitbreiding
 
-mapview(bosuitbreiding_sc2, na.color = "transparent")
+# mapview(bosuitbreiding_sc2, na.color = "transparent")
+```
+
+### 2.2. Scenario 3
+
+In scenario 3 is de bosuitbreiding een combinatie van:
+
+1.  de uitbreiding in scenario 2;
+2.  de eventuele extra bosuitbreidingsdoelen indien het resterende saldo na de plaatsing van de oppervlakte uit (1) groter is dan nul;
+3.  het extra bos dat erbij komt in functie van infiltratiemaatregelen
+
+Het onderstaande script brengt alleen (1) en (2) in beeld. De rest van de bosuitbreiding wordt berekend in de scripts van infiltratie en dedrainage.
+
+```{r allocatie_sc_3}
+
+# Natuurdoelen met een bostype als doel (natdoel = 1) die overlappen met cellen die momenteel nog geen bos zijn
+
+bestaand_bos <- ifel(ecosysteem_2022 %in% c(103, 400, 401, 402, 403), 1, NA)
+
+nat_bebos <- ifel(!is.na(natdoel) & natdoel == 1 & is.na(bestaand_bos), 1, NA) # te bebossen ifv natuurdoelen
+nat_bebos <- mask(nat_bebos, ecosysteem_2022)
+# bossnippers < 0.5 ha verwijderen
+bebos_patches <- patches(nat_bebos, directions = 8)
+f2 <- freq(bebos_patches)
+grote_bebos_ids <- f2$value[f2$count > 50] # alleen bosclusters > 0.5 ha
+
+bosuitbreiding_sc3 <- ifel(bebos_patches %in% grote_bebos_ids, 1, NA)
+
+
+# mapview(bosuitbreiding_sc3, na.color = "transparent")
 ```
 
 ## 3. Kaarten maken
