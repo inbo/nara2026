@@ -25,71 +25,160 @@ library(leaflet) # Nodig voor colorFactor
 
 ## 1. Data inladen en klaarmaken
 
-De data zitten en een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
 
-Het script laadt automatisch alle **rasters** (tif-bestanden) op in de datafolder. Je kan ook een deel van de rasters selecteren via `targets`. Voorlopige lijst met rasters in de folder: "doorgrond", "droogtegevoelig", "ecosysteem", "erosie", "gebied_nit", "gewestplan_hfdc", "hag", "kernen", "natdoel", "peilgestuurd", "permnat", "publiek_kad", "publiek_owner", "rbh", "sbz", "tempnat", "ven_ivon", "watersysteem".
+C:/R/NARA2026/nara2026-git/scenarios
 
-De tif-bestanden per studiegebied worden aangemaakt in ArcGIS met het script `kaarten_r_scenarios` (Q:\Projects\PRJ\_NARA_2026\\3_scenarios\scenarios.tbx).
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `04_IHD.Rmd`
+> |    \|—– rivierbeek
+> |          \|—– data -\>
 
-De **vectorbestanden** moet je manueel inladen. Het bestand `gebied.shp` is de polygoon van het studiegebied (zonder buffer). De AGNAS-bosuitbreidingspolygonen staan in de map met de bestanden die voor elk studiegebied hetzelfde zijn (`/scenarios/data`).
+### 1.1. Kies bestanden
 
-Na het inladen van de rasters en de vectorbestanden, worden de **rasters bijgeknipt** met de polygoon `gebied`. In ArcGIS worden de rasters immers aangemaakt op basis van een gebufferde polygoon. Die buffer is vooral nodig om het dtm voldoende breed te maken (de infiltratiegebieden liggen soms buiten de polygonen van de deelbekkens waarin het studiegebied ligt). De buffer rond de deelbekkens is nu `1.5 km` en kan aangepast worden in het ArcGIS-model.
+De volgende datasets worden gebruikt:
 
-In de laatste stap worden de **tabellen** ingeladen die gebruikt worden voor het herklasseren van de rasters.
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- ecosysteem_2022.tif -\> ecosysteemkaart voor 2022 (FLEA) schaal deelgebied
+- gewestplan_hfdc.tif -\> Hoofdcode gewestplan schaal deelgebied
+- hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG (schaal deelgebied)
+- kernen.tif -\> kaart kernen schaal deelgebied
+- natdoel.tif -\> HAB1 van toekomstlaag versie 2025
+- toekomstlaag.shp -\> polygonen natuurdoelen versie 2025 - schaal deelgebied
+- publiek_kad.tif -\> Publieke gronden 2024, veld KAD_AARD schaal deelgebied
+- habrl.shp -\> SBZ-H schaal deelgebied
+- ven.shp -\> VEN-gebieden schaal deelgebied
+- rbh.shp -\> ruimteboekhouding schaal deelgebied
+- vha.shp -\> waterlopen met typologie schaal deelgebied
+- boswijzer2009.tif -\> boswijzer 2009 schaal studiegebied
+- boswijzer2021.tif -\> boswijzer 2021 schaal studiegebied
+- agnas_bosuitbreiding.shp -\> cirkels AGNAS bosuitbreiding schaal Vlaanderen
+- agnas_gebieden.shp -\> polygonen van de AGNAS-gebieden
+- deel_3_reclass_publiekpercelen.xlsx -\> tabel om kaart publieke eigendommen (publiek_kad) om te zetten in kaart met \# cellen die vergroenbaar zijn (= niet bebouwd of moeilijk aanpasbare cellen zoals kerkhoven)
+- deel_3_reclass_lu.xlsx -\> terrestrische natuurtypes (landnat), water (water), stedelijk gebied (stedelijk) of landbouw
+- deel_3_reclass_natdoel.xlsx -\> tabel om de natuurdoelenkaart te reclassen naar bos of gwates
+- bosuitbreidingsdoelen.xlsx -\> bosuitbreidingsdoelen per AGNAS-deelgebied
+
+```{r bestanden_folders}
+
+studiegebied <- "kleine_nete"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem.tif is steeds nodig als referentieraster
+
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "gewestplan_hfdc.tif", "kernen.tif", "kernen.tif", "toekomstlaag.shp", "natdoel.tif", "publiek_kad.tif", "hag.tif", "habrl.shp", "ven.shp", "rbh.shp", "vha.shp", "agnas_bosuitbreiding.shp", "agnas_gebieden.shp", "deel_3_reclass_lu.xlsx", "deel_3_reclass_publiekpercelen.xlsx", "deel_3_reclass_natdoel.xlsx", "bosuitbreidingsdoelen.xlsx", "boswijzer2009.tif", "boswijzer2021.tif")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
+                  "C:/R/NARA2026/nara2026-git/scenarios/data"
+)
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022** en ze de kaarten in de Global environment.
 
 ```{r data, message=FALSE, warning=FALSE }
 
-studiegebied <- "rivierbeek"
 
-# 1. Rasterbestanden
-path <- here(studiegebied, "data")
+# 1. Inladen bestanden
 
-# Definieer de gewenste bestanden
-targets <- c("ecosysteem", "gewestplan_hfdc", "hag", "kernen", 
-             "natdoel", "publiek_kad", "rbh", "sbz", "ven_ivon")
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
 
-# Haal de volledige lijst met rasters op en filter op de targets
-tif_files <- list.files(path, pattern = "\\.tif$", full.names = TRUE)
-names(tif_files) <- file_path_sans_ext(basename(tif_files))
-tif_files_select <- tif_files[names(tif_files) %in% targets]
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
 
-master_path <- tif_files[grepl("ecosysteem", names(tif_files))][1]
-master_template <- rast(master_path)
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+                "shp"  = st_read(path, quiet = TRUE),
+                "tif"  = rast(path),
+                "xlsx" = read_excel(path),
+                stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
 
-# Lees de rasters in en zet op dezelfde CRS als de ecosysteemkaart
-raster_list <- lapply(tif_files_select, function(f) {
-  r <- rast(f)
-  if (crs(r) != crs(master_template)) {
-    r <- project(r, master_template, method = "near")
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem_2022
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r) 
   }
-  if (ext(r) != ext(master_template) || any(res(r) != res(master_template))) {
-    r <- resample(r, master_template, method = "near")
-  }
-  return(r)
-})
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  is_cat <- is.factor(r) || is.bool(r)
+  method_type <- if(is_cat) "near" else "bilinear"
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+  return(r_geclipt)
+}
 
-# Laadt de rasters in de Global environment
-list2env(raster_list, envir = .GlobalEnv)
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 
 
-# 2. Vectorbestanden
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+```
 
-vha <- st_read(str_c(path,"/", "vha.shp")) %>% st_make_valid()
-vha <- st_transform(vha, crs(ecosysteem))
-gebied <- st_read(str_c(path,"/", "gebied.shp")) %>% st_make_valid()
-gebied <- st_transform(gebied, crs(ecosysteem))
+## 2. Scenario's bosuitbreiding
+
+### 2.0. Hulpkaarten
+
+#### Beleidskaarten
+
+```{r beleidskaarten}
+
+# verrasteren beleidskaarten (gebied = 1, rest = 0)
+r_hag <- ifel(is.na(hag), 0, 1) # hag = 1, rest  = 0
+
+r_rbh <- mask(rasterize(rbh, ecosysteem_2022, field = "rbh"), ecosysteem_2022, updatevalue = NA)
+
+r_rbh <- ifel(is.na(r_rbh), NA, ifel(r_rbh %in% c("03", "04", "05"), 1, 0))
+
+r_sbz <- mask(rasterize(habrl, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
+
+r_ven <- mask(rasterize(ven, ecosysteem_2022, field = 1, background = 0), ecosysteem_2022, updatevalue = NA)
+
+r_sbz_ven <- ifel(r_sbz == 1 | r_ven == 1, 1, 0)
+r_natuur <- ifel(r_sbz_ven == 1 | r_rbh == 1, 1, 0)
+
+```
+
+#### AGNAS bosuitbreidingslocaties
+
+```{r bosuitbreidingslocaties}
 
 # Agnaspolygonen bosuitbreiding
+gebied <- st_transform(gebied, crs(ecosysteem_2022))
+
 bbox <- st_bbox(gebied) # afbakening van het studiegebied voor selectie van de Agnas-polygonen
 
-# polygonen van bestaand bos volgens AGNAS
+# cirkels van bosuitbreidingslocaties volgens AGNAS 
+selectie_bosuitb <- agnas_bosuitbreiding %>%
+  st_transform(crs(ecosysteem_2022)) |>
+  st_filter(st_as_sfc(bbox)) %>%
+  st_make_valid()
+
+agnas_bosuitbreiding <- selectie_bosuitb[st_intersects(selectie_bosuitb, gebied, sparse = FALSE), ]
+
+# Alternatief: via polygonen van bestaand bos volgens AGNAS
 # selectie_bos <- st_read(str_c(here(), "/data/", "agnas_bestaandbos.shp"), 
 #                         wkt_filter = st_as_text(st_as_sfc(bbox))) %>% st_make_valid() %>% st_transform(crs(ecosysteem))
-
-# cirkels van bosuitbreidingslocaties volgens AGNAS -> de agnas-polygonen staan in de map ../data
-selectie_bosuitb <- st_read(str_c(here(), "/data/", "agnas_bosuitbreiding.shp"), wkt_filter = st_as_text(st_as_sfc(bbox))) %>%
-  st_make_valid() %>%
-  st_transform(crs(ecosysteem))
 
 # agnas_bestaandbos <- selectie_bos[gebied, ] |> 
 #   st_union() |> 
@@ -98,113 +187,239 @@ selectie_bosuitb <- st_read(str_c(here(), "/data/", "agnas_bosuitbreiding.shp"),
 #   st_as_sf() |>
 #   mutate(cluster_id = row_number())
 
-agnas_bosuitbreiding <- selectie_bosuitb[st_intersects(selectie_bosuitb, gebied, sparse = FALSE), ]
-
 # # bestaand bos thv bosuitbreidingslocaties
 # agnas_boslocaties <- agnas_bestaandbos[agnas_bosuitbreiding, ] |> 
 #   st_union()
+```
 
+#### Open natuurdoelen
 
-# Bijknippen rasters met polygoon gebied (extent is gebied + 1.5 km)
-rasters_geclipt <- lapply(targets, function(nm) {
-  r <- get(nm)
-  r_crop <- crop(r, gebied)
-  r_mask <- mask(r_crop, gebied)
-  return(r_mask)
-})
+Selecteer de natuurdoelen die minstens 30% van een perceel in de toekomstlaag uitmaken en selecteer de percelen met open natuurdoelen.
 
-names(rasters_geclipt) <- targets
-list2env(rasters_geclipt, envir = .GlobalEnv)
+```{r natuurdoelen}
 
-# 3. Tabellen
+tbl_publiek <- deel_3_reclass_publiekpercelen
+tbl_lu <- deel_3_reclass_lu # ecosystemen waar bos mag komen
+tbl_natdoel <- deel_3_reclass_natdoel # natuurdoelen bos  = 1
 
-# 1. tabel om kaart publieke eigendommen (publiek_kad) om te zetten in kaart met
-# cellen die vergroenbaar zijn (= niet bebouwd of moeilijk aanpasbare cellen zoals kerkhoven)
-tbl_publiek <- read_excel(str_c(here(),"/data/", "deel_3_reclass_publiekpercelen.xlsx"))
+percelen <- toekomstlaag
 
-# 2. tabel om de lu-kaart (ecosysteem) te reclassen voor geschiktheid bosuitbreiding,
-# terrestrische natuurtypes (landnat), water (water), stedelijk gebied (stedelijk) of landbouw
-tbl_lu <- read_excel(str_c(here(),"/data/", "deel_3_reclass_lu.xlsx"))
+# Selectie van natuurdoelen die minstens 30% van een perceel bedekken
+percelen_df <- as.data.frame(percelen) %>%
+  mutate(ID_perceel = row_number()) %>%
+  pivot_longer(
+    cols = starts_with("HAB"), 
+    names_to = "HAB_nr", 
+    values_to = "HAB_type"
+  ) %>%
+  # Match de bedekkingsgraad (pHAB) bij het juiste HAB_type
+  mutate(p_nr = sub("HAB", "pHAB", HAB_nr)) %>%
+  rowwise() %>%
+  mutate(bedekking = get(p_nr)) %>%
+  filter(bedekking > 30) # Criterium: alleen bedekkingsgraad > 30% telt mee
 
-# 3. tabel om de natuurdoelenkaart te reclassen naar bos of gwates
-tbl_natdoel <- read_excel(str_c(here(),"/data/", "deel_3_reclass_natdoel.xlsx"))
+# 1. Koppel de tolerantiescores aan de geselecteerde doelen
+percelen_scores <- percelen_df %>%
+  left_join(tbl_natdoel, by = c("HAB_type" = "hab1")) %>%
+  group_by(ID_perceel) %>%
+  # Kies per perceel het vegetatietype dat geen bos is
+  summarise(niet_bos   = min(bos, na.rm = TRUE)) %>%
+  mutate(across(starts_with("niet_"), ~ ifelse(is.infinite(.), NA, .))) |> # inf op NA zetten
+  filter(!is.na(niet_bos))
+
+# Voeg scores terug toe aan de vector data
+percelen_final <- merge(percelen, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+
+# 2. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
+r_base <- rast(ext(ecosysteem_2022), resolution = 10, crs = crs(ecosysteem_2022))
+
+# Verraster de kaart (0 = open natuur, 1 = bos, rest = NA)
+natdoel   <- rasterize(percelen_final, r_base, field = "niet_bos")
+
 
 ```
 
-## 2. Bosuitbreiding
+#### Bosuitbreidingsdoel
 
-### 2.1. Harde randvoorwaarden
+Voor de berekening van het bosuitbreidingsdoel wordt eerst de relatieve oppervlakte van de AGNAS-regio's in het studiegebied berekend. Voor elke regio kennen we de bosuitbreidingsdoelen (NARA 2018). Die doeloppervlaktes worden toegekend aan het studiegebied op basis van het proportioneel aandeel van de oppervlakte van de regio's in het studiegebied.
+
+**Opmerking: Sinds 2019 is er ongeveer 2500 ha nieuw bos bijgekomen. Het bosuitbreidingsdoel per deelgebied zou eventueel gecorrigeerd kunnen worden op basis van de reeds gerealiseerde bosuitbreiding.**
+
+```{r bosuitbreidingsdoel}
+
+agnas_bosuitbreiding <- st_transform(agnas_bosuitbreiding, crs = crs(ecosysteem_2022))
+agnas_gebieden <- st_transform(agnas_gebieden, crs = crs(ecosysteem_2022))
+gebied <- st_transform(gebied, crs = crs(ecosysteem_2022))
+
+# 1. Bosuitbreidingscirkels binnen studiegebied
+
+cirkel_centra <- st_centroid(agnas_bosuitbreiding) # middelpunten
+centra_in_gebied <- st_filter(cirkel_centra, gebied, .predicate = st_intersects) # middelpunten binnen het studiegebied
+
+# 2. AGNAS-gebieden die middelpunten omvatten
+
+gebieden_geselecteerd <- st_filter(agnas_gebieden, centra_in_gebied, .predicate = st_contains) %>%
+  distinct(REGIO, CODE, .keep_all = TRUE)
+
+# 3. Oppervlakte binnen studiegebied
+
+gebied_union <- st_union(gebied) # 1 geometrie van polygoon
+
+# Nieuwe kolom 'combi' maken en totale oppervlakte per polygoon berekenen
+gebieden_basis <- gebieden_geselecteerd %>%
+  mutate(combi = paste(REGIO, CODE, sep = "_"),
+         opp_totaal = as.numeric(st_area(.)))
+
+# overlap (intersectie) met studiegebied
+intersectie <- st_intersection(gebieden_basis, gebied_union) %>%
+  mutate(opp_binnen = as.numeric(st_area(.))) %>%
+  st_drop_geometry() %>%
+  select(combi, opp_binnen)
+
+# 4. Bosuitbreidingsdoelen koppelen en aandeel binnen studiegebied berekenen
+resultaat_polygonen <- gebieden_basis %>%
+  left_join(intersectie, by = "combi") %>%
+  mutate(
+    opp_binnen = replace_na(opp_binnen, 0), 
+    perc_opp = opp_binnen / opp_totaal
+  ) %>%
+  left_join(bosuitbreidingsdoelen, by = c("combi" = "code")) %>%
+  mutate(bosdoel = perc_opp * doel) |>
+  select(REGIO, combi, opp_totaal, opp_binnen, perc_opp, doel, bosdoel) |>
+  st_drop_geometry()
+
+# 5. Resterende bosuitbreidingsdoelen verdelen (REGIO_totaal uit tabel)
+
+gebieden_regio <- agnas_gebieden %>%
+  mutate(combi = paste(REGIO, CODE, sep = "_"),
+         opp = as.numeric(st_area(.))) |>
+  group_by(REGIO) %>%
+  mutate(opp_totaal = sum(opp, na.rm = TRUE)) %>%
+  ungroup()
+
+resultaat_regio <- st_intersection(gebieden_regio, gebied_union) %>%
+  mutate(opp_in = as.numeric(st_area(.))) %>%
+  group_by(REGIO) %>%
+  mutate(opp_binnen = sum(opp_in, na.rm = TRUE),
+         perc_opp = opp_binnen / opp_totaal,
+         combi = paste(REGIO, "totaal", sep = "_")) %>%
+  left_join(bosuitbreidingsdoelen, by = c("combi" = "code")) |>
+  mutate(bosdoel = perc_opp * doel) |>
+  ungroup() |>
+  st_drop_geometry() %>%
+  select(REGIO, combi, opp_totaal, opp_binnen, perc_opp, doel, bosdoel) |>
+  filter(!is.na(bosdoel)) |>
+  distinct(combi, .keep_all = TRUE)
+
+# 6. Bosuitbreidingsdoel studiegebied
+
+bosdoel <- round(sum(resultaat_polygonen$bosdoel, na.rm = TRUE) + sum(resultaat_regio$bosdoel, na.rm = TRUE), 0)
+
+
+# Extra: reeds gerealiseerde bosuitbreiding
+# Om de invloed van randeffecten (bv. overhangende kruinen) te beperken, worden alleen de bosuitbreidingscellen meegenomen die een cluster vormen van minstens 0.5 ha.
+
+# boswijzer2009 <- ifel(boswijzer2009 == 1, 1, NA)
+# boswijzer2021 <- ifel(boswijzer2021 == 1, 1, NA)
+# 
+# boswinst <- ifel(is.na(boswijzer2009) & !is.na(boswijzer2021), 1, NA)
+# bosverlies <- ifel(!is.na(boswijzer2009) & is.na(boswijzer2021), 1, NA)
+# 
+# winst_patch <- patches(boswinst, directions = 8)
+# f1 <- freq(winst_patch)
+# boswinst_50 <- winst_patch
+# boswinst_50[boswinst_50 %in% f1$value[f1$count <= 50]] <- NA
+# 
+# verlies_patch <- patches(bosverlies, directions = 8)
+# f2 <- freq(verlies_patch)
+# bosverlies_50 <- verlies_patch
+# bosverlies_50[bosverlies_50 %in% f2$value[f2$count <= 50]] <- NA
+# 
+# winst <- global(!is.na(boswinst_50), "sum", na.rm = TRUE)[1,1]
+# verlies <- global(!is.na(bosverlies_50), "sum", na.rm = TRUE)[1,1]
+# 
+# verschil <- (winst - verlies)/100
+```
+
+### 2.1. Scenario 1
 
 Bosuitbreiding wordt uitgesloten op de volgende cellen:
 
--   landgebruikscellen die bos, water of verhard zijn
--   cellen in HAG
--   cellen met een doel voor open natuur
-
-```{r randvoorwaarden}
-
-# Regel 1: Alleen bebosbaar volgens tbl_lu
-reclass_lu <- tbl_lu %>% select(code, bosuitbreiding) %>% as.matrix()
-mask_lu <- classify(ecosysteem, reclass_lu)
-
-# Regel 2: Niet op hag (waarde 1 = geschikt)
-mask_hag <- ifel(is.na(hag), 1, 0)
-
-# Regel 3: niet op open natuurdoelen (1 = geschikt)
-# duid aan welke natuurdoelen geen bos zijn
-lev <- levels(natdoel)[[1]]
-lev2 <- merge(lev, tbl_natdoel, by.x = "HAB1", by.y = "hab1", all.x = TRUE)
-lookup   <- lev2[,c("Value","bos")]
-natdoel_01  <- classify(natdoel, lookup)
-
-mask_natd <- ifel(is.na(natdoel_01) | natdoel_01 == 1, 1, 0) # open natuur niet bebossen
-
-# bosdoelcellen die nu nog geen bos zijn (voor volgende stap - geschiktheidskaart)
-bestaand_bos <- ifel(ecosysteem %in% c(103, 400, 401, 402, 403), 1, 100)
-
-nat_bebos <- ifel(natdoel_01 == 1 & bestaand_bos == 100, 1, NA) # te bebossen ifv natuurdoelen
-
-# Combineer harde maskers (0 = nooit bos, 1 = mogelijk bos)
-total_mask <- mask_lu * mask_hag * mask_natd
-```
-
-### 2.2. Geschiktheidskaart
+- landgebruikscellen die bos, heide, water of verhard zijn
+- cellen in HAG
+- cellen met een doel voor open natuur
 
 De geschiktheid voor bebossing is hoger op cellen die:
 
--   een groene bestemming hebben volgens de ruimteboekhouding
--   op niet-bebouwde publieke percelen liggen (ook niet op kerkhoven etc -\> zie tabel)
--   op 300m van woonkernen liggen (cf. 3-30-300 regel) -\> daarna afname geschiktheid tot 600m
--   nabij bestaande bosclusters (= groter dan 0.5 ha) liggen waar volgens AGNAS bosuitbreiding voorzien is -\> tot 100m en daarna afname tot 300m
+- een natuur-bestemming hebben (SBZ-H, VEN, groene bestemming RBH)
+- op niet-bebouwde publieke percelen liggen (ook niet op kerkhoven etc -\> zie tbl_publiek)
+- op 300m van woonkernen liggen (cf. 3-30-300 regel) -\> daarna afname geschiktheid tot 600m
+- nabij bestaande bosclusters (= groter dan 0.5 ha) liggen waar volgens AGNAS bosuitbreiding voorzien is -\> tot 100m en daarna afname tot 300m
 
 Bij de compilatie van de geschiktheidskaart kunnen de afzonderlijke deelscores gewogen worden (bv. groene bestemmingen en AGNAS-bos een dubbel gewicht).
 
-```{r geschiktheidskaarten}
+**a) Geschiktheid**
 
-# Regel 3: Voorkeur rbh '03', '04', '05'
-score_rbh <- ifel(rbh %in% c("03", "04", "05"), 1, 0)
+```{r geschiktheid_sc1}
 
-# Regel 4: Voorkeur publiek_natuur == 1
-score_pub <- subst(publiek_kad, from = tbl_publiek$KAD_AARD, to = tbl_publiek$publiek_natuur)
-score_pub <- as.numeric(ifel(is.na(score_pub), 0, score_pub))
-score_pub <- ifel(score_pub == 124, 1, 0)
+#///////////////////////////////////////////////////////////////////
+# Harde randvoorwaarden
+#///////////////////////////////////////////////////////////////////
 
-# Regel 5: Afstand tot kernen (3-30-300 regel: binnen 300m = 1, daarna lin afnemend tot 600m)
-# afstand tot cellen kernen (kernen = woonkernen)
+# 1. Geschikte ecosystemen
+# niet op heide of duinen: die bedekken soms minder dan 30% van de opp. van een perceel uit de toekomstlaag, maar hebben een grotere opp. in combinatie met aanliggende percelen.
+geschikt_lu <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(104, 201, 202, 203, 204, 205, 300, 301, 302, 701, 702, 1002, 1102), 1, 0))
+
+# 2. Niet op hag (waarde 1 = geschikt)
+geschikt_hag <- ifel(r_hag == 1, 0, 1)
+
+# 3. Niet op open natuurdoelen (natdoel: 1 = bos, 0 = open natuur)
+geschikt_natd <- ifel(is.na(natdoel) | natdoel == 1, 1, 0)
+
+# Combineer harde randvoorwaarden (0 = nooit bos, 1 = mogelijk bos)
+niet_geschikt <- geschikt_lu * geschikt_hag * geschikt_natd
+
+
+
+#///////////////////////////////////////////////////////////////////
+# Geschiktheid
+#///////////////////////////////////////////////////////////////////
+
+# 1. Voorkeur rbh '03', '04', '05' 
+score_groen <- r_natuur
+
+# 2. Voorkeur publiek_natuur == 1
+  lev <- levels(publiek_kad)[[1]]
+
+  raster_labels <- trimws(as.character(lev$KAD_AARD)) # Verwijder verborgen spaties
+  tabel_labels  <- trimws(as.character(tbl_publiek$KAD_AARD))
+
+# Koppel de labels en haal de nieuwe waarden (0, 1, NA) op
+  idx <- match(raster_labels, tabel_labels)
+  val_01 <- as.numeric(tbl_publiek$publiek_natuur[idx])
+
+  rcl <- cbind(from = lev[[1]], to = val_01) # reclassmatrix: [interne_ID, nieuwe_waarde]
+
+score_pub <- classify(publiek_kad, rcl)
+
+score_pub <- ifel(is.na(score_pub), 0, score_pub)
+
+
+# 3. Afstand tot woonkernen (3-30-300 regel: binnen 300m = 1, daarna lin afnemend tot 600m)
 dist_kernen <- distance(kernen)
 score_kernen <- ifel(dist_kernen <= 300, 1,
-                  ifel(dist_kernen <= 600, (600 - dist_kernen) / 300, 0))
+                     ifel(dist_kernen <= 600, (600 - dist_kernen) / 300, 0))
 
-# Regel 6: Aansluitend bij bestaand bos AGNAS
-# Zoek bestaand bos (codes 400, 401, 402, 403) -> 103 (hoog groen meenemen?)
-bestaand_bos <- ifel(ecosysteem %in% c(400, 401, 402, 403), 1, NA) 
+# 4. Aansluitend bij bestaand bos AGNAS
+# Zoek bestaand bos (codes 103, 400, 401, 402, 403)
+bestaand_bos <- ifel(ecosysteem_2022 %in% c(103, 400, 401, 402, 403), 1, NA) 
 bos_patches <- patches(bestaand_bos, directions = 8)
-patch_sizes <- freq(bos_patches)
-grote_bos_ids <- patch_sizes$value[patch_sizes$count > 50] # alleen bosclusters > 0.5 ha
+f <- freq(bos_patches)
+grote_bos_ids <- f$value[f$count > 50] # alleen bosclusters > 0.5 ha
 bos_gefilterd <- ifel(bos_patches %in% grote_bos_ids, bos_patches, NA)
 
 # selecteer bosclusters die overlappen met agnas-locaties
-intersect_ids <- extract(bos_gefilterd, vect(agnas_bosuitbreiding), ID = FALSE)
+intersect_ids <- terra::extract(bos_gefilterd, vect(agnas_bosuitbreiding), ID = FALSE)
 unique_ids <- unique(na.omit(intersect_ids[[1]]))
 bos_agnas <- ifel(bos_gefilterd %in% unique_ids, 1, NA)
 
@@ -213,120 +428,395 @@ dist_bos <- distance(bos_agnas)
 score_bos <- ifel(dist_bos <= 100, 1,
                   ifel(dist_bos <= 300, (300 - dist_bos) / 200, 0))
 
-# Geschiktheidskaart compileren
 
-# Tel alle scores op (eventueel weging toepassen)
-suitability <- 2*score_rbh + score_pub + score_kernen + 2*score_bos
+
+#/////////////////////////////////////////////////
+# Geschiktheidskaart compileren
+#/////////////////////////////////////////////////
+
+# Tel alle scores op (extra gewicht voor groene gebieden en cellen dichtbij bestaand bos)
+geschikt <- 2*score_groen + score_pub + score_kernen + 2*score_bos
 
 # Pas het masker toe (niet bebosbare cellen worden 0)
-suitability <- suitability * total_mask
+geschikt <- geschikt * niet_geschikt
 
+
+#/////////////////////////////////////////////////
 # Normaliseer naar range 0-1
-limits <- minmax(suitability)
-suit_min <- limits[1, 1]
-suit_max <- limits[2, 1]
+#/////////////////////////////////////////////////
 
-if (suit_max > suit_min) {
-  suit_normalized <- (suitability - suit_min) / (suit_max - suit_min)
+limits <- minmax(geschikt)
+geschikt_min <- limits[1, 1]
+geschikt_max <- limits[2, 1]
+
+if (geschikt_max > geschikt_min) {
+  geschikt_norm <- (geschikt - geschikt_min) / (geschikt_max - geschikt_min)
 } else {
-  suit_normalized <- suitability # Geen variatie om te normaliseren
+  geschikt_norm <- geschikt # Geen variatie om te normaliseren
 }
 
+geschikt_sc1 <- geschikt_norm
 ```
 
-### 2.3. Allocatie boscellen
+**b) Allocatie**
 
-Voor de allocatie van nieuwe boscellen wordt de voorziene bosuitbreidingsoppervlakte in het gebied verdeeld over de bebosbare cellen op basis van hun geschiktheidsscore. Het algoritme zoekt de meest geschikte cellen en start daar met de plaatsing van nieuwe boscellen tot de nieuwe boscluster minstens 0.5 ha groot is.
+Voor de allocatie van nieuwe boscellen wordt de voorziene bosuitbreidingsoppervlakte in het gebied verdeeld over de bebosbare cellen op basis van hun geschiktheidsscore. Het algoritme zoekt de meest geschikte clusters van cellen en start daar met de plaatsing van nieuwe boscellen tot de cluster gevuld is en gaat dan naar de volgende cluster van bebosbare cellen tot het bosuitbreidingsdoel behaald is.
 
-**-\> Nog te controleren: is minimale clustergrootte van nieuwe boscellen nodig, aangezien nieuw bos meestal aansluit bij bestaand bos en dat is al groter dan 0.5 ha.**
+```{r allocatie_sc1}
 
-Het bosuitbreidingsdoel wordt berekend in het Excelbestand `deel_3_bosuitbreidingsdoelen`. Eerst wordt de relatieve oppervlakte van de AGNAS-regio's in het studiegebied berekend (ArcGIS-model `kaarten_r_scenarios`). Voor elke regio kennen we de bosuitbreidingsdoelen (NARA 2018). Die doeloppervlaktes worden toegekend aan het studiegebied op basis van het proportioneel aandeel van de oppervlakte van de regio's in het studiegebied.
+doel_aantal_cellen <- bosdoel * 100  
+min_cluster_grootte <- 50    
 
-**-\> Nog te controleren: de doelen zijn al wat ouder en waarschijnlijk is er al een deel van het bosuitbreidingsdoel gerealiseerd. De doeloppervlakte zou bijgesteld kunnen worden op basis van de trend in de boswijzer in het studiegebied. Bijvoorbeeld: 10 ha extra bos in het studiegebied tussen 2009 en 2022 volgens de boswijzer -\> doel met 10 ha verminderen?**
+#///////////////////////////////////////////////////////////
+# STAP 0 - (Optioneel) geschiktheidskaart uitbreiden
+#///////////////////////////////////////////////////////////
 
-```{r allocatie}
+# Geschiktheidskaart updaten op basis van de aanwezigheid van geschikt cellen rond elke cel -> hoe meer geschikt cellen in de buurt, hoe geschikter een cel
 
-# Parameters
-target_cells  <- 18200      # bosuitbreidingsoppervlakte: Rivierbeek = 182 ha
-min_cluster   <- 50        # 0.5 ha (minimale clustergrootte)
-connectivity  <- 8         # 8 buren (4 kan ook)
-compact_weight <- 0.01 # compactheidsfactor
+# # Geschiktheid rond elke cel berekenen
+# w_matrix <- matrix(1, nrow = 9, ncol = 9)
+# r_focal <- focal(geschikt_sc1, w = w_matrix, fun = mean, na.rm = TRUE)
+# 
+# # Geschiktheid updaten
+# geschikt_upd <- geschikt_sc1 * r_focal
+# 
+# # We vervangen alle locaties waar het origineel 0 is door NA.
+# geschikt_upd <- ifel(geschikt_sc1 == 0, NA, geschikt_upd)
 
-# Input
-values_vec <- values(suit_normalized)
-allocated <- rep(FALSE, ncell(suit_normalized))
-total_allocated <- 0
 
-# seeds = lokale maxima selecteren als start plaatsing clusters (clusters groeien aan rond de lokale maxima)
-max_neighbors <- focal(suit_normalized, w = matrix(1,3,3), fun = max, na.rm = TRUE, pad = TRUE)
-# lokaal maxima: waarde > 0 en ≥ max van buren
-local_max_raster <- (suit_normalized > 0) & (suit_normalized >= max_neighbors)
 
-seeds <- which(values(local_max_raster) == 1)
-seeds <- seeds[!allocated[seeds]] 
-seeds <- seeds[order(values_vec[seeds], decreasing=TRUE)]
+#/////////////////////////////////////////////////////////////
+# STAP 1 - subset van de geschiktheidskaart (rekentijd sparen)
+#/////////////////////////////////////////////////////////////
+# In plaats van de hele kaart in het geheugen te laden en te sorteren, gebruiken we een representatieve steekproef (2% van het aantal cellen in het gebied) om een drempelwaarde voor de geschiktheid te berekenen. Omdat in een volgende stap alle clusters < 50 cellen verwijderd worden, vermenigvuldigen we het aantal cellen met 3 om een buffer te hebben. Vervolgens berekenen we welk percentage van de steekproef we moeten overhouden (prob_drempel). Op basis van prob_drempel (xste percentiel) wordt de gecshiktheidsscore berekend. Die drempel gebruiken we om de beste cellen op de kaart te isoleren.
 
-# Om rekentijd te beperken, selecteren we alleen de top x% van seeds (startpunten voor bosclusters)
-top_n <- round(length(seeds) * 0.2) # top 20%
-seeds_sorted <- seeds[order(values_vec[seeds], decreasing = TRUE)]
-seeds_filtered <- seeds_sorted[1:top_n]
-seeds <- seeds_filtered
+set.seed(42)
+sample <- round(0.02 * global(ecosysteem_2022, "notNA")$notNA, 0)
+sample_vals <- spatSample(geschikt_sc1, size = sample, method = "regular", na.rm = TRUE)
 
-n_seeds <- length(seeds)
-pb <- txtProgressBar(min = 0, max = n_seeds, style = 3) # progress bar
+ruime_drempel <- min(length(sample_vals), (doel_aantal_cellen * 3) / ncell(geschikt_sc1) * length(sample_vals))
 
-# HULPFUNCTIE: compacte cluster groeien
-grow_compact_cluster <- function(seed_cell, allocated, min_size) {
-  cluster <- c(seed_cell)
-  frontier <- c(seed_cell)
-  while(length(frontier) > 0) {
-    neigh <- unique(unlist(adjacent(suit_normalized, frontier, directions=connectivity)))
-    neigh <- neigh[!allocated[neigh] & values_vec[neigh] > 0 & !(neigh %in% cluster)]
-    if(length(neigh) == 0) break
-    
-    # cluster centrum
-    coords <- rowColFromCell(suit_normalized, cluster)
-    center <- colMeans(coords)
-    neigh_coords <- rowColFromCell(suit_normalized, neigh)
-    dist_center <- sqrt((neigh_coords[,1]-center[1])^2 + (neigh_coords[,2]-center[2])^2)
-    # score = hoge geschiktheid + nabijheid clustercentrum
-    score <- values_vec[neigh] - dist_center*compact_weight
-    next_cell <- neigh[which.max(score)]
-    cluster <- c(cluster, next_cell)
-    frontier <- next_cell
-    # Stop als cluster groot genoeg en totaal overschrijding dreigt
-    if(length(cluster) >= min_size & (length(cluster) + sum(allocated)) >= target_cells) break
-  }
-  if(length(cluster) >= min_size) return(cluster) else return(NULL)
+prob_drempel <- 1 - (ruime_drempel / length(sample_vals))
+
+drempel <- quantile(sample_vals, probs = max(0, prob_drempel), na.rm = TRUE)
+
+# Maak een binaire kaart
+geschikt_bin <- geschikt_sc1 >= drempel
+
+
+#///////////////////////////////////////////////////////////
+# STAP 2 - Clusters > 50 cellen selecteren
+#///////////////////////////////////////////////////////////
+p <- patches(geschikt_bin, directions = 8, zeroAsNA = TRUE) 
+p_freq <- freq(p)
+
+valid_ids <- p_freq$value[p_freq$count >= min_cluster_grootte]
+p_valid <- ifel(p %in% valid_ids, p, NA)
+
+
+#///////////////////////////////////////////////////////////
+# STAP 3 - Selectie beste clusters
+#///////////////////////////////////////////////////////////
+
+patch_scores <- zonal(geschikt_sc1, p_valid, fun = "mean", na.rm = TRUE)
+
+colnames(patch_scores) <- c("patch_id", "mean_score")
+
+p_info <- merge(patch_scores, p_freq, by.x = "patch_id", by.y = "value")
+p_info <- p_info[order(p_info$mean_score, decreasing = TRUE), ]
+
+p_info$cum_cells <- cumsum(p_info$count)
+selected_patch_ids <- p_info$patch_id[p_info$cum_cells <= doel_aantal_cellen]
+
+if (length(selected_patch_ids) == 0) {
+  selected_patch_ids <- p_info$patch_id[1]
+  huidig_aantal <- p_info$count[1]
+} else {
+  huidig_aantal <- sum(p_info$count[p_info$patch_id %in% selected_patch_ids])
 }
 
-# Clusters plaatsen
-for(i in 1:n_seeds) {
-  seed <- seeds[i]
-  # Update voortgangsbalk bij elke iteratie
-  setTxtProgressBar(pb, i)
+bosuitbreiding <- ifel(p_valid %in% selected_patch_ids, 1, NA)
+
+
+#///////////////////////////////////////////////////////////
+# STAP 4 - resterende cellen plaatsen
+#///////////////////////////////////////////////////////////
+# de cellen die nog niet via clusters geplaatste konden worden, worden aan de randen (rand = 50m = 5 cellen) toegevoegd.
+
+uitbreiding_w <- 5 
+
+while (huidig_aantal < doel_aantal_cellen) {
+  tekort <- doel_aantal_cellen - huidig_aantal
+  cat("Aanvullen van", tekort, "resterende cellen via de randen...\n")
   
-  if(total_allocated >= target_cells) break
-  if(allocated[seed]) next
-  cluster <- grow_compact_cluster(seed, allocated, min_cluster)
-  if(!is.null(cluster)) {
-    # Overschrijding target voorkomen
-    remaining <- target_cells - total_allocated
-    if(length(cluster) > remaining) {
-      cluster <- cluster[1:remaining]
-    }
-    allocated[cluster] <- TRUE
-    total_allocated <- total_allocated + length(cluster)
+  r_buffer <- focal(bosuitbreiding, w = matrix(1, uitbreiding_w, uitbreiding_w), fun = max, na.rm = TRUE)
+  r_fringe <- mask(r_buffer, bosuitbreiding, inverse = TRUE)
+  
+  r_fringe_scores <- mask(geschikt_sc1, r_fringe)
+  
+  # Verwijder NA's 
+  df_fringe <- as.data.frame(r_fringe_scores, cells = TRUE, na.rm = TRUE)
+  
+  if (nrow(df_fringe) == 0) {
+    # Als een cluster is ingesloten door niet geschikte cellen:
+    warning("Geen bruikbare randcellen meer beschikbaar -> buffer vergroten")
+    if(uitbreiding_w > 51) stop("Expansie vastgelopen. Niet genoeg geschikte ruimte rond de geselecteerde clusters.")
+    uitbreiding_w <- uitbreiding_w + 2 
+    next
   }
+  
+  score_col <- names(df_fringe)[2]
+  df_fringe <- df_fringe[order(df_fringe[[score_col]], decreasing = TRUE), ]
+  
+  neem_n <- min(tekort, nrow(df_fringe))
+  top_cellen <- df_fringe$cell[1:neem_n]
+  
+  bosuitbreiding[top_cellen] <- 1
+  huidig_aantal <- huidig_aantal + neem_n
+  
+  uitbreiding_w <- uitbreiding_w + 2 
 }
 
-close(pb)
-beep(3) # grapje
+bosuitbreiding_sc1 <- bosuitbreiding
+
+# mapview(bosuitbreiding_sc1, na.color = "transparent")
+```
+
+### 2.2. Scenario 2
+
+-\> Het AGNAS-saldo realiseren ifv natuurdoelen (nog niet gerealiseerd bos uit doelenkaart).
+
+Harde randvoorwaarden:
+
+- Alleen op cellen die nodig zijn om natuurdoelen te realiseren
+- Bosuitbreiding wordt uitgesloten op de volgende cellen:
+  - landgebruikscellen die bos, heide, water of verhard zijn
+  - cellen met een doel voor open natuur
+
+De geschiktheid voor bebossing is hoger op cellen die:
+
+- een natuur-bestemming hebben (SBZ-H, VEN, groene bestemming RBH)
+- nabij bestaande bosclusters (= groter dan 0.5 ha) -\> tot 100m en daarna afname tot 300m
+
+De geschiktheid is lager in HAG -\> strafpunt voor cellen in HAG, maar geen uitsluiting
+
+**a) Geschiktheid**
+
+```{r geschiktheid_sc2}
+
+#///////////////////////////////////////////////////////////////////
+# Harde randvoorwaarden
+#///////////////////////////////////////////////////////////////////
+
+# 1. Alleen op natuurdoelen met een bostype
+bestaand_bos <- ifel(ecosysteem_2022 %in% c(103, 400, 401, 402, 403), 1, NA)
+
+nat_bebos <- ifel(!is.na(natdoel) & natdoel == 1 & is.na(bestaand_bos), 1, NA) # te bebossen ifv natuurdoelen
+nat_bebos <- mask(nat_bebos, ecosysteem_2022)
+# bossnippers < 0.5 ha verwijderen
+bebos_patches <- patches(nat_bebos, directions = 8)
+f2 <- freq(bebos_patches)
+grote_bebos_ids <- f2$value[f2$count > 50] # alleen bosclusters > 0.5 ha
+
+geschikt_bebos <- ifel(bebos_patches %in% grote_bebos_ids, 1, 0)
+
+# 2. Geschikte ecosystemen
+# niet op heide of duinen: die bedekken soms minder dan 30% van de opp. van een perceel uit de toekomstlaag, maar hebben een grotere opp. in combinatie met aanliggende percelen.
+geschikt_lu <- ifel(is.na(ecosysteem_2022), NA, ifel(ecosysteem_2022 %in% c(104, 201, 202, 203, 204, 205, 300, 301, 302, 701, 702, 1002, 1102), 1, 0))
+
+# 3. Niet op open natuurdoelen (natdoel: 1 = bos, 0 = open natuur)
+geschikt_natd <- ifel(is.na(natdoel) | natdoel == 1, 1, 0)
+
+# Combineer harde randvoorwaarden (0 = nooit bos, 1 = mogelijk bos)
+niet_geschikt <- geschikt_bebos * geschikt_lu * geschikt_natd
 
 
-# Bosuitbreidingsraster
-bosuitbreiding <- suit_normalized
-values(bosuitbreiding) <- as.integer(allocated)
+
+#///////////////////////////////////////////////////////////////////
+# Geschiktheid
+#///////////////////////////////////////////////////////////////////
+
+# 1. Voorkeur rbh '03', '04', '05' 
+score_groen <- r_natuur
+
+# 2. Aansluitend bij bestaand bos
+# Zoek bestaand bos (codes 103, 400, 401, 402, 403)
+bestaand_bos <- ifel(ecosysteem_2022 %in% c(103, 400, 401, 402, 403), 1, NA) 
+bos_patches <- patches(bestaand_bos, directions = 8)
+f <- freq(bos_patches)
+grote_bos_ids <- f$value[f$count > 50] # alleen bosclusters > 0.5 ha
+bos_gefilterd <- ifel(bos_patches %in% grote_bos_ids, bos_patches, NA)
+
+dist_bos <- distance(bos_gefilterd)
+# score 1 tot 100m van bos en lineair afnemende score voor afstand 100m < d < 300m
+score_bos <- ifel(dist_bos <= 100, 1,
+                  ifel(dist_bos <= 300, (300 - dist_bos) / 200, 0))
+
+# 3. Bij voorkeur niet op hag (waarde 1 = HAG)
+score_hag <- r_hag
+
+
+
+#/////////////////////////////////////////////////
+# Geschiktheidskaart compileren
+#/////////////////////////////////////////////////
+
+# Tel alle scores op (half gewicht voor HAG)
+geschikt <- 2*score_groen + 2*score_bos - score_hag
+
+# Pas het masker toe (niet bebosbare cellen worden 0)
+geschikt <- ifel(geschikt * niet_geschikt < 0, 0, geschikt * niet_geschikt)
+
+
+#/////////////////////////////////////////////////
+# Normaliseer naar range 0-1
+#/////////////////////////////////////////////////
+
+limits <- minmax(geschikt)
+geschikt_min <- limits[1, 1]
+geschikt_max <- limits[2, 1]
+
+if (geschikt_max > geschikt_min) {
+  geschikt_norm <- (geschikt - geschikt_min) / (geschikt_max - geschikt_min)
+} else {
+  geschikt_norm <- geschikt # Geen variatie om te normaliseren
+}
+
+geschikt_sc2 <- geschikt_norm
+```
+
+**b) Allocatie**
+
+```{r allocatie_sc2}
+
+doel_aantal_cellen <- bosdoel * 100  
+min_cluster_grootte <- 50    
+
+#/////////////////////////////////////////////////////////////
+# STAP 1 - subset van de geschiktheidskaart (rekentijd sparen)
+#/////////////////////////////////////////////////////////////
+# In plaats van de hele kaart in het geheugen te laden en te sorteren, gebruiken we een representatieve steekproef (2% van het aantal cellen in het gebied) om een drempelwaarde voor de geschiktheid te berekenen. Omdat in een volgende stap alle clusters < 50 cellen verwijderd worden, vermenigvuldigen we het aantal cellen met 3 om een buffer te hebben. Vervolgens berekenen we welk percentage van de steekproef we moeten overhouden (prob_drempel). Op basis van prob_drempel (xste percentiel) wordt de gecshiktheidsscore berekend. Die drempel gebruiken we om de beste cellen op de kaart te isoleren.
+
+# STAP 1 is niet nodig voor sc2 omdat het aantal geschikte cellen beperkt is
+set.seed(42)
+sample <- round(0.02 * global(ecosysteem_2022, "notNA")$notNA, 0)
+sample_vals <- spatSample(geschikt_sc2, size = sample, method = "regular", na.rm = TRUE)
+
+ruime_drempel <- min(length(sample_vals), (doel_aantal_cellen * 3) / ncell(geschikt_sc2) * length(sample_vals))
+
+prob_drempel <- 1 - (ruime_drempel / length(sample_vals))
+
+drempel <- quantile(sample_vals, probs = max(0, prob_drempel), na.rm = TRUE)
+
+# Maak een binaire kaart
+geschikt_bin <- geschikt_sc2 >= drempel
+
+
+#///////////////////////////////////////////////////////////
+# STAP 2 - Clusters > 50 cellen selecteren
+#///////////////////////////////////////////////////////////
+p <- patches(geschikt_bin, directions = 8, zeroAsNA = TRUE) 
+p_freq <- freq(p)
+
+valid_ids <- p_freq$value[p_freq$count >= min_cluster_grootte]
+p_valid <- ifel(p %in% valid_ids, p, NA)
+
+
+#///////////////////////////////////////////////////////////
+# STAP 3 - Selectie beste clusters
+#///////////////////////////////////////////////////////////
+
+patch_scores <- zonal(geschikt_sc2, p_valid, fun = "mean", na.rm = TRUE)
+
+colnames(patch_scores) <- c("patch_id", "mean_score")
+
+p_info <- merge(patch_scores, p_freq, by.x = "patch_id", by.y = "value")
+p_info <- p_info[order(p_info$mean_score, decreasing = TRUE), ]
+
+p_info$cum_cells <- cumsum(p_info$count)
+selected_patch_ids <- p_info$patch_id[p_info$cum_cells <= doel_aantal_cellen]
+
+if (length(selected_patch_ids) == 0) {
+  selected_patch_ids <- p_info$patch_id[1]
+  huidig_aantal <- p_info$count[1]
+} else {
+  huidig_aantal <- sum(p_info$count[p_info$patch_id %in% selected_patch_ids])
+}
+
+bosuitbreiding <- ifel(p_valid %in% selected_patch_ids, 1, NA)
+
+
+#///////////////////////////////////////////////////////////
+# STAP 4 - resterende cellen plaatsen
+#///////////////////////////////////////////////////////////
+# de cellen die nog niet via clusters geplaatste konden worden, worden aan de randen (rand = 50m = 5 cellen) toegevoegd.
+
+uitbreiding_w <- 5 
+
+while (huidig_aantal < doel_aantal_cellen) {
+  tekort <- doel_aantal_cellen - huidig_aantal
+  cat("Aanvullen van", tekort, "resterende cellen via de randen...\n")
+  
+  r_buffer <- focal(bosuitbreiding, w = matrix(1, uitbreiding_w, uitbreiding_w), fun = max, na.rm = TRUE)
+  r_fringe <- mask(r_buffer, bosuitbreiding, inverse = TRUE)
+  
+  r_fringe_scores <- mask(geschikt_sc2, r_fringe)
+  
+  # Verwijder NA's 
+  df_fringe <- as.data.frame(r_fringe_scores, cells = TRUE, na.rm = TRUE)
+  
+  if (nrow(df_fringe) == 0) {
+    # Als een cluster is ingesloten door niet geschikte cellen:
+    warning("Geen bruikbare randcellen meer beschikbaar -> buffer vergroten")
+    if(uitbreiding_w > 51) stop("Expansie vastgelopen. Niet genoeg geschikte ruimte rond de geselecteerde clusters.")
+    uitbreiding_w <- uitbreiding_w + 2 
+    next
+  }
+  
+  score_col <- names(df_fringe)[2]
+  df_fringe <- df_fringe[order(df_fringe[[score_col]], decreasing = TRUE), ]
+  
+  neem_n <- min(tekort, nrow(df_fringe))
+  top_cellen <- df_fringe$cell[1:neem_n]
+  
+  bosuitbreiding[top_cellen] <- 1
+  huidig_aantal <- huidig_aantal + neem_n
+  
+  uitbreiding_w <- uitbreiding_w + 2 
+}
+
+bosuitbreiding_sc2 <- bosuitbreiding
+
+# mapview(bosuitbreiding_sc2, na.color = "transparent")
+```
+
+### 2.2. Scenario 3
+
+In scenario 3 is de bosuitbreiding een combinatie van:
+
+1.  de uitbreiding in scenario 2;
+2.  de eventuele extra bosuitbreidingsdoelen indien het resterende saldo na de plaatsing van de oppervlakte uit (1) groter is dan nul;
+3.  het extra bos dat erbij komt in functie van infiltratiemaatregelen
+
+Het onderstaande script brengt alleen (1) en (2) in beeld. De rest van de bosuitbreiding wordt berekend in de scripts van infiltratie en dedrainage.
+
+```{r allocatie_sc_3}
+
+# Natuurdoelen met een bostype als doel (natdoel = 1) die overlappen met cellen die momenteel nog geen bos zijn
+
+bestaand_bos <- ifel(ecosysteem_2022 %in% c(103, 400, 401, 402, 403), 1, NA)
+
+nat_bebos <- ifel(!is.na(natdoel) & natdoel == 1 & is.na(bestaand_bos), 1, NA) # te bebossen ifv natuurdoelen
+nat_bebos <- mask(nat_bebos, ecosysteem_2022)
+# bossnippers < 0.5 ha verwijderen
+bebos_patches <- patches(nat_bebos, directions = 8)
+f2 <- freq(bebos_patches)
+grote_bebos_ids <- f2$value[f2$count > 50] # alleen bosclusters > 0.5 ha
+
+bosuitbreiding_sc3 <- ifel(bebos_patches %in% grote_bebos_ids, 1, NA)
+
+
+# mapview(bosuitbreiding_sc3, na.color = "transparent")
 ```
 
 ## 3. Kaarten maken
