@@ -36,27 +36,27 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 
 ### 1.1. Kies bestanden
 
-De volgende datasets worden standaard gebruikt in elk script:
+De volgende datasets worden gebruikt:
 
-- ecosysteem.tif -\> ecosysteemkaart 2022 van het gebied met buffer (extra 1500 rond studiegebied) -\> wordt gebruikt om alle rasterkaarten af te stemmen
 - gebied.shp -\> polygoon van het gebied
-
-Deze datasets zijn specifiek voor dit script:
-
 - ecosysteem_2022.tif -\> ecosysteemkaart 2022 zonder buffer
 - effect_infilt.tif -\> effectiviteit voor infiltratiepoelen ifv aanpak droogte
 - impact_droogte_agrar.tif -\> impact droogte op landbouw in aantal droogtedagen in 2100 (effectenenimpacts_s0_droogteduurAgrarischDagen_hoog_2100_t2)
+- voedingsgebied_combi.tif -\> voedingsgebieden van de natuurgebieden
+- klimportaal_sc7.tif -\> maatregelenscenario 7 van het klimaatportaal (download en compilatie via script `kaarten_klimaatportaal_downloaden.R`
+- klimportaal_sc3.tif -\> maatregelenscenario 3 van het klimaatportaal
+- qf_2022.tif -\> quickflow studiegebied op basis van Investmodel (zie script `berekening_infiltratie.R`)
 
 Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
-# ecosysteem.tif is steeds nodig als referentieraster
+# ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem.tif", "ecosysteem_2022.tif", "gebied.shp", "effect_infilt.tif", "impact_droogte_agrar.tif")
+targets <- c("ecosysteem_2022.tif", "gebied.shp", "effect_infilt.tif", "impact_droogte_agrar.tif", "voedingsgebied_combi.tif", "klimportaal_sc7.tif", "klimportaal_sc3.tif", "qf_2022.tif")
 
 # In welke folders zitten de data?
 
@@ -97,7 +97,7 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$ecosysteem
+ref_raster <- data_list$ecosysteem_2022
 
 # Functie om rasters te harmoniseren
 harmoniseer_raster <- function(r, ref) {
@@ -123,78 +123,205 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 list2env(data_list_ok, envir = .GlobalEnv)
 ```
 
-## 2. Geschiktheidskaart en doeloppervlakte
+## 2. Scenario's
+
+### 2.0. Hulpkaarten
+
+#### a) Kaarten klimaatportaal afstemmen en doelen berekenen
+
+De kaarten van het klimaatportaal moeten eerst afgestemd worden op de ecosysteemkaart van het gebied omdat oa de resolutie verschilt. Uit de kaarten worden vervolgens de cellen met iniltratiemaatregelen geselecteerd (code 4 en 14).
+
+De kaarten geven aan welke cellen moeten afwateren naar een infiltratiezone. De iniltratiepoelen zelf nemen minder oppervlakte in. Voor de berekening van de benodigde oppervlakte voor de infiltratiepoelen gaan we uit van een buffervolume van 75 m³/ha (cf. scenario's Klimaatportaal en Herk en Mombeek). Met een diepte van 0.2 m, nemen de infiltratiepoelen 375 m²/ha in beslag. pl
+
+```{r klimaatportaal}
+
+# Afstemmen met ecosysteemkaart
+sc7 <- project(klimportaal_sc7, crs(ecosysteem_2022))
+sc7 <- mask(crop(sc7, ecosysteem_2022), ecosysteem_2022)
+sc7 <- resample(sc7, ecosysteem_2022, "near")
+
+sc3 <- project(klimportaal_sc3, crs(ecosysteem_2022))
+sc3 <- mask(crop(sc3, ecosysteem_2022), ecosysteem_2022)
+sc3 <- resample(sc3, ecosysteem_2022, "near")
+
+
+# Cellen met infiltratiemaatregelen afzonderen
+
+sc7_onbeb <- ifel(sc7 %in% c(4, 14), 1, NA)
+sc3_onbeb <- ifel(sc3 %in% c(4, 14), 1, NA)
+
+sc7_onbeb_f <- freq(sc7_onbeb)[freq(sc7_onbeb)$value == 1, "count"]
+sc3_onbeb_f <- freq(sc3_onbeb)[freq(sc3_onbeb)$value == 1, "count"]
+
+
+# Doelbepaling
+
+sc3_ha <- sc3_onbeb_f * 100 / 10000 # ha die afwateren naar infiltratiepoel
+sc3_poel_ha <- (sc3_ha * 375) / 10000 # ha infiltratiepoelen
+
+
+```
+
+#### b) Effectiviteit infiltratie
+
+De cellen die geschikt zijn voor infiltratiemaatregelen moeten akkers zijn en een hoge effectiviteit hebben voor infiltratie.
+
+Het oppervlaktedoel voor de plaatsing van infiltratiemaatregelen wordt vastgelegd op 25% van de meest geschikte cellen.
+
+- Dit doel is gebaseerd op de scenario-analyses van het living lab Herk en Mombeek (Wolfs et al., 2024. [Herk en Mombeek - Tussentijdse resultaten modelleringsstudie](https://www.dropbox.com/scl/fi/bmfzhuz7irxh440az3p6o/rap_WWLS_fase1_HM_v0.3_no-TC.pdf?rlkey=i1zrieuqwrf1kyc1ya7ret7ma&st=ijqmezrr&e=1&dl=0)). Daarin wordt het effect van maatregelen voor infiltratie en dedrainage op droogte en wateroverlast doorgerekend voor drie scenario's. De maatregelen worden toegepast op 25%, 50% en 75% van de oppervlakte die geschikt is voor de maatregel. Uit de modelanalyse blijkt dat de maatregelen op minstens 75% van de geschikte oppervlakte genomen moeten worden om de waterdoelen m.b.t. droogte te behalen.
+- De scenario's van de Herk en Mombeek brengen alle cellen in rekening die een geschiktheidsscore hebben (ook die met matige geschiktheid). In onze analyse brengen we alleen de cellen met een zeer goede en uitermate goede geschiktheid in beeld.
+
+Van de doeloppervlakte wordt de **oppervlakte van de nieuw geplaatste KLE afgetrokken** (-\> % per cel \* aantal cellen). KLE verminderen de oppervlakkige afstroming en dragen zo bij aan infiltratie. De KLE worden geplaatst in functie van erosiemaatregelen en zullen dus voornamelijk op de steilste hellingen geplaatst worden.
+
+```{r hulpkaarten}
+
+#///////////////////////////////////////
+# Geschikte cellen voor infiltratie
+#///////////////////////////////////////
+
+effectiviteit <- effect_infilt
+
+
+# 1. Selecteer effectiviteit 4 en 5
+score_effectiviteit <- effectiviteit %in% c(4, 5)
+
+# 2. Alleen landbouwcellen: ecosysteem 201, 202, 203, 204, 205 (akkers)
+score_ecosysteem <- ecosysteem_2022 %in% c(201, 202, 203, 204, 205)
+
+# 3. Geschikte cellen voor infiltratiemaatregelen = landbouwcellen met hoge effectiviteitsscore
+geschikte_cellen <- score_ecosysteem & score_effectiviteit
+
+effect_landb <- ifel(!is.na(effectiviteit) & score_ecosysteem, effectiviteit, NA) # effectiviteit van akkers
+
+#///////////////////////////////////////
+# Doeloppervlakte (25% van geschikte cellen)
+#///////////////////////////////////////
+
+# bereken de doeloppervlakte (25% van de geschikte cellen)
+f <- freq(geschikte_cellen)
+
+doel_infilt_25 <- round(0.25 * f[f$value == 1, "count"], 0)
+doel_infilt_75 <- round(0.75 * f[f$value == 1, "count"], 0)
+
+
+opp_totaal <- pull(global(ecosysteem_2022, "notNA"))
+
+round(100*doel_infilt_25/opp_totaal, 1)
+round(100*doel_infilt_75/opp_totaal, 1)
+
+```
+
+### 2.1. Scenario 1
+
+**a) Geschiktheidskaart**
 
 De geschiktheidskaart wordt als volgt opgebouwd:
 
 - De **impactkaart** van het aantal droogtedagen (0-365) wordt herschaald van 0-1.
 - Om de totale **geschiktheidsscore** te berekenen, wordt de herschaalde impactkaart (0-1) opgeteld bij de scores van de **effectiviteitskaart** (0, 1, 2, 3, 4, 5).
-- Alleen **landbouwcellen** komen in aanmerking om infiltratiemaatregelen te nemen. Hiervoor worden alle landbouwklassen uit de ecosysteemkaart geselecteerd. Grasland onder landbouwbeheer (301) worden in deze versie nog meegenomen, maar in de finale versie zou ik het houden op akkers (201-205).
+- Alleen **landbouwcellen** komen in aanmerking om infiltratiemaatregelen te nemen. Hiervoor worden alle landbouwklassen uit de ecosysteemkaart geselecteerd.
 - Alleen de cellen met de **hoogste effectiviteit** voor infiltratiepoelen worden meegenomen (4 = zeer goede condities en 5 = uitermate goede condities).
 - De finale geschiktheidskaart is de combinatie van de geschiktheidsscore en de niet-uitgesloten cellen.
 
-De **doeloppervlakte** voor infiltratiemaatregelen (`opp_infilt`) wordt berekend als 25% van de oppervlakte van de geschikte cellen.
+```{r geschiktheid_sc1}
 
-Van die doeloppervlakte wordt de **oppervlakte van de nieuw geplaatste KLE afgetrokken** (-\> % per cel \* aantal cellen). KLE verminderen de oppervlakkige afstroming en dragen zo bij aan infiltratie. De KLE worden geplaatst in functie van erosiemaatregelen en zullen dus voornamelijk op de steilste hellingen geplaatst worden.
+#//////////////////////////////////////////////////
+# Optie 1: op basis van scenario's klimaatportaal
+#//////////////////////////////////////////////////
 
-```{r geschiktheidskaart}
+sc1_zone_infilt <- sc3_onbeb # cellen die afwateren naar een infiltratiepoel
 
-ecosysteem <- ecosysteem_2022
-impact_droogte <- impact_droogte_agrar
+geschikt_sc1 <- ifel(!is.na(effect_landb) & !is.na(sc1_zone_infilt), effect_landb, NA) # geschiktheid van afwaterende cellen
 
-# 1. Bereken de geschiktheidsscore op basis van de impact -> herschaal de impactkaart (0 - 365 naar 0 - 1)
-score_geschiktheid <- impact_droogte / 365
+sc1_doel <- round(sc3_poel_ha * 100, 0) # aantal cellen 10 x 10 m
 
-# 2. Maskering: Alleen de toegestane ecosysteem-cellen en effectiviteit 4 & 5
-# Stap A: Selecteer ecosysteem 201 (annual crops)
-mask_ecosysteem <- ecosysteem %in% c(201)
 
-# Stap B: Selecteer effectiviteit 4 en 5
-mask_effectiviteit <- effect_infilt %in% c(4, 5)
 
-# Stap C: Combineer maskers
-finaal_masker <- mask_ecosysteem & mask_effectiviteit
+#///////////////////////////////////////////
+# Optie 2 - als % van opp. geschikte cellen
+# //////////////////////////////////////////
 
-# 3. Pas het masker toe op de totaalscore
+# Alleen de effectiviteit voor infiltratie en de impact van droogte op landbouw spelen een rol
+
+impact <- impact_droogte_agrar
+
+# Herschaal de impactkaart (0 - 365 naar 0 - 1)
+impact_max <- pull(global(impact, "max", na.rm = TRUE))
+score_impact <- impact / impact_max
+
 # Cellen die niet aan de voorwaarden voldoen worden NA
-geschiktheidskaart <- mask(score_geschiktheid, finaal_masker, maskvalues = 0)
+geschikt_sc1 <- mask(score_impact, geschikte_cellen, maskvalues = 0)
 
-# bereken de doeloppervlakte (25% van de geschikte cellen)
-counts <- freq(finaal_masker)
-opp_infilt <- round(0.25 * counts[counts$value == 1, "count"], 0)
+
 ```
 
-## 3. Alloceren van infiltratiemaatregelen
+**b) Alloceren van infiltratiemaatregelen**
 
-De doeloppervlakte (`opp_infilt`) wordt gealloceerd volgens de geschiktheid van de cellen (hoogste geschiktheid eerst). Alleen cellen met code 201 (annual crops) komen in aanmerking.
+De doeloppervlakte (sc1\_`doel`) wordt gealloceerd volgens de geschiktheid van de cellen (hoogste geschiktheid eerst). Alleen akkercellen (code 201, 202, 203, 204, 205) komen in aanmerking voor infiltratiemaatregelen.
 
-De geselecteerde cellen krijgen code 9999 in de nieuwe kaart (`ecosysteem_aangepast`).
+De geselecteerde cellen krijgen code 210 in de nieuwe kaart (`ecosysteem_aangepast`).
 
-```{r allocatie}
+```{r allocatie_sc1}
 
 # 1. Omzetten naar een data.frame met coördinaten
 # We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
-df <- as.data.frame(c(ecosysteem, geschiktheidskaart), cells=TRUE, na.rm=TRUE)
+df <- as.data.frame(c(ecosysteem_2022, geschikt_sc1), cells = TRUE, na.rm = TRUE)
 colnames(df) <- c("cell", "eco_code", "score")
 
 # 2. De data sorteren
-# We verwijderen eerst rijen die niet in onze doellijst staan (indien van toepassing)
 df_subset <- df[!is.na(df$eco_code), ]
 df_sorted <- df_subset[order(-df_subset$score), ]
 
 # 3. De top n cellen (doeloppervlakte) selecteren en de code aanpassen
-# Zet de nieuwe code voor deze cellen op '9999'
-nieuwe_code <- 9999 
-top_cellen_indices <- df_sorted$cell[1:opp_infilt]
+# Zet de nieuwe code voor deze cellen op '210'
+nieuwe_code <- 210 
+top_cellen_indices <- df_sorted$cell[1:sc1_doel]
 
 # 4. De originele ecosysteemkaart aanpassen
-ecosysteem_infilt <- deepcopy(ecosysteem)
+ecosysteem_infilt <- deepcopy(ecosysteem_2022)
 ecosysteem_infilt[top_cellen_indices] <- nieuwe_code
 
-writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data/resultaat_infilt.tif"), overwrite = TRUE)
+writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_infilt_klimport.tif"), overwrite = TRUE)
+
 ```
 
-### 3.1. Combineren met kaart verminderen drainage
+### 2.2. Scenario 2
+
+**a) Geschiktheidskaart**
+
+```{r geschiktheid_sc2}
+
+# Geschikte cellen
+
+voedingsgebied <- voedingsgebied_combi
+
+
+```
+
+**b) Allocatie**
+
+```{r allocatie_sc2}
+
+
+```
+
+### 2.3. Scenario 3
+
+**a) Geschiktheidskaart**
+
+```{r geschiktheid_sc3}
+
+
+```
+
+**b) Allocatie**
+
+```{r allocatie_sc3}
+
+
+```
+
+## 3.1. Combineren met kaart verminderen drainage
 
 ***Opmerking**: er worden aparte geschiktheidskaarten gemaakt voor infiltratie en verminderde drainage op basis van score 4 en 5 van de effectiviteitskaarten. Bij de combinatie van de aangepaste landgebruikskaart primeert infiltratie op verminderde drainage. We zouden ze ook kunnen combineren op basis van de hoogste geschiktheid: waar de geschiktheid het hoogst is voor infiltratie, primeert infiltratie en waar die het hoogst is voor verminderde drainage, primeert dedrainage.*
 
@@ -283,9 +410,9 @@ named_colors <- rgb(clr_data$V2, clr_data$V3, clr_data$V4, maxColorValue = 255)
 names(named_colors) <- as.character(clr_data$V1)
 
 # Kleur voor aangepaste cellen in ecosysteem_aangepast
-named_colors["9999"] <- "#FF00CC" # voor infiltratie
-named_colors["9998"] <- "#FF00CC" # voor verminderde drainage
-named_colors["9997"] <- "#00FFEC" # voor de combinatie (bij optie 1)
+named_colors["210"] <- "#FF00CC" # voor infiltratie
+named_colors["220"] <- "#FF00CC" # voor verminderde drainage
+named_colors["230"] <- "#00FFEC" # voor de combinatie (bij optie 1)
 
 
 df_colors <- data.frame(
@@ -328,6 +455,8 @@ mapview(
 
 Literatuur over de effecten van maatregelen op infiltratie:
 
+- Bodemkundige Dienst België - [Scenario-analyse Herk en Mombeek](https://www.dropbox.com/scl/fi/ab2gx7igksmjmlooksaza/23092024_scenario-analyse-BDB_Herk-en-Mombeek.pdf?rlkey=g0si2yubiwnhe94699o88wd16&st=al9u8eur&e=1&dl=0)
+  - 0.5% SOC toename is haalbaar
 - VMM -\> [Kosteneffectiviteitsanalyse van proactieve droogtemaatregelen in Vlaanderen](https://vmm.vlaanderen.be/publicaties/kosteneffectiviteitsanalyse-van-proactieve-droogtemaatregelen-in-Vlaanderen): rapport + Excel-rekenmodule
 - [Waterradar](https://waterradar.be/graphs?drainage_depth=100&drainage_base=50&distance=12&open_day_PGD=4&crop_type=Bloemkool&soil_type=Leem&variable=RECHARGE) -\> rekenmodule om effect van peilgestuurde drainage op diepe infiltratie in te schatten
   - Over alle teelten en textuurklassen heen: gemiddeld **38 mm/jaar extra infiltratie**
@@ -335,3 +464,29 @@ Literatuur over de effecten van maatregelen op infiltratie:
   - Effect van bodemkoolstof (SOC -\> 1% SOM = 0.5% SOC) op infiltratie: $log(Inf)=1.47+1.52*MWD-0.49*SOC+0.014*leem$
 - paper -\> [Reassessment of the hydrologic soil group for runoff modelling](https://www.sciencedirect.com/science/article/abs/pii/S0167198721001045#sec0105)
   - Effect van bodemkoolstof (SOM) op $CN = 46*leem^{0.068}*(10-SOM)^{0.211}$ -\> +1% SOC = **CN +/- 2 eenheden lager**
+- Paper -\> Heinz et al. 2026. [From soil to stream: modeling the catchment-scale hydrological effects of increased soil organic carbon](https://hess.copernicus.org/articles/30/2879/2026/#:~:text=Increasing%20soil%20organic%20carbon%20(SOC)%20generally%20promotes%20soil%20aggregation%20and,et%20al.%2C%202016).) -\> Overall, our analysis suggests that large-scale increases in SOC can provide hydrological benefits such as enhanced agricultural productivity and reduced peak flows, but may involve **trade-offs through reduced groundwater recharge and thus water availability**.
+
+```{r impact}
+
+#//////////////////////////////////////////////////////
+# Scenario 1
+#//////////////////////////////////////////////////////
+
+sc1_afstroom <- ifel(!is.na(geschikt_sc1), 1, NA)
+
+# Volume (m³) afstroming per cel per jaar: qf staat in mm -> omzetten naar m & vermenigvuldigen met opp. cel (100 m²)
+qf_afstroom <- sc1_afstroom * (qf_2022/1000) * 100 # mm/cel
+
+# Totale extra iniltratie in m³: vermenigvuldig afstroming met opvangefficiëntie (0.7)
+
+sc1_impact <- round(0.7 * pull(global(qf_afstroom, fun = "sum", na.rm = TRUE)), 0)
+
+
+totale_infiltratie_gebied_2020 <- round(pull(global(L_gebied_2020, fun = "sum", na.rm = TRUE))/1000 * 100, 0) # Zie berekening_infiltratie.R
+
+totale_infiltratie_gebied_2050 <- round(pull(global(L_gebied_2050, fun = "sum", na.rm = TRUE))/1000 * 100, 0) # Zie berekening_infiltratie.R
+
+infiltratieverlies_gebied <- (totale_infiltratie_gebied_2020 - totale_infiltratie_gebied_2050)
+
+100 * sc1_impact / infiltratieverlies_gebied # Voor de Kleine Nete bedraagt de extra infiltratie door infiltratiepoelen in sc1 minder dan 4% van het verlies tegen 2050
+```
