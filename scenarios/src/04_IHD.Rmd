@@ -20,7 +20,6 @@ library(beepr)
 library(leaflet) # Nodig voor colorFactor
 library(RColorBrewer)
 
-
 ```
 
 ## 1. Data inladen en klaarmaken
@@ -1096,15 +1095,23 @@ De oppervlaktedoelstelling per deelgebied voor habitattype 3260 wordt als volgt 
 
 - De doelstelling op Vlaams niveau verdelen we over de deelgebieden op basis van het proportioneel aandeel van de **zoekzone voor het habitattype** in de habitatrichtlijngebieden waarvoor het habitattype is aangemeld. De onderstaande tabel geeft de SBZ waarvoor 3260 is aangemeld en de doelstelling. Alleen voor BE2500004 is er volgens het S-IHD-besluit geen toename nodig.
 
-  |  |  |  |  |  |  |
-  |----|----|----|----|----|----|
-  | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** |
-  | BE2100016 | toename | BE2100424 | toename | BE2200039 | toename |
-  | BE2100017 | toename | BE2200029 | toename | BE2200043 | toename |
-  | BE2100020 | toename | BE2200030 | toename | BE2300007 | toename |
-  | BE2100024 | toename | BE2200032 | toename | BE2500004 | behoud |
-  | BE2100026 | toename | BE2200033 | toename |  |  |
-  | BE2100040 | toename | BE2200034 | toename |  |  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  |           |                  |           |                  |           |                  |
+  +===========+==================+===========+==================+===========+==================+
+  | **SBZ**   | **doelstelling** | **SBZ**   | **doelstelling** | **SBZ**   | **doelstelling** |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100016 | toename          | BE2100424 | toename          | BE2200039 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100017 | toename          | BE2200029 | toename          | BE2200043 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100020 | toename          | BE2200030 | toename          | BE2300007 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100024 | toename          | BE2200032 | toename          | BE2500004 | behoud           |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100026 | toename          | BE2200033 | toename          |           |                  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100040 | toename          | BE2200034 | toename          |           |                  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
 
 - Om de oppervlaktedoelstelling per deelgebied om te zetten naar het aantal riviercellen dat 3260 moet worden, volgen we deze redenering:
 
@@ -2505,27 +2512,33 @@ Voor bos maken we onderscheid tussen natte en zeer natte types:
 - 420 = "moerasbos" mozaïek van zeer natte bossen (bv. 91E0_sf, rbbsf), open vegetatie en water
 - 410 = "valleibos" vochtige/natte bossen al dan niet met overstromingen (bv. 91E_0_va)
 
-Op basis van de finale ecosysteemkaart en de originele ecosysteemkaart (ecosysteem_2022) kunnen zones met vernatting en overstromingen geïdentificeerd worden.
+In zones waar **oppervlakteveen** hersteld wordt, stijgt de gronwaterstand tot tegen het maaiveld en gaan we ervan uit dat landbouw en open natuur evolueren naar veengebied. Hoewel de meeste veengebieden in gematigde streken een eerder open karakter hebben, kunnen ook bostypes op veenbodems voorkomen zoals elzenbroekbos (zie o.a. artikels Broothaerts en Swinnen). -\> landbouw en open natuur worden veengebied (702), bossen worden moerasbos (420), wetland (701) en veengebied (702) blijven onveranderd.
 
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
-|                                                                                           |                                    |                                          |             |
-+===========================================================================================+====================================+==========================================+=============+
-| **Code**                                                                                  | **landbouw**                       | **natuur**                               | **reclass** |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
-| \> 1000 (bever actief)                                                                    | landbouw wordt natuur (701 of 420) | open natuur wordt 701 of 420 (moerasbos) | 4           |
-|                                                                                           |                                    |                                          |             |
-|                                                                                           |                                    | (naald)bos wordt 420                     |             |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
-| 2, 12 (oppervlakkig veen **zonder** overstromingen)                                       | landbouw wordt natuur (702 of 420) | open natuur wordt 702 of 420 (moerasbos) | 1           |
-|                                                                                           |                                    |                                          |             |
-|                                                                                           |                                    | naaldbos (402) wordt 420                 |             |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
-| 102, 112 (oppervlakkig veen **met** overstromingen)                                       | landbouw wordt natuur (701 of 420) | open natuur wordt 701 of 420 (moerasbos) | 2           |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
-| 1, 10, 11, 100, 101, 110, 111 (ondiep veen, en vernatting al dan niet met overstromingen) | landbouw wordt 302                 | open natuur: codes behouden              | 3           |
-|                                                                                           |                                    |                                          |             |
-|                                                                                           |                                    | bos wordt valleibos (410)                |             |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
+In zones waar de **grondwatertafel tot 0.5 m onder het maaiveld** stijgt door rivierherstel of het herstel van ondiep veen, gaan we ervan uit dat akkers en graslanden evolueren naar natte graslanden (320). Bossen evolueren naar valleibossen (310). Wetland (701) en veengebied (702) blijven onveranderd.
+
+In zones waar **bevers** actief zijn, gaan we ervan uit dat het landschap een mozaïek wordt van open water (bij overstromingen door beverdammen) en open en gesloten vegetaties (o.a. rietland, grote zeggenvegetaties, veengebied en moerasbos) -\> landbouw en open natuur worden wetland (701), bossen worden moerasbos (420) en veengebied blijft (702).
+
++---------------+-------------------------------------------------------------------------------------------+-------------------------------------+-------------------------------------------------------+
+|               |                                                                                           |                                     |                                                       |
++===============+===========================================================================================+=====================================+=======================================================+
+| **HydroKlas** | **Code**                                                                                  | **landbouw**                        | **natuur**                                            |
++---------------+-------------------------------------------------------------------------------------------+-------------------------------------+-------------------------------------------------------+
+| 1             | 2, 12 (oppervlakkig veen **zonder** overstromingen)                                       | landbouw wordt natuur (702 of 420)  | open natuur wordt 702 of 420 (moerasbos)              |
+|               |                                                                                           |                                     |                                                       |
+|               |                                                                                           |                                     | bos wordt 420 (moerasbos)                             |
++---------------+-------------------------------------------------------------------------------------------+-------------------------------------+-------------------------------------------------------+
+| 2             | 102, 112 (oppervlakkig veen **met** overstromingen)                                       | landbouw wordt natuur (702 of 420)  | open natuur wordt 702 of 420 (moerasbos)              |
+|               |                                                                                           |                                     |                                                       |
+|               |                                                                                           |                                     | bos wordt 420 (moerasbos)                             |
++---------------+-------------------------------------------------------------------------------------------+-------------------------------------+-------------------------------------------------------+
+| 3             | 1, 10, 11, 100, 101, 110, 111 (ondiep veen, en vernatting al dan niet met overstromingen) | landbouw wordt 320                  | open natuur: codes behouden, grasland (302) wordt 320 |
+|               |                                                                                           |                                     |                                                       |
+|               |                                                                                           |                                     | bos wordt valleibos (410)                             |
++---------------+-------------------------------------------------------------------------------------------+-------------------------------------+-------------------------------------------------------+
+| 4             | \> 1000 (bever actief)                                                                    | landbouw wordt wetland (701 of 420) | open natuur wordt 701 of 420 (moerasbos)              |
+|               |                                                                                           |                                     |                                                       |
+|               |                                                                                           |                                     | bos wordt 420                                         |
++---------------+-------------------------------------------------------------------------------------------+-------------------------------------+-------------------------------------------------------+
 
 ```{r combineren}
 
@@ -2608,7 +2621,7 @@ writeRaster(sc3_ihd, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied
 #/////////////////////////////////////////////////////////////
 
 # Aanpassen ecosysteemkaart
-# reclasstabel inladen
+# reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder de 4 hydrologische klassen
 lookup <- deel_3_reclass_lu |>
   select(code, "1", "2", "3", "4")
 
@@ -2651,7 +2664,11 @@ writeRaster(ecosysteem_sc3, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
 rm(list = setdiff(ls(), c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")))
 
 
+
+#/////////////////////////////////////
 # Tijdelijke rasters wegschrijven
+#/////////////////////////////////////
+
 rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")
 
 # Outputmap
@@ -2663,6 +2680,24 @@ for (nm in rasters) {
     get(nm),
     filename = file.path(outdir, paste0(nm, ".tif")),
     overwrite = TRUE
+  )
+}
+
+
+
+#/////////////////////////////////////
+# Tijdelijke rasters inladen
+#/////////////////////////////////////
+
+rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")
+
+# inleesmap
+indir <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/")
+
+for (n in rasters) {
+  assign(
+    n,
+    rast(file.path(indir, paste0(n, ".tif")))
   )
 }
 ```
