@@ -2500,25 +2500,32 @@ Zit vervat in vrijstromendheid
 
 De onderstaande tabel geeft aan hoe de codes uit de ecosysteemkaart al dan niet verschuiven onder invloed van vernatting en overstromingen. De ecosysteemkaart geeft alleen de grote ecosysteemgroepen weer (bv. semi-natuurlijke graslanden). Die groepen omvatten meestal zeer diverse vegetatietypes die verschillende toleranties voor vernatting en overstromingen hebben. De tabel kan dan aangeven dat er geen verschuiving tussen de ecosysteemgroepen plaatsvindt, maar binnen de groepen kunnen de vegetatietypes wel veranderen.
 
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
-|                                                                                           |                                    |                                          |
-+===========================================================================================+====================================+==========================================+
-| **Code**                                                                                  | **landbouw**                       | **natuur**                               |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
-| \> 1000 (bever actief)                                                                    | landbouw wordt natuur (701 of 401) | open natuur wordt 701 of 401 (moerasbos) |
-|                                                                                           |                                    |                                          |
-|                                                                                           |                                    | naaldbos (402) wordt 401                 |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
-| 2, 12 (oppervlakkig veen zonder overstromingen)                                           | landbouw wordt natuur (702 of 401) | open natuur wordt 702 of 401 (moerasbos) |
-|                                                                                           |                                    |                                          |
-|                                                                                           |                                    | naaldbos (402) wordt 401                 |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
-| 102, 112 (opp. veen met overstromingen)                                                   | landbouw wordt natuur (701 of 401) | open natuur wordt 701 of 401 (moerasbos) |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
-| 1, 10, 11, 100, 101, 110, 111 (ondiep veen, en vernatting al dan niet met overstromingen) | landbouw wordt 302                 | open natuur: codes behouden              |
-|                                                                                           |                                    |                                          |
-|                                                                                           |                                    | bos wordt valleibos (401)                |
-+-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+
+Voor bos maken we onderscheid tussen natte en zeer natte types:
+
+- 420 = "moerasbos" mozaïek van zeer natte bossen (bv. 91E0_sf, rbbsf), open vegetatie en water
+- 410 = "valleibos" vochtige/natte bossen al dan niet met overstromingen (bv. 91E_0_va)
+
+Op basis van de finale ecosysteemkaart en de originele ecosysteemkaart (ecosysteem_2022) kunnen zones met vernatting en overstromingen geïdentificeerd worden.
+
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
+|                                                                                           |                                    |                                          |             |
++===========================================================================================+====================================+==========================================+=============+
+| **Code**                                                                                  | **landbouw**                       | **natuur**                               | **reclass** |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
+| \> 1000 (bever actief)                                                                    | landbouw wordt natuur (701 of 420) | open natuur wordt 701 of 420 (moerasbos) | 4           |
+|                                                                                           |                                    |                                          |             |
+|                                                                                           |                                    | (naald)bos wordt 420                     |             |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
+| 2, 12 (oppervlakkig veen **zonder** overstromingen)                                       | landbouw wordt natuur (702 of 420) | open natuur wordt 702 of 420 (moerasbos) | 1           |
+|                                                                                           |                                    |                                          |             |
+|                                                                                           |                                    | naaldbos (402) wordt 420                 |             |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
+| 102, 112 (oppervlakkig veen **met** overstromingen)                                       | landbouw wordt natuur (701 of 420) | open natuur wordt 701 of 420 (moerasbos) | 2           |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
+| 1, 10, 11, 100, 101, 110, 111 (ondiep veen, en vernatting al dan niet met overstromingen) | landbouw wordt 302                 | open natuur: codes behouden              | 3           |
+|                                                                                           |                                    |                                          |             |
+|                                                                                           |                                    | bos wordt valleibos (410)                |             |
++-------------------------------------------------------------------------------------------+------------------------------------+------------------------------------------+-------------+
 
 ```{r combineren}
 
@@ -2589,6 +2596,12 @@ plot(sc3_ihd, type = "classes")
 plot_part(sc3_ihd, type = "classes")
 
 
+# Wegschrijven resultaten met ruwe codes (1000, 100, 1)
+writeRaster(sc1_ihd, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_codes_sc1.tif"), overwrite = TRUE)
+
+writeRaster(sc2_ihd, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_codes_sc2.tif"), overwrite = TRUE)
+
+writeRaster(sc3_ihd, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_codes_sc3.tif"), overwrite = TRUE)
 
 #/////////////////////////////////////////////////////////////
 # STAP 2 - aanpassen ecosysteemkaart
@@ -2626,14 +2639,30 @@ ecosysteem_sc3 <- ifel(sc3_ihd_rcl == 1, eco_1,
                                       ecosysteem_2022))))
 ecosysteem_sc3 <- cover(ecosysteem_sc3, ecosysteem_2022)
 
-writeRaster(ecosysteem_sc1, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc1.tif"), overwrite = TRUE)
+writeRaster(ecosysteem_sc1, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_ecosysteem_sc1.tif"), overwrite = TRUE)
 
-writeRaster(ecosysteem_sc2, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc2.tif"), overwrite = TRUE)
+writeRaster(ecosysteem_sc2, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_ecosysteem_sc2.tif"), overwrite = TRUE)
 
-writeRaster(ecosysteem_sc3, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_sc3.tif"), overwrite = TRUE)
+writeRaster(ecosysteem_sc3, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_ecosysteem_sc3.tif"), overwrite = TRUE)
 
 
 # Opkuisen bestanden uit environment
 
 rm(list = setdiff(ls(), c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")))
+
+
+# Tijdelijke rasters wegschrijven
+rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")
+
+# Outputmap
+outdir <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/")
+
+# Alle rasters afzonderlijk opslaan
+for (nm in rasters) {
+  writeRaster(
+    get(nm),
+    filename = file.path(outdir, paste0(nm, ".tif")),
+    overwrite = TRUE
+  )
+}
 ```

@@ -62,6 +62,8 @@ De volgende datasets worden gebruikt:
 - vha.shp -\> waterlopen als barrières voor distance-analyse
 - wegen.shp -\> wegen als barrières voor distance-analyse
 - veen1970_poly.shp -\> veengebieden
+- aquifer_hcov.tif -\> diepte tot bovenkant eerste aquitard (zie script `x5_hcov_lagen_combineren`)
+- ksat_h_hcov.tif -\> gewogen gemiddeld ksat_h van de ondergrond tot top aquitard (zie script `x5_hcov_lagen_combineren`)
 
 ```{r bestanden_folders}
 
@@ -70,7 +72,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "toekomstlaag.shp", "veen1970_poly.shp", "wegen.shp", "overstromingsdiepte_t100_flu_plu.tif", "vha.shp", "textuur.tif", "overstromingstolerantie_habitats_gis.xlsx", "grondwaterregime_habitats.xlsx")
+targets <- c("ecosysteem_2022.tif", "toekomstlaag.shp", "veen1970_poly.shp", "wegen.shp", "overstromingsdiepte_t100_flu_plu.tif", "vha.shp", "textuur.tif", "overstromingstolerantie_habitats_gis.xlsx", "grondwaterregime_habitats.xlsx", "aquifer_hcov.tif", "ksat_h_hcov.tif")
 
 # In welke folders zitten de data?
 
@@ -981,7 +983,7 @@ invloedszone_veen <- ifel(!is.na(resample(r_veen, invloedszone, method = "near")
 writeRaster(invloedszone_veen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_veenherstel.tif"), overwrite = TRUE)
 
 
-mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") + mapview(r_veen, zcol = "brown", na.color = "transparent", alpha.regions = 0.5) + mapview(invloedszone_veen, col.regions = "lightblue", na.color = "transparent")
+# mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") + mapview(r_veen, zcol = "brown", na.color = "transparent", alpha.regions = 0.5) + mapview(invloedszone_veen, col.regions = "lightblue", na.color = "transparent")
 
 ```
 

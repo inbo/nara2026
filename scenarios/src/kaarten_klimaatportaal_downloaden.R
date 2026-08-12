@@ -51,7 +51,7 @@ base_url <- paste0(
 base_url <- paste0(
   "https://kaartencatalogus.toepassingen.vmm.vlaanderen.be/geoserver/wcs?",
   "service=WCS&version=2.0.0&request=GetCoverage&",
-  "coverageId=planningtool:maatregelscenario_s2_totaal&",
+  "coverageId=planningtool:maatregelscenario_s6_totaal&",
   "outputCRS=http://www.opengis.net/def/crs/EPSG/0/31370&",
   "subsettingcrs=http://www.opengis.net/def/crs/EPSG/0/31370"
 )
@@ -61,7 +61,7 @@ base_url <- paste0(
 # --- 4. DE DOWNLOAD LOOP ---
 cat("Start met downloaden van de tegels...\n")
 
-i <- 19
+i <- 9
 
 for (i in 1:length(grid_selectie)) {
   # Haal de bounding box op van de huidige gridcel
@@ -103,7 +103,7 @@ mozaiek_virtueel <- vrt(tif_files)
 # 6. Opschalen resolutie (Van 1x1m naar 10x10m) ---
 cat("Resolutie opschalen van 1m naar 10m...\n")
 
-# Gebruik fun = "modal" als het om klasse-kaarten (bodem/gewas) gaat.
+# Gebruik fun = "modal" als het om klasse-kaarten (landgebruik) gaat.
 raster_10m <- aggregate(mozaiek_virtueel, fact = 10, fun = "modal")
 
 # 7. Opkuisen en opslaan
@@ -112,11 +112,11 @@ cat("Resultaat wegschrijven naar schijf...\n")
 # Snij het resultaat bij op basis van gebied.shp
 raster_10m_clipped <- mask(crop(raster_10m, vect(gebied)), vect(gebied))
 
+# raster_10m_clipped <- ifel(raster_10m_clipped == -9999, NA, raster_10m_clipped)
+
 # Sla het definitieve bestand efficiënt op met DEFLATE compressie
 writeRaster(raster_10m_clipped, 
-            filename = paste0(output_map, "/klimportaal_sc2.tif"), 
-            overwrite = TRUE,
-            datatype = "FLT4S", # Behoud decimalen
-            gdal = c("COMPRESS=DEFLATE", "PREDICTOR=3"))
+            filename = paste0(output_map, "/klimportaal_sc6.tif"), 
+            overwrite = TRUE)
 
 cat("Proces succesvol afgerond! Het bestand staat klaar.\n")
