@@ -430,10 +430,10 @@ r_veen <- mask(r_veen, ecosysteem_2022) # 1 = ondiep veen; 2 = oppervlakkig veen
 
 
 # Stap 2 - Habitatkaart verrasteren: natste habitats of rbb's per perceel (minstens 30% bedekking)
-habitat <- bwk_habitat %>% select(starts_with("HAB"), starts_with("PHAB"), -"HABLEGENDE")
+habitat <- bwk_habitat %>% select(starts_with("HAB"), starts_with("PHAB"), -"HABLEGENDE") |> 
+  mutate(ID_perceel = row_number())
 
 percelen_df <- as.data.frame(habitat) %>%
-  mutate(ID_perceel = row_number()) %>%
   pivot_longer(
     cols = starts_with("HAB"), 
     names_to = "HAB_nr", 
@@ -456,7 +456,7 @@ percelen_scores_glg <- percelen_df %>%
   mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
 # Voeg scores terug toe aan de vector data
-percelen_final <- merge(habitat, percelen_scores_glg, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+percelen_final <- merge(habitat, percelen_scores_glg, by.x = "ID_perceel", by.y = "ID_perceel", all.x = FALSE)
 
 
 # Verraster de grondwatergemies naar 10x10m
@@ -813,6 +813,7 @@ sc1_veen[cellen_rest$cell] <- 2
 
 sc1_veenherstel <- ifel(is.na(sc1_veen) | sc1_veen == 0, NA, 1)
 
+# Duid aan welke cellen ondiep veen (1) of oppervlakkig veen (2) zijn
 sc1_veenherstel <- ifel(!is.na(sc1_veenherstel) & !is.na(r_veen), r_veen, NA)
 
 # mapview(veen_verdroogd, na.color = "transparent") + mapview(sc1_veen, na.color = "transparent") + mapview(landbouw, na.color = "transparent")
@@ -1619,6 +1620,7 @@ sc2_veen[cellen_rest$cell] <- 2
 
 sc2_veenherstel <- ifel(is.na(sc2_veen) | sc2_veen == 0, NA, 1)
 
+# Duid aan welke cellen ondiep veen (1) of oppervlakkig veen (2) zijn
 sc2_veenherstel <- ifel(!is.na(sc2_veenherstel) & !is.na(r_veen), r_veen, NA)
 
 # mapview(veen_verdroogd, na.color = "transparent") + mapview(sc2_veen, na.color = "transparent")
@@ -2255,6 +2257,7 @@ sc3_veen <- ifel(is.na(veen_verdroogd), NA, ifel(veen_verdroogd == 1 & landbouw 
 
 sc3_veenherstel <- ifel(is.na(sc3_veen) | sc3_veen == 0, NA, 1)
 
+# Duid aan welke cellen ondiep veen (1) of oppervlakkig veen (2) zijn
 sc3_veenherstel <- ifel(!is.na(sc3_veenherstel) & !is.na(r_veen), r_veen, NA)
 
 # mapview(veen_verdroogd, na.color = "transparent") + mapview(sc3_veen, na.color = "transparent")
@@ -2542,6 +2545,29 @@ In zones waar **bevers** actief zijn, gaan we ervan uit dat het landschap een mo
 
 ```{r combineren}
 
+#/////////////////////////////////////
+# Rasters scenario's wegschrijven
+#/////////////////////////////////////
+
+rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")
+
+# Outputmap
+outdir <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/")
+
+# Alle rasters afzonderlijk opslaan
+for (nm in rasters) {
+  writeRaster(
+    get(nm),
+    filename = file.path(outdir, paste0(nm, ".tif")),
+    overwrite = TRUE
+  )
+}
+
+# Opkuisen bestanden uit environment
+
+rm(list = setdiff(ls(), c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")))
+
+
 #/////////////////////////////////////////////////////////////
 # STAP 1 - combineren deelanalyses in effectkaart
 #/////////////////////////////////////////////////////////////
@@ -2580,7 +2606,6 @@ sc1_ihd <- sum(stapel_sc1, na.rm = TRUE)
 sc1_ihd_rcl <- classify(sc1_ihd, rcl = rcl_matrix)
 
 
-plot(sc1_ihd)
 plot(sc1_ihd, type = "classes")
 plot(sc1_ihd_rcl, type = "classes")
 
@@ -2592,7 +2617,6 @@ sc2_ihd <- sum(stapel_sc2, na.rm = TRUE)
 
 sc2_ihd_rcl <- classify(sc2_ihd, rcl = rcl_matrix)
 
-plot(sc2_ihd)
 plot(sc2_ihd, type = "classes")
 
 
@@ -2603,7 +2627,6 @@ sc3_ihd <- sum(stapel_sc3, na.rm = TRUE)
 
 sc3_ihd_rcl <- classify(sc3_ihd, rcl = rcl_matrix)
 
-plot(sc3_ihd)
 plot(sc3_ihd, type = "classes")
 
 plot_part(sc3_ihd, type = "classes")
@@ -2659,29 +2682,8 @@ writeRaster(ecosysteem_sc2, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
 writeRaster(ecosysteem_sc3, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_ecosysteem_sc3.tif"), overwrite = TRUE)
 
 
-# Opkuisen bestanden uit environment
-
-rm(list = setdiff(ls(), c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")))
 
 
-
-#/////////////////////////////////////
-# Tijdelijke rasters wegschrijven
-#/////////////////////////////////////
-
-rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel", "sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel", "sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")
-
-# Outputmap
-outdir <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/")
-
-# Alle rasters afzonderlijk opslaan
-for (nm in rasters) {
-  writeRaster(
-    get(nm),
-    filename = file.path(outdir, paste0(nm, ".tif")),
-    overwrite = TRUE
-  )
-}
 
 
 
