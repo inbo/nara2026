@@ -63,26 +63,25 @@ De volgende datasets worden gebruikt:
 - dhm.tif -\> dhm van het gebied
 - glg.tif -\> glg van het gebied
 - textuur.tif -\> textuur bodemkaart
-- rivieren_dhm.tif -\> dhm van de rivieren in het gebied
 - vha.shp -\> rivieren
 - signaalkaart.shp -\> signaalkaart vernatting op basis van de natuurdoelenkaart en de INBO-veenkaart (zie ArcGIS-script `kaarten_r_scenarios_studiegebied`). Het ArcGIS-script voegt het veld 'klasse' toe en berekent de scores 'zn', 'n', v' en 'd' (**z**eer **n**at, **n**at, **v**ochtig en **d**roog).
 - grondwaterregime_habitats.xlsx -\> grondwaterregime (glg) voor habitats en rbb's (bron = tabel signaalkaart vernatting)
 - toekomstlaag.shp -\> natuurdoelen
 - veen1970_poly.shp -\> veenkaart INBO (bodem + bwk)
+- sc1_veenherstel.tif, sc2_veenherstel.tif en sc3_veenherstel.tif -\> cellen waar verdroogd veen vernat wordt (zie script `04_IHD`). De bestanden zitten in de temp-folder van het studiegebied
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "gebied.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif", "glg.tif", "textuur.tif", "rivieren_dhm.tif", "vha.shp", "signaalkaart.shp", "grondwaterregime_habitats.xlsx", "toekomstlaag.shp", "veen1970_poly.shp")
+targets <- c("ecosysteem_2022.tif", "gebied.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "dhm.tif", "glg.tif", "textuur.tif", "vha.shp", "signaalkaart.shp", "grondwaterregime_habitats.xlsx", "toekomstlaag.shp", "veen1970_poly.shp", "sc1_veenherstel.tif", "sc2_veenherstel.tif", "sc3_veenherstel.tif")
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/nara2026-git/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"), str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp"), "C:/R/NARA2026/nara2026-git/scenarios/data"
 )
 
 ```
@@ -156,7 +155,7 @@ dtm_r          <- dhm
 ksat_r         <- ksat_h_hcov
 aquitard_top_r <- aquifer_hcov
 bodem_r        <- textuur
-riv_dhm_r      <- rivieren_dhm
+# riv_dhm_r      <- rivieren_dhm
 glg_r          <- glg
 
 glg_r[is.na(glg_r)] <- 0 # water is NA in raster -> gelijkstellen aan 0 (= maaiveld)
@@ -229,14 +228,16 @@ percelen_final <- percelen_final %>%
 
 ```
 
-### Optie 2 - op basis van de toekomstkaart
+### Optie 2 - opmp basis van de toekomstkaart
 
 #### Stap 0 - Signaalkaart maken
 
 ```{r percelen_glg}
 
 # Data hernoemen
-percelen <- toekomstlaag
+percelen <- st_intersection(toekomstlaag, gebied)
+percelen <- percelen |> 
+  mutate(ID_perceel = row_number())
 tbl_grondwater <- grondwaterregime_habitats
 
 # Stap 1: signaalkaart maken
@@ -244,7 +245,6 @@ tbl_grondwater <- grondwaterregime_habitats
 # 1. Tabel transformeren voor koppeling
 # We maken een 'long' format om makkelijker te filteren en te matchen
 percelen_df <- as.data.frame(percelen) %>%
-  mutate(ID_perceel = row_number()) %>%
   pivot_longer(
     cols = starts_with("HAB"), 
     names_to = "HAB_nr", 
@@ -273,28 +273,27 @@ percelen_scores <- percelen_df %>%
   mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
 # Voeg scores terug toe aan de vector data
-percelen_glg <- merge(percelen, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+percelen_glg <- merge(percelen, percelen_scores, by.x = "ID_perceel", by.y = "ID_perceel", all.x = FALSE)
 
 ```
 
 #### Stap 1 - Rastercellen toevoegen
 
-- Vernatte veencellen -\> zeer natte condities (zn)
-- De vernattingszone van hydromorfologisch herstel heeft een grondwaterstand \< 0.5 m onder het maaiveld. Die zone voegen we op het einde apart toe.
+We voegen de zones van veenherstel toe (`scx_veenherstel` -\> zie script `04_IHD`): 1 = ondiep veen (natte condities (n)) ; 2 = oppervlakkig veen (zeer natte condities (zn))
 
 ```{r toevoegen_nieuwe_rastercellen}
 
-#////////////////////////////
-# A. Veenkaart toevoegen (zn)
-#////////////////////////////
+#//////////////////////////////////
+# A. Veenkaart toevoegen (n en zn)
+#//////////////////////////////////
 
-# test met veenkaart -> input = raster met 1 voor veen
-veen <- st_intersection(veen1970_poly, gebied)
-r_veen <- rasterize(veen, ecosysteem_2022, field = 1)
-r_veen_buf <- buffer(r_veen, 200) %>% ifel(1, NA)
+# kaart veenherstel scenario's
+# veen <- st_intersection(veen1970_poly, gebied)
+r_veen <- sc2_veenherstel
+# r_veen_buf <- buffer(r_veen, 200) %>% ifel(1, NA)
 
 # Vectoriseren van veenkaart
-veen_spat <- as.polygons(r_veen_buf, dissolve = TRUE)
+veen_spat <- as.polygons(r_veen, dissolve = TRUE)
 veen_sf <- st_as_sf(veen_spat)
 veen_sf <- st_transform(veen_sf, st_crs(percelen_glg))
 
@@ -302,33 +301,40 @@ percelen_glg <- st_make_valid(percelen_glg) %>%
   select(klasse)
 veen_sf <- st_make_valid(veen_sf)
 
-# Maskers voor overlap
-veen_masker <- st_union(veen_sf)
+# Maskers voor overlap -> apart masker voor ondiep (1) en opp. veen (2)
+veen_masker <- st_union(veen_sf) # alle veenpolygonen dissolven voor snellere berekening 'percelen_geen_overlap'
+
+veen_masker_1 <- veen_sf |> filter(gridcode == 1)
+veen_masker_2 <- veen_sf |> filter(gridcode == 2)
+
 percelen_masker <- st_union(st_geometry(percelen_glg))
 
-# A. Overlap percelen en veenpolygonen. Veen moet klasse 'zn' krijgen
-percelen_overlap <- st_intersection(percelen_glg, st_geometry(veen_masker)) %>%
+# A. Overlap percelen en veenpolygonen. Veen moet klasse 'zn' of 'n' krijgen
+percelen_overlap_1 <- st_intersection(percelen_glg, st_geometry(veen_masker_1)) %>%
+  mutate(klasse = case_when(klasse != "zn" ~ "n",
+                            klasse == "zn" ~ "zn")) # de overlap wordt'n' behalve waar de andere natuurdoelen reeds "zn" zijn
+percelen_overlap_2 <- st_intersection(percelen_glg, st_geometry(veen_masker_2)) %>%
   mutate(klasse = "zn") # de overlap wordt'zn'
 
-# B. Geen overlap tussen veen en percelen (veen 'hapt' overlap uit percelen)
+percelen_overlap <- rbind(percelen_overlap_1, percelen_overlap_2)
+
+# B. Percelen maar geen overlap met veen (veen 'hapt' overlap uit percelen)
 percelen_geen_overlap <- st_difference(percelen_glg, st_geometry(veen_masker))
 
-# C. Geen overlap tussen veen en percelen en nieuwe polygonen van veen
-veen_buiten_geom <- st_difference(veen_masker, percelen_masker)
+# C. Nieuwe veenpolygonen maar geen overlap met percelen 
+veen_buiten_geom_1 <- st_difference(veen_masker_1, percelen_masker)
+veen_buiten_geom_2 <- st_difference(veen_masker_2, percelen_masker)
+
+veen_buiten_geom <- rbind(veen_buiten_geom_1, veen_buiten_geom_2) # samenvoegen
 
 veen_buiten_sf <- st_sf(geometry = veen_buiten_geom) %>% 
   st_make_valid() %>% 
   st_cast("POLYGON")
 
-# Voeg de kolommen van percelen_glg toe als NA
-for (col in names(percelen_glg)) {
-  if (col != "geometry") {
-    veen_buiten_sf[[col]] <- NA
-  }
-}
-
-# Geef deze nieuwe veenpercelen de code "zn"
-veen_buiten_sf$klasse <- "zn"
+veen_buiten_sf <- veen_buiten_sf |> 
+  rename(klasse = gridcode) |>
+  mutate(klasse = case_when(klasse == 1 ~ "n",
+                            klasse == 2 ~ "zn"))
 
 # Zorg dat de kolommen in exact dezelfde volgorde staan als het origineel
 veen_buiten_sf <- veen_buiten_sf[, names(percelen_glg)]
@@ -337,6 +343,14 @@ veen_buiten_sf <- veen_buiten_sf[, names(percelen_glg)]
 # Integratie
 percelen_glg_veen <- rbind(percelen_geen_overlap, percelen_overlap, veen_buiten_sf)
 
+percelen_glg_veen <- percelen_glg_veen %>%
+  st_make_valid() %>%
+  group_by(klasse) %>%
+  summarise(
+    geometry = st_union(geometry),
+    .groups = "drop"
+  ) %>%
+  st_cast("POLYGON")
 
 ```
 
@@ -346,39 +360,41 @@ percelen_glg_veen <- rbind(percelen_geen_overlap, percelen_overlap, veen_buiten_
 
 # Stap 2: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
 
-# 1. Percelen splitsen met gebufferde rivieren
-
-rivier_buffers <- st_buffer(rivieren, dist = 1)
-rivier_buffer <- st_union(rivier_buffers)
-
-# 2. Zet sf-objecten om naar terra 'SpatVector' objecten
+# 1. Percelen voorbereiden
 percelen_glg_veen <- percelen_glg_veen %>%
   st_make_valid() %>%
   filter(!st_is_empty(.)) %>%
-  st_collection_extract("POLYGON") %>%     
+  st_collection_extract("POLYGON") %>%
   st_cast("MULTIPOLYGON")
 
 v_percelen <- vect(percelen_glg_veen)
-v_rivier <- vect(rivier_buffer)
 
-v_rivier <- project(v_rivier, crs(v_percelen))
+# 2. Rivieren voorbereiden
+rivieren <- st_transform(rivieren, st_crs(percelen_glg_veen))
 
-v_percelen <- makeValid(v_percelen)
-v_rivier <- makeValid(v_rivier)
+v_rivier <- vect(rivieren)
 
-# 1 grote polygoon maken van rivierbuffers
+# 3. Buffer
+v_rivier <- buffer(v_rivier, width = 1)
+
+# 4. Vereenvoudigen
+v_rivier <- simplifyGeom(v_rivier, tolerance = 1, preserveTopology = TRUE)
+
+# 5. Union
 v_rivier_union <- aggregate(v_rivier)
 
-# 3. Percelen bijsnijden met rivieren
+# 6. Percelen uitsnijden
 v_percelen_cut <- erase(v_percelen, v_rivier_union)
 
-# 4. filter eventuele lijnen/punten eruit die door het snijden zijn ontstaan
+
+# 7. filter eventuele lijnen/punten eruit die door het snijden zijn ontstaan
 v_percelen_cut <- v_percelen_cut[geomtype(v_percelen_cut) == "polygons", ]
 
-# 5. Terug omzetten naar sf
+# 8. Terug omzetten naar sf
 percelen_cut <- st_as_sf(v_percelen_cut) %>%
   st_make_valid() %>%
-  mutate(FID = row_number())
+  mutate(FID = row_number()) |> 
+  st_transform(percelen_cut, crs = st_crs(ecosysteem_2022))
 
 
 # meest voorkomende hoogteklasse per perceel
@@ -387,9 +403,10 @@ percelen_cut$h_klasse <- exact_extract(dtm_klass, percelen_cut, 'mode')
 
 percelen_final <- percelen_cut %>%
   filter(klasse != "d") %>% # geen peilverhoging voor droge percelen
+  st_make_valid() %>%
+  st_buffer(dist = 0) %>%
   group_by(klasse, h_klasse) %>%
   summarize(geometry = st_union(geometry), .groups = "drop") %>%
-  st_make_valid() %>%
   st_collection_extract("POLYGON") %>%
   st_cast("POLYGON") %>%
   mutate(id = row_number())
@@ -409,8 +426,10 @@ percelen_final <- percelen_final %>%
 ext_waarden <- exact_extract(glg_r, percelen_final, 'median')
 
 percelen_final$huidige_glg <- exact_extract(glg_r, percelen_final, 'median')
+
 percelen_final <- percelen_final %>%
   mutate(peilwijziging = pmax(0, huidige_glg - streefpeil))
+
 ```
 
 ## Contouren
@@ -445,32 +464,10 @@ De volgende stappen worden doorlopen:
 filter_opp <- 5000 # m²
 filter_peil <- 0.01 # m
 
-# Optie 1 - eenvoudig: samenvoegen en selecteren
 
-percelen_union <- percelen_final %>%
-  st_union() %>%
-  st_cast("POLYGON") %>%
-  st_as_sf() %>%
-  mutate(cluster_id = row_number()) %>%
-  select(cluster_id)
-
-# Peilwijzigingen van originele polygonen toevoegen en grootste waarde nemen
-percelen_union_id <- st_join(percelen_final, percelen_union)
-
-percelen_select <- percelen_union_id %>%
-  group_by(cluster_id) %>%
-  summarise(
-    peilwijziging = max(peilwijziging, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  filter(peilwijziging > filter_peil)
-
-percelen_select$area <- st_area(percelen_select)
-percelen_select_opp <- percelen_select %>%
-  filter(as.numeric(area) > filter_opp)
-
-
-# Optie 2 - complexer: kleine clusteren en toevoegen aan grote (houdt meer detail over)
+#////////////////////////////////////////////////////////////////////////////////////////////
+# Optie 1 - complexe methode: kleine clusteren en toevoegen aan grote (houdt meer detail over)
+#////////////////////////////////////////////////////////////////////////////////////////////
 
 percelen_bis <- percelen_final %>%
   st_make_valid() %>%
@@ -557,6 +554,33 @@ percelen_select_opp <- totaal_voor_dissolve %>%
   filter(peilwijziging > filter_peil)
 
 
+
+#////////////////////////////////////////////////
+# Optie 2 - eenvoudig: samenvoegen en selecteren
+#////////////////////////////////////////////////
+
+# percelen_union <- percelen_final %>%
+#   st_union() %>%
+#   st_cast("POLYGON") %>%
+#   st_as_sf() %>%
+#   mutate(cluster_id = row_number()) %>%
+#   select(cluster_id)
+# 
+# # Peilwijzigingen van originele polygonen toevoegen en grootste waarde nemen
+# percelen_union_id <- st_join(percelen_final, percelen_union)
+# 
+# percelen_select <- percelen_union_id %>%
+#   group_by(cluster_id) %>%
+#   summarise(
+#     peilwijziging = max(peilwijziging, na.rm = TRUE),
+#     .groups = "drop"
+#   ) %>%
+#   filter(peilwijziging > filter_peil)
+# 
+# percelen_select$area <- st_area(percelen_select)
+# percelen_select_opp <- percelen_select %>%
+#   filter(as.numeric(area) > filter_opp)
+
 ```
 
 ```{r contouren, echo=FALSE}
@@ -598,99 +622,131 @@ aquifer_20m <- clamp(aquitard_top_r, lower = 0, upper = 20)
 
 transmis <- ksat_r * (aquifer_20m + 0.1) # klein getal bij optellen om niet 0 te worden
 
+
 #///////////////////////////////////////
 # Stap 3: hydrologische zones afbakenen
 #///////////////////////////////////////
 
-# hydrologische regio's afbakenen om rivieren als barrières voor de distance-procedure te gebruiken (directions = 4 is niet beschikbaar in gridDist, maar wel in patches)
+# Sta terra toe om interne bewerkingen waar mogelijk multi-threaded uit te voeren.
+terraOptions(threads = TRUE)
 
+# Forceer de rasters in het geheugen
+ref_raster <- terra::toMemory(ref_raster)
+glg_r      <- terra::toMemory(glg_r)
+
+# hydrologische regio's afbakenen om rivieren als barrières voor de
+# distance-procedure te gebruiken (directions = 4 is niet beschikbaar
+# in gridDist, maar wel in patches)
 rivieren_vect <- vect(rivieren)
-
-riv_mask <- rasterize(rivieren_vect, ref_raster, field = 1, touches = TRUE) # touches = True -> om ervoor te zorgen dat de riviercellen elkaar altijd aan een zijkant raken 
+riv_mask <- rasterize(rivieren_vect, ref_raster, field = 1, touches = TRUE)
 riv_mask[riv_mask != 1] <- NA
 
 # Niet-riviercellen = 1, riviercellen = NA
 nonriv <- riv_mask
-nonriv <- classify(nonriv, cbind(NA, 0)) # alle niet-riviercellen op 0
-nonriv <- classify(nonriv, cbind(1, NA)) # alle riviercellen op NA
+nonriv <- classify(nonriv, cbind(NA, 0))   # alle niet-riviercellen op 0
+nonriv <- classify(nonriv, cbind(1, NA))   # alle riviercellen op NA
 
-# Maak hydrologische regio’s (4-connectivity → geen diagonale doorgang)
+# Maak hydrologische regio's (4-connectivity -> geen diagonale doorgang)
 region_r <- patches(nonriv, directions = 4)
+region_r <- terra::toMemory(region_r)
 
 
 #///////////////////////////////
 # Stap 4: Berekening nieuwe glg
 #///////////////////////////////
 
-# 1. Om rekentijd te besparen -> beperk de berekening voor een afstand van 200 m rond de polygonen
-
+# 1. Bereken lambda per perceel
+# Om rekentijd te besparen -> beperk de berekening tot 200 m rond de polygonen
 percelen_vect <- vect(percelen_select_opp)
 percelen_vect <- project(percelen_vect, crs(ref_raster))
-
 buff_params <- buffer(percelen_vect, 200)
-percelen_select_opp$Tavg <- terra::extract(transmis, buff_params, fun = mean, na.rm = TRUE)[,2]
-omega_avg <- terra::extract(omega, buff_params, fun = mean, na.rm = TRUE)[,2]
+
+# Eén gecombineerde extractie van Tavg en omega
+tr_stack <- c(transmis, omega)
+names(tr_stack) <- c("Tavg", "omega")
+extr <- terra::extract(tr_stack, buff_params, fun = mean, na.rm = TRUE)
+
+percelen_select_opp$Tavg <- extr$Tavg
+omega_avg <- extr$omega
 percelen_select_opp$lambda <- sqrt(percelen_select_opp$Tavg * omega_avg)
 
-# 2. Loop over de verschillende polygonen om de stijging te berekenen en
+# 2. Discretisatie van peilwijziging en lambda om het aantal loops te verminderen
+percelen_vect$peilwijziging <- round(percelen_select_opp$peilwijziging / 0.1) * 0.1
+percelen_vect$lambda <- round(percelen_select_opp$lambda / 5) * 5
+
+# Voeg percelen met dezelfde gediscretiseerde waarden samen (dissolve)
+percelen_grouped <- aggregate(percelen_vect, by = c("peilwijziging", "lambda"), dissolve = TRUE)
+percelen_grouped$id <- seq_len(nrow(percelen_grouped))
+
+# 3. Loop over de verschillende percelen om de stijging te berekenen en
 # update de huidige glg met de stijghoogtes
 
-# Initialiseer het resultaatraster (start met huidige GLG)
-glg_globaal <- glg_r 
+# Initialiseer het resultaatraster (start met huidige glg)
+glg_globaal <- glg_r
+n_groups <- nrow(percelen_grouped)
 
-for (i in 1:nrow(percelen_select_opp)) {
+for (i in 1:n_groups) {
   
   # 1. Haal parameters op
-  delta_h_i <- percelen_select_opp$peilwijziging[i]
-  lambda_i <- percelen_select_opp$lambda[i]
-  
+  delta_h_i <- percelen_grouped$peilwijziging[i]
+  lambda_i  <- percelen_grouped$lambda[i]
   if (is.na(lambda_i) || is.na(delta_h_i) || lambda_i <= 0) next
   
   # 2. Lokaal analysevenster afbakenen (4 * lambda)
   max_dist <- max(500, 4 * lambda_i)
-  perceel_i <- percelen_vect[i]
+  perceel_i <- percelen_grouped[i]
   analysevenster <- ext(perceel_i) + max_dist
   
   # 3. Crop de rasters
   glg_lokaal <- crop(glg_r, analysevenster)
   reg_lokaal <- crop(region_r, analysevenster)
   target_r <- ifel(reg_lokaal > 0, 0, NA)
+  mask <- ifel(target_r == 0, 1, target_r)  # masker om rivieren in te branden
   
-  mask <- ifel(target_r == 0, 1, target_r) # masker om rivieren in te branden
-  
-  # 4. Bereken de afstand rond de polygoon met rivieren als barrière 
-  # Geef cellen van de polygoon waarde 1
-  # update = TRUE zorgt ervoor dat we het bestaande raster aanpassen
+  # 4. Bereken de afstand rond de polygoon met rivieren als barrière
   target_r <- rasterize(perceel_i, target_r, update = TRUE, field = 1)
-  
-  target_r <- target_r * mask # brand de rivieren er terug in
-  
+  target_r <- target_r * mask               # brand de rivieren er terug in
   dist_r <- gridDist(target_r, target = 1)
   
   # 5. Bereken de lokale stijging
   stijging_lokaal <- delta_h_i * exp(-dist_r / lambda_i)
   stijging_lokaal[is.na(stijging_lokaal)] <- 0
-
+  
   # 6. Bereken nieuwe lokale GLG
   glg_result_lokaal <- glg_lokaal - stijging_lokaal
   glg_result_lokaal[glg_result_lokaal < 0] <- 0
-
-  # 7. Update globale raster met mosaic en min()
-  glg_patch <- crop(glg_globaal, glg_result_lokaal)
-  glg_updated <- min(glg_patch, glg_result_lokaal, na.rm = TRUE)
-  glg_globaal <- mosaic(glg_globaal, glg_updated, fun = "min")
   
-  if (i %% 10 == 0) cat("Voortgang:", i, "/", nrow(percelen_select_opp), "\n")
+  # 7. Update globale raster
+  cellnrs <- cells(glg_globaal, ext(glg_result_lokaal))
+  huidige_waarden <- glg_globaal[cellnrs][, 1]
+  nieuwe_waarden  <- values(glg_result_lokaal)[, 1]
+  glg_globaal[cellnrs] <- pmin(huidige_waarden, nieuwe_waarden, na.rm = TRUE)
+  
+  if (i %% 10 == 0) cat("Voortgang:", i, "/", n_groups, "\n")
 }
 
+glg_globaal <- mask(glg_globaal, ecosysteem_2022)
 
 #////////////////////////////////////////
 # Stap 5: Afbakening vernattingscontouren
 #////////////////////////////////////////
 
+# Vernattingszones afbakenen: 1: 0-0.25m; 2: >0.25-0.5m; 3: >0.5-1m; NA: > 1m
+glg_dif <- ifel(glg_r - glg_globaal > 0, 1, NA)
+glg_zone <- ifel(!is.na(glg_dif), glg_globaal, NA)
+rcl_matrix <- matrix(c(
+  -Inf, 0.25,  1,   # Code 1: 0 tot 0.25 m
+  0.25, 0.50,  2,   # Code 2: > 0.25 tot 0.50 m
+  0.50, 0.75,  3,   # Code 3: > 0.50 tot 0.75 m
+  0.75, 1.00,  4,   # Code 4: > 0.75 tot 1.00 m
+  1.00, Inf, NA    # NA:     > 1.00 tot inf
+), ncol = 3, byrow = TRUE)
+
+vernattingscontour <- classify(glg_zone, rcl_matrix, right = TRUE)
+
 # Cellen die ongeschikt zijn voor akkerbouw (glg < 1 m)
-glg_landbouw_na <- ifel(glg_globaal > 1, NA, 1)
-glg_landbouw_voor <- ifel(glg_r > 1, NA, 1)
+glg_landbouw_na <- ifel(glg_globaal < 1, 1, NA)
+glg_landbouw_voor <- ifel(glg_r < 1, 1, NA)
 
 
 glg_dif <- (glg_r - glg_globaal)
@@ -703,9 +759,11 @@ herstelzone <- herstelzone
 
 contour_landb <- ifel(contour_landb == 1 | herstelzone == 1, 1, NA)
 
-mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, col.regions = "darkred") + mapview(gebied, alpha.regions = 0)
+mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, zcol = "klasse")
+mapview(glg_globaal_test, maxpixels = 2000000, maxBytes = 15 * 1024 * 1024) + mapview(percelen_glg_veen, zcol = "klasse")
 
-# writeRaster(contour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/resultaat_vernatting.tif"), overwrite = TRUE)
+# PAS NAAM BESTAND AAN (sc1, sc2, sc3)
+writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/vernattingscontour_sc2.tif"), overwrite = TRUE)
 
 
 ```
