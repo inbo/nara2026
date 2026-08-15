@@ -164,10 +164,11 @@ Stappen:
 ```{r natuurdoelen_30_percent}
 
 percelen <- toekomstlaag
+percelen <- percelen |> 
+  mutate(ID_perceel = row_number())
 
 # Selectie van natuurdoelen die minstens 30% van een perceel bedekken
 percelen_df <- as.data.frame(percelen) %>%
-  mutate(ID_perceel = row_number()) %>%
   pivot_longer(
     cols = starts_with("HAB"), 
     names_to = "HAB_nr", 
@@ -201,7 +202,7 @@ percelen_scores <- percelen_df %>%
   mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
 # Voeg scores terug toe aan de vector data
-percelen_final <- merge(percelen, percelen_scores, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+percelen_final <- merge(percelen, percelen_scores, by.x = "ID_perceel", by.y = "ID_perceel", all.x = FALSE)
 
 # 2. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 target_res <- 10
@@ -224,10 +225,9 @@ combineerbaarheid_t100 <- mask(combineerbaarheid, waterdiepte)
 # Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
 combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
 
-mapview(combineerbaarheid_t100)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaarheid_t100.tif"), overwrite = TRUE)
+writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaarheid_t100.tif"), overwrite = TRUE)
 
 ```
 
@@ -256,7 +256,7 @@ percelen_scores_bever <- percelen_df %>%
   mutate(across(starts_with("min_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
 # Voeg scores terug toe aan de vector data
-percelen_final <- merge(percelen, percelen_scores_bever, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+percelen_final <- merge(percelen, percelen_scores_bever, by.x = "ID_perceel", by.y = "ID_perceel", all.x = FALSE)
 
 # 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 target_res <- 10
@@ -281,7 +281,7 @@ combineerbaar_bever <- ifel(combineerbaarheid <= 1, 1, NA)
 combineerbaar_bever_t100 <- mask(combineerbaar_bever, waterdiepte)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaar_bever_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaar_bever_t100.tif"), overwrite = TRUE)
+writeRaster(combineerbaar_bever_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaar_bever_t100.tif"), overwrite = TRUE)
 ```
 
 Opkuisen tijdelijke bestanden
@@ -316,6 +316,10 @@ De zones die niet mogen overstromen worden geïdentificeerd via een **patches-an
 
 ```{r zones_overstroming}
 
+# Resultaat analyse combineerbaarheid (kies)
+# intolerant <- combineerbaarheid_t100
+intolerant <- combineerbaar_bever_t100
+
 # Stap 1 - Masker
 
 # 1.1. Alleen overstroombare cellen (t100)
@@ -344,9 +348,6 @@ mask <- ifel(is.na(mask) | is.na(wegen_barriere), NA, 0)
 
 # Stap 2 - Identificeer unieke clusters van niet-tolerante cellen
 
-# Resultaat analyse combineerbaarheid
-intolerant <- combineerbaarheid_t100
-intolerant <- combineerbaar_bever_t100
 
 # Rivieren inbranden als barrière 
 intolerant_riv <- intolerant + rivier_barriere
@@ -464,11 +465,16 @@ for(d in klassen){
   gc()
 }
 
-overstromingsvrije_clusters_bever <- bereikbaar
+overstromingsvrije_clusters <- bereikbaar
 
-mapview(waterdiepte, na.color = "transparent") + mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
+# mapview(waterdiepte, na.color = "transparent") + mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
-writeRaster(overstromingsvrije_clusters_bever, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_bever.tif"), overwrite = TRUE)
+
+```
+
+```{r writeraster}
+
+writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/intolerant_zone_bever.tif"), overwrite = TRUE)
 
 ```
 
@@ -657,7 +663,7 @@ percelen_scores_glg <- percelen_df %>%
   mutate(across(starts_with("max_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
 # Voeg scores terug toe aan de vector data
-percelen_final <- merge(percelen, percelen_scores_glg, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+percelen_final <- merge(percelen, percelen_scores_glg, by.x = "ID_perceel", by.y = "ID_perceel", all.x = FALSE)
 
 # 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 r_base <- rast(ext(ecosysteem_2022), resolution = 10, crs = crs(ecosysteem_2022))
@@ -673,7 +679,7 @@ combineerbaar_vernatting <- ifel(r_maxglg >= 4, 1, NA)
 combineerbaar_vernattingszone <- mask(combineerbaar_vernatting, vernattingszone)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaar_vernattingszone, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/combineerbaar_vernattingszone.tif"), overwrite = TRUE)
+writeRaster(combineerbaar_vernattingszone, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaar_vernattingszone.tif"), overwrite = TRUE)
 ```
 
 ### 3.2. Zones vrijwaren van vernatting
@@ -716,7 +722,7 @@ intolerant_vha_vernatting <- ifel(r_vha == 1 & r_cost_from_conflict <= max_cost,
 
 # mapview(vernattingszone_conflict, col.regions = "lightblue", na.color = "transparent") + mapview(r_conflict, col.regions = "red", na.color = "transparent") + mapview(intolerant_vha_vernatting, na.color = "transparent")
 
-writeRaster(intolerant_vha_vernatting, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_vha_vernatting.tif"), overwrite = TRUE)
+writeRaster(intolerant_vha_vernatting, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/intolerant_vha_vernatting.tif"), overwrite = TRUE)
 ```
 
 ##### Optie 2
@@ -877,7 +883,7 @@ vernattingsvrije_clusters <- bereikbaar_nat
 
 mapview(vernattingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
-writeRaster(vernattingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_vernatting.tif"), overwrite = TRUE)
+writeRaster(vernattingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/intolerant_zone_vernatting.tif"), overwrite = TRUE)
 ```
 
 ## 4. Veenherstel
@@ -903,7 +909,7 @@ percelen_scores_glg <- percelen_df %>%
   mutate(across(starts_with("max_"), ~ ifelse(is.infinite(.), NA, .))) # inf op NA zetten
 
 # Voeg scores terug toe aan de vector data
-percelen_final <- merge(percelen, percelen_scores_glg, by.x = "row.names", by.y = "ID_perceel", all.x = FALSE)
+percelen_final <- merge(percelen, percelen_scores_glg, by.x = "ID_perceel", by.y = "ID_perceel", all.x = FALSE)
 
 # 3. Maak een basisraster (10x10m) op basis van de extent van de ecosysteemkaart
 target_res <- 10
@@ -980,7 +986,7 @@ invloedszone[!is.na(glg_verschil) & glg_verschil >= 0.2] <- 1
 invloedszone_veen <- ifel(!is.na(resample(r_veen, invloedszone, method = "near")) & invloedszone == 1, 1, NA)
 
 
-writeRaster(invloedszone_veen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/intolerant_zone_veenherstel.tif"), overwrite = TRUE)
+writeRaster(invloedszone_veen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/intolerant_zone_veenherstel.tif"), overwrite = TRUE)
 
 
 # mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") + mapview(r_veen, zcol = "brown", na.color = "transparent", alpha.regions = 0.5) + mapview(invloedszone_veen, col.regions = "lightblue", na.color = "transparent")
