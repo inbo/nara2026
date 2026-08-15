@@ -20,6 +20,7 @@ library(beepr) # voor de grap
 library(qgisprocess)
 library(jsonlite)
 library(leaflet)
+library(exactextractr)
 
 ```
 
@@ -48,6 +49,10 @@ Deze datasets zijn specifiek voor dit script:
 - droogteintensiteit.tif -\> agrarische droogte-intensiteit 2050 schaal Vlaanderen (klimaatportaal)
 - voedingsgebied_combi.tif -\> voedingsgebieden van de natuurgebieden
 - natuur_ecosysteem_sc1.tif / natuur_ecosysteem_sc2.tif / natuur_ecosysteem_sc3.tif -\> aangepaste ecosysteemkaarten voor natuurdoelen (script `04_IHD`).
+- vernattingscontour_sc2.tif -\> vernattingscontouren voor toekomstkaart en veenherstel scenario 2 (zie script `x6_vernattingscontouren`)
+- deel_3_reclass_natdoel.xlsx -\> tabel voor reclass natuurdoelen toekomstlaag naar ecosysteemcodes (kolommen 'habitat' -\> 'eco')
+- deel_3_reclass_lu.xlsx -\> tabel voor reclass ecosysteemkaart naar drainagediepte (glg_max en glg_min)
+- toekomstlaag.shp -\> natuurdoelen
 
 Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
 
@@ -58,7 +63,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "gebied.shp", "tempnat.tif", "permnat.tif", "verplichting_peilgestuurd.shp", "pgd_potent.tif", "droogteintensiteit.tif", "lbgp_2022.shp", "voedingsgebied_combi.tif", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif")
+targets <- c("ecosysteem_2022.tif", "gebied.shp", "tempnat.tif", "permnat.tif", "verplichting_peilgestuurd.shp", "pgd_potent.tif", "droogteintensiteit.tif", "lbgp_2022.shp", "voedingsgebied_combi.tif", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "vernattingscontour_sc2.tif", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "toekomstlaag.shp")
 
 # In welke folders zitten de data?
 
@@ -128,6 +133,8 @@ list2env(data_list_ok, envir = .GlobalEnv)
 
 ### 2.0. Hulpkaarten
 
+#### a) Geschikte cellen, akkers en verplichtingskaart peilgestuurd
+
 De **geschikte cellen** voor het verminderen van drainage zijn de tijdelijk en permanent natte gebieden uit de watersysteemkaart van de UA die mogelijk kansrijk, kansrijk of zeer kansrijk zijn volgens de geschiktheidskaart peilgestuurde drainage van het OP-PEIL-project en die geen ruimtebeslag, moeras of water zijn. Rond de natte zones wordt een bijkomende zone van 20 m afgebakend omdat grachten meestal wat doorlopen tot buiten de natte gebieden.
 
 ```{r peilgestuurd}
@@ -190,6 +197,45 @@ landb_droogtestress <- lbgp_2022 %>%
 verplichting_peilgestuurd <- st_transform(verplichting_peilgestuurd, crs(ecosysteem_2022))
 
 peilgestuurd <- mask(rasterize(verplichting_peilgestuurd, ecosysteem_2022, field = 1), ecosysteem_2022, updatevalue = NA)
+```
+
+#### b) Omzetting toekomstlaag naar ecosysteemkaart
+
+- HAB1 koppelen aan tabel en verrasteren -\> omdat een perceel meestal uit een complex van meerdere streefbeelden (HAB1, HAB2, ...) met verschillende bedekkingsgraden (pHAB1, pHAB2, ...) bestaat,
+
+De BWK-codes waarop de ecosysteemkaart gebaseerd zijn komen niet steeds één-op-één overeen met de natuurstreefbeelden. Daardoor kan het voorkomen dat een perceel waarop geen natuuromvorming plaatsvindt, in de scenario's toch in een andere ecosysteemklasse terechtkomt omdat het streefbeeld niet overeenkomt met de BWK-code waarop de ecosysteemkaart 2022 gebaseerd is. Om deze afwijkingen niet te streng af te straffen, wordt de ecosysteemkaart_2022 in een aantal gevallen niet aangepast, ook als de verrasterde toekomstlaag een andere code aangeeft:
+
+- Wetlands kunnen overlappen met poelen: ecosysteem_2022 (701, 901) \<-\> toekomstlaag (902)
+- Heide en open bodem kunnen overlappen met semi-natuurlijk grasland, poelen en veengebied: ecosysteem_2022 (501, 602) \<-\> toekomstlaag (302, 501, 902, 702)
+- Veengebied kan overlappen met heide en poelen: ecosysteem_2022 (702) \<-\> toekomstlaag (501, 902)
+
+```{r toekomst_ecosysteem}
+
+# Toekomstlaag bijsnijden en verrasteren op basis van HAB1
+percelen <- st_intersection(toekomstlaag, gebied)
+
+rcl_hab <- deel_3_reclass_natdoel # reclass tabel habitat -> eco
+
+percelen_hab1 <- percelen |>
+  left_join(rcl_hab, by = c("HAB1" = "habitat"))
+
+toekomst_eco <- rasterize(percelen_hab1, ecosysteem_2022, field = "eco")
+
+# Correctie verrasterde toekomstlaag voor onzekere classificatie (verandering tov 2022 minder streng beoordelen)
+
+# 1. Definieer de uitzonderingen
+uitzonderingen <- 
+  ecosysteem_2022 %in% c(101, 102, 801, 802) |
+  is.na(toekomst_eco) |
+  toekomst_eco == 0 | # 0 = geen habitat
+  (ecosysteem_2022 %in% c(701, 901) & toekomst_eco == 902) |
+  (ecosysteem_2022 %in% c(501, 602) & toekomst_eco %in% c(302, 501, 902, 702)) |
+  (ecosysteem_2022 == 702 & toekomst_eco %in% c(501, 902))
+
+ecosysteem_2050 <- ifel(uitzonderingen, ecosysteem_2022, toekomst_eco)
+
+# writeRaster(ecosysteem_2050, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2050.tif"), overwrite = TRUE)
+
 ```
 
 ### 2.1. Scenario 1
@@ -347,15 +393,35 @@ writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/sce
 
 **a) Geschiktheid en doelen**
 
-De doeloppervlakte (`sc2_doel` = `sc1_doel`) wordt geplaatst in het afstroomgebied van natuur en op plaatsen waar er natte natuur bijkomt volgens scenario 2 (resultaat script `04_IHD`).
+De doeloppervlakte (`sc2_doel` = `sc1_doel`) wordt geplaatst in het afstroomgebied van natuur, op plaatsen waar er natte natuur bijkomt volgens scenario 2 (`natuur_ecosysteem_sc2` -\> zie script `04_IHD`) en waar er door die bijkomende natuur vernatting optreedt (vernattingscontour_sc2 -\> zie script `x6_vernattingscontouren`).
+
+Welke ecosysteemcodes komen in aanmerking voor dedrainage? -\> landbouw (2xx, 301) en onbepaald grasland (300). Bossen en semi-natuurlijke graslanden -\> daarvoor zou de ecosysteemkaart ingedeeld moeten worden in droge en natte graslanden en bossen. We laten die cellen buiten beschouwing omdat een eventuele vernatting op die cellen deel uitmaakt van het natuurbeheer. Voor dedrainage kijken we naar extra maatregelen bovenop natuurbeheer.
+
+Cellen met nieuwe natte natuur worden eerst opgevuld (score 100), vervolgens de geschikte cellen in het voedingsgebied (score 10) en tenslotte de rest van de geschikte cellen (2-4).
+
+- Nieuwe natte natuur (0.5 en 0 m mv) -\> alle cellen dedraineren (glg_max = gangbare drainagediepte = minstens 0.75 m)
+  - codes 702, 701 en 420 -\> grondwater tot tegen het maaiveld
+  - codes 320 en 410 -\> grondwater 0.5 m onder het maaiveld
+- Vernattingscontouren (0 - 0.25 - 0.5 - 0.75 en 1 m mv) -\> differentiëren ifv ecosysteem:
+  - akkers -\> overal dedraineren (in zones met code 1, 2, 3 en 4)
+  - grasland -\> alleen dedraineren als glg \> 0.75 m (in zones met code 1 , 2 en 3)
 
 ***Opmerking**: wat met gedraineerde bossen (rabatten)?*
 
 ```{r geschiktheid_sc2}
 
-natte_natuur <- natuur_ecosysteem_sc2 != ecosysteem_2022
+landbouw <- ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205, 301), 1, NA)
 
+# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
+natte_natuur <- (natuur_ecosysteem_sc2 != ecosysteem_2022) * natuur_ecosysteem_sc2
+natte_natuur[natte_natuur > 0] <- 1
+natte_natuur[natte_natuur == 0] <- NA
 
+voedingsgebied_combi[voedingsgebied_combi > 0] <- 1
+
+vernattingscontour_sc2
+
+geschikt_sc2 <- ifel(!is.na(voedingsgebied_combi) & !is.na(natte_natuur), 110 + potentie_dedrain, ifel(!is.na(voedingsgebied_combi), 10 + potentie_dedrain, ifel(!is.na(potentie_dedrain), potentie_dedrain, NA)))
 ```
 
 **b) Allocatie maatregelen**
@@ -422,6 +488,10 @@ Door drainage wordt een deel van dat grondwater versneld afgevoerd via het grach
     - Maak verschilkaart met ghg die gebaseerd is op de drainageklassen van de bodemkaart -\> verschil = **grondwaterstijging bij dedrainage**
   - 1b -
 - Stap 2: bereken effect op basisdebiet
+
+Akker blijft akker -\> grondwaterstijging +0.5m
+
+natte natuur -\> stijging tot tegen maaiveld of 0.5 m onder maaiveld
 
 ```{r impact_drainage}
 
