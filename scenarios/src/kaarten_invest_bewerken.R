@@ -1,50 +1,5 @@
+
 studiegebied <- "kleine_nete"
-
-#/////////////////////////////////////////////////////
-# Scenario's klimaatportaal - sc3, sc7 en trend (sc2)
-#/////////////////////////////////////////////////////
-
-gebied <- st_read(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied,
-                        "/data/gebied.shp"), , quiet = TRUE)
-gebied <- st_transform(gebied, crs = crs(ecosysteem))
-
-
-sc7 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied,
-                  "/data/klimportaal_sc7.tif"))
-sc7 <- project(sc7, crs(ecosysteem))
-sc7 <- mask(crop(sc7, vect(gebied)), vect(gebied))
-sc7 <- resample(sc7, ecosysteem_2022, "near")
-
-sc3 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied,
-                  "/data/klimportaal_sc3.tif"))
-sc3 <- project(sc3, crs(ecosysteem))
-sc3 <- mask(crop(sc3, vect(gebied)), vect(gebied))
-sc3 <- resample(sc3, ecosysteem_2022, "near")
-
-sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied,
-                  "/data/klimportaal_sc2.tif"))
-sc2 <- project(sc2, crs(ecosysteem))
-sc2 <- mask(crop(sc2, vect(gebied)), vect(gebied))
-sc2 <- resample(sc2, ecosysteem_2022, "near")
-
-# infiltratie onbebouwd gebied = code 4 (Berging en infiltratie onbebouwdgebied)
-# en 14 (Boomschaduw & berging en infiltratie onbebouwd gebied)
-sc7_onbeb <- ifel(sc7 %in% c(4, 14), 1, NA)
-sc2_onbeb <- ifel(sc2 %in% c(4, 14), 1, NA)
-sc3_onbeb <- ifel(sc3 %in% c(4, 14), 1, NA)
-
-
-sc7_onbeb_f <- freq(sc7_onbeb)[freq(sc7_onbeb)$value == 1, "count"]
-sc3_onbeb_f <- freq(sc3_onbeb)[freq(sc3_onbeb)$value == 1, "count"]
-sc2_onbeb_f <- freq(sc2_onbeb)[freq(sc2_onbeb)$value == 1, "count"]
-
-buffer_sc7 <- (sc7_onbeb_f * 100 / 10000) * 75
-buffer_sc3 <- (sc3_onbeb_f * 100 / 10000) * 75
-buffer_sc2 <- (sc2_onbeb_f * 100 / 10000) * 75
-
-
-
-
 
 
 #//////////////////////////////////////////////////////
@@ -56,7 +11,12 @@ ecosysteem <- rast("C:/GIS/NARA2026/invest/data/ecosysteemkaart_zonderzee.tif")
 
 ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_2022.tif"))
 
+
+
+#////////////////////////////////////
 # Infiltratie (local recharge)
+#////////////////////////////////////
+
 r_oost_2050 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2050/L_bek_oost_2050_.tif")
 r_west_2050 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2050/L_bek_west_2050_.tif")
 
@@ -92,7 +52,11 @@ writeRaster(invest_L_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl
 writeRaster(invest_L_2050, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2050.tif"))
 
 
+
+#////////////////////////////////////
 # Afstroming (Quickflow)
+#////////////////////////////////////
+
 r_oost_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2020/QF_bek_oost_2020_.tif")
 r_west_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2020/QF_bek_west_2020_.tif")
 
@@ -111,6 +75,31 @@ writeRaster(QF_gebied_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
                                   "/data/qf_2022.tif"))
 
 writeRaster(invest_QF_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/qf_vl_2022.tif"))
+
+
+
+#////////////////////////////////////
+# Evapotranspiratie (AET)
+#////////////////////////////////////
+
+r_oost_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2020/intermediate_outputs/aet_bek_oost_2020_.tif")
+r_west_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2020/intermediate_outputs/aet_bek_west_2020_.tif")
+
+r_mosaic_2020 <- mosaic(r_oost_2020, r_west_2020, fun = "mean")
+
+r_mosaic_2020 <- r_mosaic_2020 |>
+  project(ecosysteem, method = "near") |>
+  resample(ecosysteem, method = "near")
+
+invest_AET_2020 <- mask(r_mosaic_2020, ecosysteem) # mm/jaar
+
+AET_gebied_2020 <- crop(invest_AET_2020, ecosysteem_2022)
+AET_gebied_2020 <- mask(AET_gebied_2020, ecosysteem_2022)
+
+writeRaster(AET_gebied_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied,
+                                  "/data/aet_2022.tif"))
+
+writeRaster(invest_AET_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/aet_vl_2022.tif"))
 
 
 

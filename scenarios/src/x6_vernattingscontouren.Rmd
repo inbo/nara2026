@@ -228,7 +228,7 @@ percelen_final <- percelen_final %>%
 
 ```
 
-### Optie 2 - opmp basis van de toekomstkaart
+### Optie 2 - op basis van de toekomstkaart
 
 #### Stap 0 - Signaalkaart maken
 
@@ -289,7 +289,7 @@ We voegen de zones van veenherstel toe (`scx_veenherstel` -\> zie script `04_IHD
 
 # kaart veenherstel scenario's
 # veen <- st_intersection(veen1970_poly, gebied)
-r_veen <- sc2_veenherstel
+r_veen <- sc3_veenherstel
 # r_veen_buf <- buffer(r_veen, 200) %>% ifel(1, NA)
 
 # Vectoriseren van veenkaart
@@ -744,26 +744,26 @@ rcl_matrix <- matrix(c(
 
 vernattingscontour <- classify(glg_zone, rcl_matrix, right = TRUE)
 
-# Cellen die ongeschikt zijn voor akkerbouw (glg < 1 m)
-glg_landbouw_na <- ifel(glg_globaal < 1, 1, NA)
-glg_landbouw_voor <- ifel(glg_r < 1, 1, NA)
+# # Cellen die ongeschikt zijn voor akkerbouw (glg < 1 m)
+# glg_landbouw_na <- ifel(glg_globaal < 1, 1, NA)
+# glg_landbouw_voor <- ifel(glg_r < 1, 1, NA)
+# 
+# 
+# glg_dif <- (glg_r - glg_globaal)
+# contour <- ifel(glg_dif > 0, 1, NA)
+# contour_landb <- glg_dif * glg_landbouw_na
+# contour_landb <- ifel(contour_landb > 0, 1, NA)
+# 
+# # Vernattingszone hydromorfologisch herstel toevoegen
+# herstelzone <- herstelzone
+# 
+# contour_landb <- ifel(contour_landb == 1 | herstelzone == 1, 1, NA)
 
-
-glg_dif <- (glg_r - glg_globaal)
-contour <- ifel(glg_dif > 0, 1, NA)
-contour_landb <- glg_dif * glg_landbouw_na
-contour_landb <- ifel(contour_landb > 0, 1, NA)
-
-# Vernattingszone hydromorfologisch herstel toevoegen
-herstelzone <- herstelzone
-
-contour_landb <- ifel(contour_landb == 1 | herstelzone == 1, 1, NA)
-
-mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, zcol = "klasse")
-mapview(glg_globaal_test, maxpixels = 2000000, maxBytes = 15 * 1024 * 1024) + mapview(percelen_glg_veen, zcol = "klasse")
+# mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, zcol = "klasse")
+# mapview(glg_globaal_test, maxpixels = 2000000, maxBytes = 15 * 1024 * 1024) + mapview(percelen_glg_veen, zcol = "klasse")
 
 # PAS NAAM BESTAND AAN (sc1, sc2, sc3)
-writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/vernattingscontour_sc2.tif"), overwrite = TRUE)
+writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/vernattingscontour_sc3.tif"), overwrite = TRUE)
 
 
 ```
