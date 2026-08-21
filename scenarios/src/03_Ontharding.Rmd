@@ -19,6 +19,7 @@ library(mapview)
 library(tools)     # Handig voor file_ext()
 library(beepr)
 library(leaflet) # Nodig voor colorFactor
+library(exactextractr)
 
 ```
 
@@ -42,7 +43,7 @@ De volgende datasets worden gebruikt:
 - stat_sectors.shp -\> kaart van de statistische sectoren
 - bevolking_stat.xlsx -\> inwonersaantal per statistische sector
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
-- ecosysteem.tif -\> ecosysteemkaart van het gebied (FLEA) in 2022
+- ecosysteem_2020.tif -\> ecosysteemkaart van het gebied (FLEA) in 2022
 - ecosysteem_2016.tif -\> ecosysteemkaart van het gebied (FLEA) in 2016
 - residentieel.tif -\> kaart van het residentieel gebied (selectie niv. 2 landgebruiksbestand)
 - wegen.tif -\> kaart van de verrasterde wegbaan en spoorbaan (GRB)
@@ -51,9 +52,8 @@ De volgende datasets worden gebruikt:
 - publiek_owner.tif -\> kaart van publieke eigendommen (publieke eigenaar)
 - riolering.shp -\> kaart van de gebieden met riolering
 - rbh -\> polygonen van de ruimteboekhouding 2026
-- BASISKAART.shp-> polygonen met bijbehorende info over verhardingstypologie en -graad, berekend met de [onthardingsscanner van dOMG](https://omgeving.vlaanderen.be/nl/aan-de-slag/de-onthardingsscanner-een-strategische-tool-voor-meer-groen-en-water-in-de-bebouwde-ruimte)
--kans_onthwin_hydro_1m.tif -> scores voor onthardingswinst op basis van hydrologische factoren uit de kansenkaart ontharding, d.i. de [prioriteitenkaart hydrologische veerkracht](https://www.vlaanderen.be/datavindplaats/catalogus/geintegreerde-prioriteitenkaart-voor-onthardingswinst-hydrologische-veerkracht)
-- opp_onthwin_overstr.shp -> polygonen uit [opportuniteitenkaart onthardingswinst](https://www.vlaanderen.be/datavindplaats/catalogus/opportuniteitenkaart-onthardingswinst-niet-kerngebonden-bebouwing-in-overstromingsgebied) voor niet-kerngebonden bebouwing in overstromingsgebied
+- BASISKAART_reduct.shp-\> polygonen met bijbehorende info over verhardingstypologie en -graad, berekend met de [onthardingsscanner van dOMG](https://omgeving.vlaanderen.be/nl/aan-de-slag/de-onthardingsscanner-een-strategische-tool-voor-meer-groen-en-water-in-de-bebouwde-ruimte) -kans_onthwin_hydro_1m.tif -\> scores voor onthardingswinst op basis van hydrologische factoren uit de kansenkaart ontharding, d.i. de [prioriteitenkaart hydrologische veerkracht](https://www.vlaanderen.be/datavindplaats/catalogus/geintegreerde-prioriteitenkaart-voor-onthardingswinst-hydrologische-veerkracht)
+- opp_onthwin_overstr.shp -\> polygonen uit [opportuniteitenkaart onthardingswinst](https://www.vlaanderen.be/datavindplaats/catalogus/opportuniteitenkaart-onthardingswinst-niet-kerngebonden-bebouwing-in-overstromingsgebied) voor niet-kerngebonden bebouwing in overstromingsgebied
 
 ```{r bestanden_folders}
 
@@ -61,12 +61,11 @@ studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_1m.tif", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_1m.tif", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp")
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/nara2026/scenarios/", studiegebied, "/data"),
-  "C:/R/nara2026/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"), "C:/R/NARA2026/nara2026-git/scenarios/data", str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output")
 )
 
 ```
@@ -102,7 +101,7 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$ecosysteem
+ref_raster <- data_list$ecosysteem_2020
 
 # # Functie om rasters te harmoniseren --> hier niet toepassen, sommige rasters op 1m resolutie nodig
 # harmoniseer_raster <- function(r, ref) {
@@ -128,8 +127,258 @@ ref_raster <- data_list$ecosysteem
 # list2env(data_list_ok, envir = .GlobalEnv)
 list2env(data_list, envir = .GlobalEnv)
 ```
- 
-## 2. Aantal inwoners per statistische sector
+
+## 2. Ontharding
+
+### 2.1 Doel bepalen
+
+Scenario 1 en 2: onthardingsdoel op basis van BRV -\> De verhardingsgraad van het ruimtebeslag in harde bestemmingen is ten laatste tegen 2050 opnieuw op het niveau van 2015. In zachte bestemmingen is er een bijkomende opgave van 20% afname van de verharding tov 2015 (voor zover ik begrijp) Volgens <https://betonmeter.be/> betekent dat 8.375 ha in harde bestemmingen en 10.999 ha in de zachte bestemmingen.
+
+Aanpak:
+
+- Doelbepaling harde bestemmingen: Per deelgebied de verharding van jaarBAK 2015 in harde bestemmingen vergelijken met de verharding van jaarbak 2022 in die bestemmingen
+  - De harde bestemmingen komen overeen met de bestemmingscategorieën ‘Wonen’ (01), ‘Recreatie’ (02), ‘Industrie – buiten poorten’ (07), ‘Industrie – poorten’ (7p) en delen van ‘Overig groen’ (04) en ‘Overige’ (08) van de [Ruimteboekhouding RSV](https://indicatoren.omgeving.vlaanderen.be/indicatoren/ruimteboekhouding-rsv) (laag rbh.shp). De tabel op p 18-20 van [Poelmans et al 2016 - Indicatoren ruimtelijk rendement -](https://omgeving.vlaanderen.be/sites/default/files/2021-10/Rapport_indicatoren%20ruimtelijk%20rendement.pdf) geeft aan welke gedetailleerde categorieën uit de ruimteboekhouding tot de harde en de zachte bestemmingen behoren.
+- Doelbepaling zachte bestemmingen: verschil tussen verharding in niet-harde bestemmingen in 2022 en in 2015 + 20% van de verharding in de niet-harde bestemmingen in 2015.
+
+Aanvullend: compenseren voor bijkomende verharding tussen 2022 en 2040. Het BRV stelt een geleidelijke afname voor van het netto bijkomend ruimtebeslag tegen 2040, met als tussenmijlpaal een maximale ruimtebeslag-snelheid van 3 ha/dag tegen 2025. Ugent berekende dat het totale quotum bijkomend ruimtebeslag voor Vlaanderen nog maximaal 11.933 ha bedraagt voor de periode 2022 tot 2040. Zowat de helft van het ruimtebeslag is momenteel verhard. We rekenen met eenzelfde verhardingsgraad (50%) voor het bijkomende ruimtebeslag.
+
+```{r doel bepalen scen1 en 2}
+# 1. harde bestemmingen afbakenen
+hard_overig_groen <- c("0500", "0510", "0600", "0610", "0611", "0630", "0631", "0680", "0739", "042","043", "08102")
+hard_overig <- c("0200", "0210", "0230", "0231", "0232", "0233", "0234", "0235", "0237", "0238", "0280", "0300", "0432", "1310", "1311", "1330", "1331", "1332", "1333", "1334", "1336", "1380", "1500", "1501", "1502", "1504", "1505", "1530", "1601", "1610", "1630", "1631", "1635", "1636", "1700", "072", "081", "093", "103", "113", "131", "132")
+hard_rest <- c("01", "02", "07", "07p", "09")
+
+
+rbh <- rbh |> 
+  select(-c(SHAPE_Leng, SHAPE_Area))
+gebied <- gebied |>
+  select(-c(Shape_Leng, Shape_Area))
+
+hard <- rbh |>
+  st_intersection(gebied) |>
+  filter(
+    (rbh %in% hard_rest) |
+    (bestem %in% hard_overig) |
+    (bestem %in% hard_overig_groen)) |>
+  st_union()
+
+# 2. Zachte bestemmingen afbakenen (rbh niet in 'hard)
+rbh_gebied <- st_intersection(rbh, gebied)
+
+zacht <- st_difference(rbh_gebied, hard) |>
+  st_union()
+
+# 3. Verharding
+# In harde bestemmingen
+verhard_in_hard_2015 <- jaarbak_2015 |>
+  crop(vect(hard)) |>
+  mask(vect(hard))
+
+verhard_in_hard_2022 <- jaarbak_2022 |>
+  crop(vect(hard)) |>
+  mask(vect(hard))
+
+hard_verhard_2015 <- round(pull(global(verhard_in_hard_2015, "sum", na.rm = TRUE))/10000, 0) # in ha
+hard_verhard_2022 <- round(pull(global(verhard_in_hard_2022, "sum", na.rm = TRUE))/10000, 0) # in ha
+
+# In zachte bestemmingen
+verhard_in_zacht_2015 <- jaarbak_2015 |>
+  crop(vect(zacht)) |>
+  mask(vect(zacht))
+
+verhard_in_zacht_2022 <- jaarbak_2022 |>
+  crop(vect(zacht)) |>
+  mask(vect(zacht))
+
+zacht_verhard_2015 <- round(pull(global(verhard_in_zacht_2015, "sum", na.rm = TRUE))/10000, 0) # in ha
+zacht_verhard_2022 <- round(pull(global(verhard_in_zacht_2022, "sum", na.rm = TRUE))/10000, 0) # in ha
+
+
+zacht_verhard_2015_80pct <- 0.8 * zacht_verhard_2015
+
+extraverhard_tot_2040 <- 0.5 * 11933 # 50% verharding in 11.933 ha extra ruimtebeslag tot 2040
+
+
+
+#//////////////////////////////////////////////////
+# Ruimtebeslagrisico - doorrekening methode HoGent
+#//////////////////////////////////////////////////
+
+rbh_vl <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/rbh_20240101.shp")
+ruimtebeslag_vl <- rast("C:/R/NARA2026/nara2026-git/scenarios/data/lu_ruibes_vlaa_2022_v3.tif")
+rbr_pr <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/RBR_PR_HR_Categ.shp")
+
+
+
+# Ruimtebeslag vectoriseren
+ruimtebeslag_1 <- ifel(ruimtebeslag_vl == 1, 1, NA)
+
+ruimtebeslag_vect <- as.polygons(ruimtebeslag_1, dissolve = TRUE)
+
+# Harde bestemmingen
+hard_vl <- rbh_vl |>
+  filter((rbh %in% hard_rest) |
+    (bestem %in% hard_overig) |
+    (bestem %in% hard_overig_groen)) |> 
+  filter(bestem != "1504") |> # water buiten beschouwing laten
+  st_union()
+
+# RBR = Harde bestemmingen die nog geen ruimtebeslag zijn
+rbr_vl <- hard_vl |> 
+  st_difference(st_as_sf(ruimtebeslag_vect))
+  
+rbr_union <- st_union(rbr_vl) 
+
+opp_rbr <- sum(st_area(rbr_union))/10000
+
+
+# Overig_groen in rbr
+
+rbr_overiggroen <- rbh_vl |>
+  filter(bestem %in% hard_overig_groen) |>
+  st_union() |> 
+  st_intersection(rbr_union)
+
+opp_rbr_og <- sum(st_area(rbr_overiggroen))/10000
+
+
+# Hoog risico RBR = RBR - overig_groen - recreatie
+recreatie <- rbh_vl |> filter(rbh == "02") |> st_union()
+
+rbr_recreatie <- recreatie |> st_intersection(rbr_union)
+
+opp_recreatie <- sum(st_area(rbr_recreatie))/10000
+
+rbr_verwijderen <- st_union(rbr_overiggroen, rbr_recreatie)
+
+rbr_hr <- rbr_union |>  # reeds zonder water
+  st_difference(rbr_verwijderen)
+opp_hoogrisico <- sum(st_area(rbr_hr))/10000
+
+
+rbr_pr_union <- st_union(rbr_pr) # rbr hoog risico prioritair niet bebouwen (HoGent)
+opp_prioritair <- sum(st_area(rbr_pr_union))/10000 # Niet bebouwen
+
+rbr_niet_pr <- rbr_hr |> st_difference(rbr_pr_union) # rbr hoog risico niet prioritair
+
+opp_nietprioritair <- sum(st_area(rbr_niet_pr))/10000 # Wel bebouwen (zou +/- 10000 ha moeten zijn)
+
+mapview(rbr_hr, col.region = "pink") + mapview(rbr_pr_union)
+
+# sneller
+hard_select_vl <- rbh_vl |>
+  filter((rbh %in% hard_rest) |
+           (bestem %in% hard_overig) |
+           (bestem %in% hard_overig_groen)) |> 
+  filter(bestem != "1504") |> # water buiten beschouwing laten
+  filter(rbh != "02") |> # recreatie weglaten
+  filter(!bestem %in% hard_overig_groen) |>  # overig_groen weglaten
+  st_union()
+
+rbr_hr <- hard_select_vl |> 
+  st_difference(st_as_sf(ruimtebeslag_vect))
+
+rbr_hr_union <- st_union(rbr_hr) 
+
+opp_rbr_hr <- sum(st_area(rbr_hr_union))/10000
+
+rbr_pr_union <- st_union(rbr_pr) # rbr hoog risico prioritair niet bebouwen (HoGent)
+opp_prioritair <- sum(st_area(rbr_pr_union))/10000 # Niet bebouwen
+
+rbr_niet_pr <- rbr_hr_union |> st_difference(rbr_pr_union) # rbr hoog risico niet prioritair
+
+opp_nietprioritair <- sum(st_area(rbr_niet_pr))/10000 # Wel bebouwen (zou +/- 10000 ha moeten zijn)
+
+st_write(rbr_niet_pr, "C:/GIS/NARA2026/3_Scenarios/rbr_niet_pr.shp")
+
+```
+
+Scenario 3:
+
+- Doel: 50% van laagste categorie wegen (landbouwwegen) verwijderen + alle [verspreide bebouwing](https://www.vlaanderen.be/datavindplaats/catalogus/kernen-linten-verspreide-bebouwing-in-vlaanderen-verspreide-bebouwing-toestand-2022) in overstromingsgevoelig gebied en in natuurnetwerken (-\> wat is dat? SBZH?)
+
+### 2.2 Doel invullen
+
+Een poging, om niet met vage clusteralgoritmes te moeten werken:
+
+1)  We selecteren de klassen "royaal verhard" en "overmatig verhard" uit de basiskaart die we opgebouwd hebben met de onthardingstool van dOMG. Daartoe laten we dezelfde rekenregels los op die basiskaart als degene die vervat zitten in de legende van de tool (zie ook GIS-handleiding voor de redenering achter de grenswaarden).
+2)  We voegen de geselecteerde polygonen samen met de polygonen van de "opportuniteitenkaart onthardingswinst: niet-kerngebonden gebouwen in overstromingsgebied" --\> ofwel deze kaart eerst gebruiken: al deze polygonen worden sowieso volledig onthard, wat overblijft van het doelopp realiseren we in de andere polygonen
+3)  we voegen per polygoon een score toe voor gewenst percentage ontharding: 50% voor tuinen, 25% andere oververharde percelen, 100% voor niet-kerngebonden gebouwen in overstromingsgebied
+4)  we voegen een kolom toe met harde/zachte bestemming
+5)  We voegen een kolom toe met per polygoon de gemiddelde score van de prioriteitenkaart hydrologische veerkracht (gemiddelde van de rasterkaart per polygoon)
+6)  We groeperen de polygonen per bouwblok of per statistische sector en voegen opnieuw een kolom toe met de score van de prioriteitenkaart hydrologische veerkracht (gemiddelde per bouwblok of per statistische sector dus)
+7)  We rangschikken de polygonen op bestemmingstype, op hoogste score per bouwblok of statistische sector, en daarbinnen op hoogste score per polygoon.
+8)  We vullen het doeloppervlak als volgt in: eerst de percelen met de hoogste scores per bouwblok of statistische sector invullen (obv gewenst percentage ontharding: opp perceel x fractie ontharding), als het doelopp bijna bereikt is en de volledige in te vullen oppervlakte per bouwblok of statistische sector te groot: binnen een bouwblok of statistische sector eerst de hoogste scores invullen (obv gewenst percentage ontharding) tot het doeloppervlak bereikt wordt.
+
+```{r doel invullen}
+# Stap 1: oververharde percelen en wegen cf. onhardingstool selecteren
+basiskaart <- BASISKAART_reduct
+
+oververhard <- basiskaart |> 
+  mutate(
+    oppervlakte = as.numeric(st_area(geometry)),
+    omtrek      = as.numeric(st_perimeter(geometry)),
+    vormfact = as.numeric(oppervlakte / omtrek)
+  ) |> 
+  filter(
+    # Regel 1: erftoegangswegen (izk = 1) met adressendichtheid tussen 40 en 180 (gemiddelde woondichtheid = idealiter max 4m verharde breedte) EN wegverharding breder dan 7 m 
+    (izk == 1 & ADRDICHTH > 40 & ADRDICHTH < 180 & WEGVERH_B >= 7) |
+    
+    # Regel 2: OF erftoegangswegen (izk = 1) met adressendichtheid > 180 (hoge woondichtheid = idealiter 9m verharde breedte) EN wegverharding breder dan 12 m 
+    (izk == 1 & ADRDICHTH >= 180 & WEGVERH_B >= 12) |
+    
+    # Regel 3: OF kruispunt is overmaats 
+    (WBN_TYPE == "kruispuntzone" & vormfact >= 5.5 & BAK_pc > 75 ) |
+  
+    # Regel 4: OF pleinen, markten en parkeerterreinen (izk = 2) met meer dan 75% verharding 
+    (izk == 2 & BAK_pc >= 75) |
+    
+    # Regel 5: OF verbindings- en ontsluitingswegen (izk = 3) met meer dan 16 m verharde breedte binnen de bebouwde kom (idealiter = max 12,5m)
+    (izk == 3 & BEKO == "Bi") |
+  
+    # Regel 6: OF verbindings- en ontsluitingswegen (izk = 3) met meer dan 13 m verharde breedte buiten de bebouwde kom (idealiter = max 10m)
+     
+    (izk == 3 & BEKO == "Bu") |
+    # Regel 7: OF wegen overgedragen door AWV naar de gemeente (standaard overmatig verhard) (WEGCAT bevat S of P --> geldt enkel als wegsegmenten.shp gebaseerd is op versie voor 2025, nu zijn er nieuwe categorieën)
+    (grepl("S|P", WEGCAT)) |
+  
+    # Regel 8: OF publieke campussen (izk = 4) met meer dan 50% tuinverharding (max 1/3 verharding is streefdoel);
+    (izk == 4 & TUINVERHpc >= 50) |
+  
+    # Regel 9: OF privaat residentieel gebied (izk = 5 of landgebr = 1 AND aantal adressen per wegsegment < 9) met meer dan 120 m² tuinverharding (40m² is streefdoel voor basisbehoefte, 80m² is vergunningsvrij)
+    ((izk == 5 | landgebr == 1) & adres < 9 & TUINVERH >= 120) |
+  
+    # Regel 10: OF private bedrijvenzone (izk = 6) met meer dan 75% tuinverharding
+    (izk == 6 & TUINVERHpc >= 75)
+  )
+
+  # kolom toevoegen: potentieel onthardingspercentage = 50% voor residentiële tuinen, 25% elders
+oververhard <- oververhard |> 
+  mutate(onth_pc = if_else(
+    (izk == 5 | landgebr == 1) & adres < 9, 
+    50, 
+    25, missing = 25)) |> 
+  select(onth_pc)
+  
+# Stap 2: samenvoegen met niet-kerngebonden bebouwing in overstromingsgebied
+  # kolom toevoegen: potentieel onthardingspercentage = 100%
+overbebouwd <- opp_onthwin_overstr |> 
+  mutate(onth_pc = 100) |> 
+  select(onth_pc)
+
+
+te_ontharden <- bind_rows(oververhard, overbebouwd)
+
+
+overlap <- st_intersection(overbebouwd, oververhard)
+
+mapview(overlap)
+
+```
+
+## **Oude versie:**
+
+### Aantal inwoners per statistische sector
 
 ```{r bevolking_sector}
 
@@ -173,134 +422,6 @@ gemeente_studiegebied <- sectoren_resultaat %>%
 st_write(gemeente_studiegebied, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/gemeente_bevolking_studiegebied.shp"))
 
 ```
-
-## 3. Ontharding
-
-### 3.1 Doel bepalen
-
-Scenario 1 en 2: onthardingsdoel op basis van BRV 
--\> De verhardingsgraad van het ruimtebeslag in harde bestemmingen is ten laatste tegen 2050 opnieuw op het niveau van 2015. In zachte bestemmingen is er een bijkomende opgave van 20% afname van de verharding tov 2015 (voor zover ik bebrijp)
-Volgens <https://betonmeter.be/> betekent dat 8.375 ha in harde bestemmingen en 10.999 ha in de zachte bestemmingen. 
-
-Aanpak:
-
-- Doelbepaling harde bestemmingen: Per deelgebied de verharding van jaarBAK 2015 in harde bestemmingen vergelijken met de verharding van jaarbak 2022 in die bestemmingen
-  - De harde bestemmingen komen overeen met de bestemmingscategorieën ‘Wonen’ (01), ‘Recreatie’ (02), ‘Industrie – buiten poorten’ (07), ‘Industrie – poorten’ (7p) en delen van ‘Overig groen’ (04) en ‘Overige’ (08) van de [Ruimteboekhouding RSV](https://indicatoren.omgeving.vlaanderen.be/indicatoren/ruimteboekhouding-rsv) (laag rbh.shp). De tabel op p 18-20 van [Poelmans et al 2016 - Indicatoren ruimtelijk rendement - ](https://omgeving.vlaanderen.be/sites/default/files/2021-10/Rapport_indicatoren%20ruimtelijk%20rendement.pdf) geeft aan welke gedetailleerde categorieën uit de ruimteboekhouding tot de harde en de zachte bestemmingen behoren.
-- Doelbepaling zachte bestemmingen: verschil tussen verharding in niet-harde bestemmingen in 2022 en in 2015 + 20% van de verharding in de niet-harde bestemmingen in 2015.
-
-Aanvullend: compenseren voor bijkomende verharding tussen 2022 en 2040. 
-Het BRV stelt een geleidelijke afname voor van het netto bijkomend ruimtebeslag tegen 2040, met als tussenmijlpaal een maximale ruimtebeslag-snelheid van 3 ha/dag tegen 2025. 
-Ugent berekende dat het totale quotum bijkomend ruimtebeslag voor Vlaanderen nog maximaal 11.933 ha bedraagt voor de periode 2022 tot 2040. 
-Zowat de helft van het ruimtebeslag is momenteel verhard. 
-We rekenen met eenzelfde verhardingsgraad (50%) voor het bijkomende ruimtebeslag. 
-
-```{r doel bepalen scen1 en 2}
-# 1. harde bestemmingen afbakenen
-hard_overig_groen <- c("0500", "0510", "0600", "0610", "0611", "0630", "0631", "0680", "0739", "042","043", "08102")
-hard_overig <- c("0200", "0210", "0230", "0231", "0232", "0233", "0234", "0235", "0237", "0238", "0280", "0300", "0432", "1310", "1311", "1330", "1331", "1332", "1333", "1334", "1336", "1380", "1500", "1501", "1502", "1504", "1505", "1530", "1601", "1610", "1630", "1631", "1635", "1636", "1700", "072", "081", "093", "103", "113", "131", "132")
-hard_rest <- c("01", "02", "07", "07p", "09")
-
-str(rbh)
-
-hard <- rbh |> 
-  filter(
-    (rhb %in% hard_rest) |
-    (bestem %in% hard_overig) |
-    (bestem %in% hard_overig_groen))
-
-verhard_in_hard_2015 <- jaarbak_2015 |> 
-  clip()
-
-```
-
-Scenario 3:
-
-- Doel: 50% van laagste categorie wegen (landbouwwegen) verwijderen + alle [verspreide bebouwing](https://www.vlaanderen.be/datavindplaats/catalogus/kernen-linten-verspreide-bebouwing-in-vlaanderen-verspreide-bebouwing-toestand-2022) in overstromingsgevoelig gebied en in natuurnetwerken (-\> wat is dat? SBZH?)
-
-]
-### 3.2 Doel invullen
-
-Een poging, om niet met vage clusteralgoritmes te moeten werken:
-
-1) We selecteren de klassen "royaal verhard" en "overmatig verhard" uit de basiskaart die we opgebouwd hebben met de onthardingstool van dOMG. Daartoe laten we dezelfde rekenregels los op die basiskaart als degene die vervat zitten in de legende van de tool (zie ook GIS-handleiding voor de redenering achter de grenswaarden). 
-2) We voegen de geselecteerde polygonen samen met de polygonen van de "opportuniteitenkaart onthardingswinst: niet-kerngebonden gebouwen in overstromingsgebied" --> ofwel deze kaart eerst gebruiken: al deze polygonen worden sowieso volledig onthard, wat overblijft van het doelopp realiseren we in de andere polygonen
-3) we voegen per polygoon een score toe voor gewenst percentage ontharding: 50% voor tuinen, 25% andere oververharde percelen, 100% voor niet-kerngebonden gebouwen in overstromingsgebied
-4) we voegen een kolom toe met harde/zachte bestemming
-4) We voegen een kolom toe met per polygoon de gemiddelde score van de prioriteitenkaart hydrologische veerkracht (gemiddelde van de rasterkaart per polygoon)
-5) We groeperen de polygonen per bouwblok of per statistische sector en voegen opnieuw een kolom toe met de score van de prioriteitenkaart hydrologische veerkracht (gemiddelde per bouwblok of per statistische sector dus)
-6) We rangschikken de polygonen op bestemmingstype, op hoogste score per bouwblok of statistische sector, en daarbinnen op hoogste score per polygoon. 
-7) We vullen het doeloppervlak als volgt in: eerst de percelen met de hoogste scores per bouwblok of statistische sector invullen (obv gewenst percentage ontharding: opp perceel x fractie ontharding), als het doelopp bijna bereikt is en de volledige in te vullen oppervlakte per bouwblok of statistische sector te groot: binnen een bouwblok of statistische sector eerst de hoogste scores invullen (obv gewenst percentage ontharding) tot het doeloppervlak bereikt wordt.
-
-```{r doel invullen}
-# Stap 1: oververharde percelen en wegen cf. onhardingstool selecteren
-basiskaart <- st_read("C:/R/nara2026/scenarios/herk_mombeek/data/BASISKAART.shp")
-oververhard <- basiskaart |> 
-  mutate(
-    oppervlakte = as.numeric(st_area(geometry)),
-    omtrek      = as.numeric(st_perimeter(geometry)),
-    vormfact = as.numeric(oppervlakte / omtrek)
-  ) |> 
-  filter(
-    # Regel 1: erftoegangswegen (izk = 1) met adressendichtheid tussen 40 en 180 (gemiddelde woondichtheid = idealiter max 4m verharde breedte) EN wegverharding breder dan 7 m 
-    (izk == 1 & ADRDICHTH > 40 & ADRDICHTH < 180 & WEGVERH_B >= 7) |
-    
-    # Regel 2: OF erftoegangswegen (izk = 1) met adressendichtheid > 180 (hoge woondichtheid = idealiter 9m verharde breedte) EN wegverharding breder dan 12 m 
-    (izk == 1 & ADRDICHTH >= 180 & WEGVERH_B >= 12) |
-    
-    # Regel 3: OF kruispunt is overmaats 
-    (WBN_TYPE == "kruispuntzone" & vormfact >= 5.5 & BAK_pc > 75 ) |
-  
-    # Regel 4: OF pleinen, markten en parkeerterreinen (izk = 2) met meer dan 75% verharding 
-    (izk == 2 & BAK_pc >= 75) |
-    
-    # Regel 5: OF verbindings- en ontsluitingswegen (izk = 3) met meer dan 16 m verharde breedte binnen de bebouwde kom (idealiter = max 12,5m)
-    (izk == 3 & BEKO == "Bi") |
-  
-    # Regel 6: OF verbindings- en ontsluitingswegen (izk = 3) met meer dan 13 m verharde breedte buiten de bebouwde kom (idealiter = max 10m)
-     
-    (izk == 3 & BEKO == "Bu") |
-    # Regel 7: OF wegen overgedragen door AWV naar de gemeente (standaard overmatig verhard) (WEGCAT bevat S of P --> geldt enkel als wegsegmenten.shp gebaseerd is op versie voor 2025, nu zijn er nieuwe categorieën)
-    (grepl("S|P", WEGCAT)) |
-  
-    # Regel 8: OF publieke campussen (izk = 4) met meer dan 50% tuinverharding (max 1/3 verharding is streefdoel);
-    (izk == 4 & TUINVERHpc >= 50) |
-  
-    # Regel 9: OF privaat residentieel gebied (izk = 5 of landgebr = 1 AND aantal adressen per wegsegment < 9) met meer dan 120 m² tuinverharding (40m² is streefdoel voor basisbehoefte, 80m² is vergunningsvrij)
-    ((izk == 5 | landgebr == 1) & adres < 9 & TUINVERH >= 120) |
-  
-    # Regel 10: OF private bedrijvenzone (izk = 6) met meer dan 75% tuinverharding
-    (izk == 6 & TUINVERHpc >= 75)
-  )
-mapview(oververhard)
-
-  # kolom toevoegen: potentieel onthardingspercentage = 50% voor residentiële tuinen, 25% elders
-  oververhard <- oververhard |> 
-    mutate(onth_pc = if_else(
-      (izk == 5 | landgebr == 1) & adres < 9, 
-      50, 
-      25, missing = 25)) |> 
-    select(onth_pc)
-  str(oververhard)
-  st_crs(oververhard)
-
-# Stap 2: samenvoegen met niet-kerngebonden bebouwing in overstromingsgebied
-  # kolom toevoegen: potentieel onthardingspercentage = 100%
-  overbebouwd <- opp_onthwin_overstr |> 
-    mutate(onth_pc = 100) |> 
-    select(onth_pc)
-  str(overbebouwd)
-  st_crs(overbebouwd)
-
-  te_ontharden <- bind_rows(oververhard, overbebouwd)
-  str(te_ontharden)
-mapview(te_ontharden)
-overlap <- st_intersects(overbebouwd, oververhard)
-mapview(overlap)
-
-```
-
-
-**Oude versie:**
 
 De vorige stap berekent hoeveel inwoners er per gemeente zijn in het studiegebied. Op basis daarvan wordt het onthardingsdoel bepaald voor het deel van de gemeente dat in het studiegebied ligt (1 m² per inwoner). Het onthardingsdoel wordt vertaald in een aantal cellen (10m x 10m) waarvan het landgebruik moet veranderen. Alleen cellen die op de ecosysteemkaart code 102 hebben (stedelijk verhard) en die geen spoorweg of baanweg zijn, komen in aanmerking voor ontharding.
 
@@ -482,13 +603,13 @@ Verharde oppervlakte binnen kernen ontharden op de meest geschikte geschikte loc
 ```{r allocatie_sc3}
 ```
 
-## 4. Afkoppeling gebouwen
+## 3. Afkoppeling gebouwen
 
 We willen inschatten hoe ...
 
 Gebouwen met minstens 100 m² tuin of een perceelgrootte van minstens 120 m² zijn verplicht om bij nieuwbouw of grondige verbouwing een infiltratievoorziening aan te leggen. We selecteren alle bebouwde cellen die grenzen aan een of meerdere niet-bebouwde cellen. Aangezien een rastercel 100 m² is, gaan we ervan uit dat we daarmee de gebouwen selecteren waarvoor de verplichting geldt. Cellen met code 101 in de ecosysteemkaart zijn gebouwen, cellen met codes \>= 103 zijn niet-bebouwde cellen.
 
-### 4.1. Huidige toestand
+### 3.1. Huidige toestand
 
 We veronderstellen dat het regenwater van gebouwen (code 101) die binnen een zone vallen met riolering (riolering.shp) wordt afgevoerd naar de riolering en niet infiltreert in de bodem.
 
@@ -496,7 +617,7 @@ Binnen deze groep verfijnen we het aantal gebouwen waarvan het regenwater niet i
 
 **Opmerking**: 4% is waarschijnlijk een overschatting omdat niet alle nieuwbouw voorzien kan worden van een infiltratievoorziening.
 
-### 4.2. Scenario's
+### 3.2. Scenario's
 
 Het aantal gebouwen waarvan het regenwater infiltreert verhogen we in scenario 1 en 2 op basis van de huidige renovatiesnelheid.
 
