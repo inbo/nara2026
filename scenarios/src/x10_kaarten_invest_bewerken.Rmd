@@ -1,0 +1,186 @@
+---
+title: "x10_kaarten_invest_bewerken"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(data.table)
+library(sf)
+library(terra)
+library(dplyr)
+library(tidyverse)
+library(here)
+library(readxl)
+library(viridis)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(beepr)
+library(leaflet) # Nodig voor colorFactor
+library(exactextractr)
+library(qgisprocess)
+
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x10_kaarten_invest_bewerken.Rmd`
+
+De volgende datasets worden gebruikt:
+
+- ecosysteemkaart_zonderzee.tif -\> ecosysteemkaart schaal Vlaanderen, zonder de zee
+- ecosysteem_2022.tif -\> schaal studiegebied
+- Resultaten Investmodel seasonal water yield (schaal Vlaanderen):
+  - L_bek_oost_2050\_.tif
+  - L_bek_west_2050\_.tif
+  - L_bek_oost_2020\_.tif
+  - L_bek_west_2020\_.tif
+  - QF_bek_oost_2020\_.tif
+  - QF_bek_west_2020\_.tif
+  - aet_bek_oost_2020\_.tif
+  - aet_bek_west_2020\_.tif
+
+## 2. Local recharge (infiltratie)
+
+Huidige toestand en toestand 2050
+
+```{r infiltratie}
+
+ecosysteem <- rast("C:/GIS/NARA2026/invest/data/ecosysteemkaart_zonderzee.tif")
+
+
+#////////////////////////////////////
+# Infiltratie (local recharge)
+#////////////////////////////////////
+
+r_oost_2050 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2050/L_bek_oost_2050_.tif")
+r_west_2050 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2050/L_bek_west_2050_.tif")
+
+r_oost_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2020/L_bek_oost_2020_.tif")
+r_west_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2020/L_bek_west_2020_.tif")
+
+r_mosaic_2050 <- mosaic(r_oost_2050, r_west_2050, fun = "mean")
+r_mosaic_2020 <- mosaic(r_oost_2020, r_west_2020, fun = "mean")
+
+
+r_mosaic_2050 <- r_mosaic_2050 |>
+  project(ecosysteem, method = "near") |>
+  resample(ecosysteem, method = "near")
+
+r_mosaic_2020 <- r_mosaic_2020 |>
+  project(ecosysteem, method = "near") |>
+  resample(ecosysteem, method = "near")
+
+invest_L_2050 <- mask(r_mosaic_2050, ecosysteem) # mm/jaar
+invest_L_2020 <- mask(r_mosaic_2020, ecosysteem) # mm/jaar
+
+
+# writeRaster(invest_L_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2022.tif"))
+# writeRaster(invest_L_2050, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2050.tif"))
+
+```
+
+## 3. Quickflow (oppervlakkige afstroming)
+
+```{r afstroming}
+
+#////////////////////////////////////
+# Afstroming (Quickflow)
+#////////////////////////////////////
+
+r_oost_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2020/QF_bek_oost_2020_.tif")
+r_west_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2020/QF_bek_west_2020_.tif")
+
+r_mosaic_2020 <- mosaic(r_oost_2020, r_west_2020, fun = "mean")
+
+r_mosaic_2020 <- r_mosaic_2020 |>
+  project(ecosysteem, method = "near") |>
+  resample(ecosysteem, method = "near")
+
+invest_QF_2020 <- mask(r_mosaic_2020, ecosysteem) # mm/jaar
+
+
+# writeRaster(invest_QF_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/qf_vl_2022.tif"))
+
+```
+
+## 4. Evapotranspiratie
+
+```{r evapotranspiratie}
+
+#////////////////////////////////////
+# Evapotranspiratie (AET)
+#////////////////////////////////////
+
+r_oost_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2020/intermediate_outputs/aet_bek_oost_2020_.tif")
+r_west_2020 <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2020/intermediate_outputs/aet_bek_west_2020_.tif")
+
+r_mosaic_2020 <- mosaic(r_oost_2020, r_west_2020, fun = "mean")
+
+r_mosaic_2020 <- r_mosaic_2020 |>
+  project(ecosysteem, method = "near") |>
+  resample(ecosysteem, method = "near")
+
+invest_AET_2020 <- mask(r_mosaic_2020, ecosysteem) # mm/jaar
+
+
+# writeRaster(invest_AET_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/aet_vl_2022.tif"))
+```
+
+## 5. Kaarten maken per deelgebied
+
+```{r studiegebied}
+
+studiegebied <- "kleine_nete"
+
+ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_2022.tif"))
+
+
+#//////////////////////////
+# 1. Infiltratie
+#//////////////////////////
+
+# # Inladen invest_L_20xx
+# invest_L_2020 <- rast("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2022.tif")
+# invest_L_2050 <- rast("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2050.tif")
+
+L_gebied_2020 <- crop(invest_L_2020, ecosysteem_2022)
+L_gebied_2020 <- mask(L_gebied_2020, ecosysteem_2022)
+
+L_gebied_2050 <- crop(invest_L_2050, ecosysteem_2022)
+L_gebied_2050 <- mask(L_gebied_2050, ecosysteem_2022)
+
+
+writeRaster(L_gebied_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/L_gebied_2020.tif"))
+
+writeRaster(L_gebied_2050, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/L_gebied_2050.tif"))
+
+
+#//////////////////////////
+# 2. Afstroming
+#//////////////////////////
+
+QF_gebied_2020 <- crop(invest_QF_2020, ecosysteem_2022)
+QF_gebied_2020 <- mask(QF_gebied_2020, ecosysteem_2022)
+
+writeRaster(QF_gebied_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/qf_2022.tif"))
+
+
+#//////////////////////////
+# 3. Evapotranspiratie
+#//////////////////////////
+
+AET_gebied_2020 <- crop(invest_AET_2020, ecosysteem_2022)
+AET_gebied_2020 <- mask(AET_gebied_2020, ecosysteem_2022)
+
+writeRaster(AET_gebied_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/aet_2022.tif"))
+```
