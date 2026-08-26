@@ -1,18 +1,48 @@
-#///////////////////////////////////////////////////
-# Plunder de kaartencatalogus van het klimaatportaal
-#///////////////////////////////////////////////////
+---
+title: "x11_kaarten_klimaatportaal_downloaden"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
 
-# Via het script kan je voor een gebied naar keuzse (gebied.shp) de gewenste kaarten van het klimaatportaal downloaden
-# Het script verdeeld het gebied in bounding boxes van 10 x 10 km, download de kaarten per box, voegt ze samen en zet ze ten slotte om naar een raster met een resolutie van 10 x 10 m.
-
+```{r packages, include=FALSE}
 library(sf)
 library(terra)
 library(dplyr)
+library(tidyverse)
+library(readxl)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x11_kaarten_klimaatportaal_downloaden.Rmd`
+
+## 2. Download
+
+**Opgelet: het script is alleen nodig voor kaarten die je gemeente per gemeente moet downloaden (kaarten met resolutie 1 x 1m).**
+
+- Het gebied (`gebied.shp`) wordt opgedeeld in vakken van 7 x 7 km
+- Die vakken worden gebruikt als tiles om de kaarten te downloaden naar een `download_map`
+  - De download-URL (`base_url`) moet aangepast worden aan de kaart die je nodig hebt: Om de url op te halen, download je eerst een voorbeeldgemeente en kopieer je de coverageId uit de downloadlink (Google -\> downloads).
+- Vervolgens worden de gedownloade kaarten samengevoegd en bijgeknipt met de polygoon van het gebied.
+
+```{r download}
 
 studiegebied <- "kleine_nete"
 
+
 # 1. Mapstructuur
-str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/gebied.shp")
+
 shape_pad <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/gebied.shp")
 output_map <- "C:/R/NARA2026/vmm_downloads"
 
@@ -114,9 +144,20 @@ raster_10m_clipped <- mask(crop(raster_10m, vect(gebied)), vect(gebied))
 
 # raster_10m_clipped <- ifel(raster_10m_clipped == -9999, NA, raster_10m_clipped)
 
-# Sla het definitieve bestand efficiënt op met DEFLATE compressie
+
+#/////////////////////////////////////////////////////
+# Resultaat wegschrijven naar datafolder studiegebied
+#/////////////////////////////////////////////////////
+
+outputnaam <- "klimportaal_sc6.tif"
+
+
 writeRaster(raster_10m_clipped, 
-            filename = paste0(output_map, "/klimportaal_sc6.tif"), 
+            filename = paste0("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/", outputnaam), 
             overwrite = TRUE)
 
-cat("Proces succesvol afgerond! Het bestand staat klaar.\n")
+
+
+```
+
+## 
