@@ -56,6 +56,7 @@ Deze datasets zijn specifiek voor dit script:
 - bwk_eenh1.tif -\> verrasterde BWK (EENH1) die gebruikt wordt voor de opmaak van de ecosysteemkaart (FLEA). Schaal studiegebied.
 - textuur.tif -\> textuur bodemkaart
 - aet_vl_2022.tif -\> evapotranspiratie schaal Vlaanderen (berekend via Invest)
+- tussenstap2_sc1/tussenstap2_sc2/tussenstap2_sc3.tif -\> resultaat van stap 2 van de compilatie van de ecosysteemkaart (= natuurcellen en vernattingscellen geplaatst)
 
 Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
 
@@ -66,7 +67,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "gebied.shp", "tempnat.tif", "permnat.tif", "verplichting_peilgestuurd.shp", "pgd_potent.tif", "droogteintensiteit.tif", "lbgp_2022.shp", "voedingsgebied_combi.tif", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "toekomstlaag.shp", "bwk_eenh1.tif", "textuur.tif", "aet_vl_2022.tif")
+targets <- c("ecosysteem_2022.tif", "gebied.shp", "tempnat.tif", "permnat.tif", "verplichting_peilgestuurd.shp", "pgd_potent.tif", "droogteintensiteit.tif", "lbgp_2022.shp", "voedingsgebied_combi.tif", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "toekomstlaag.shp", "bwk_eenh1.tif", "textuur.tif", "aet_vl_2022.tif", "tussenstap2_sc1.tif", "tussenstap2_sc2.tif", "tussenstap2_sc3.tif")
 
 # In welke folders zitten de data?
 
@@ -109,18 +110,39 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 ref_raster <- data_list$ecosysteem_2022
 
 # Functie om rasters te harmoniseren
-harmoniseer_raster <- function(r, ref) {
+harmoniseer_raster <- function(r, ref, is_categorisch = NULL) {
   # Controleer of het object een raster is
   if (!inherits(r, "SpatRaster")) {
     return(r) 
   }
+  
+  # Bepaal of het raster categorisch is
+  if (!is.null(is_categorisch)) {
+    is_cat <- is_categorisch
+  } else {
+    # Automatische detectie: check factor, bool, int of gehele getallen in double
+    is_cat <- is.factor(r) || is.bool(r) || is.int(r)
+    
+    if (!is_cat) {
+      vals <- values(r, mat = FALSE)
+      vals <- vals[!is.na(vals)] # Filter NA's vooraf weg
+      
+      # Als alle niet-NA waarden gehele getallen zijn, behandel als categorisch
+      if (length(vals) > 0 && all(vals == round(vals))) {
+        is_cat <- TRUE
+      }
+    }
+  }
+  
   # 'near' voor categorische data (codes), 'bilinear' voor continue data
-  is_cat <- is.factor(r) || is.bool(r)
   method_type <- if(is_cat) "near" else "bilinear"
+  
   # CRS, extent en resolutie van ref_raster
   r_gelijkaardig <- project(r, ref, method = method_type)
+  
   # Bijknippen met ref_raster
   r_geclipt <- mask(r_gelijkaardig, ref)
+  
   return(r_geclipt)
 }
 
@@ -164,15 +186,22 @@ pgd_potentie <- round(pgd_potent, 0)
 
 
 # 3. Combineren en filteren (score 1 = weinig kansrijk)
+
+# In scenario 1 worden alleen landbouwcellen aangepakt en blijft het bodemgebruik behouden -> peilgestuurde drainage
 potentie_dedrain <- ifel(!is.na(nat_buffer) & !is.na(pgd_potentie) & pgd_potentie > 1, pgd_potentie, NA)
 
-# Grachten dempen of verondiepen -> niet in ruimtebeslag (niet combineerbaar met bebouwing) en niet in moeras, estuaria of water (reeds nat)
-geschikt_ecos <- ifel(ecosysteem_2022 >= 200 & ecosysteem_2022 < 700, 1, NA)
+# In scenario 2 en 3 komen ook andere cellen in aanmerking voor vernatting en kan het bodemgebruik wijzigen door vernatting -> ook laagste scores meenemen
+potentie_dedrain_full <- ifel(is.na(nat_buffer) & pgd_potentie > 0, 0, pgd_potentie)
+
+# Grachten dempen of verondiepen -> niet in ruimtebeslag (niet combineerbaar met bebouwing) en niet in estuaria of water
+geschikt_ecos <- ifel(ecosysteem_2022 >= 200 & ecosysteem_2022 < 800, 1, NA)
 
 potentie_dedrain <- ifel(!is.na(geschikt_ecos) & !is.na(potentie_dedrain), potentie_dedrain, NA)
-  
 
-geschikte_cellen <- ifel(!is.na(potentie_dedrain), 1, NA)
+potentie_dedrain_full <- ifel(!is.na(geschikt_ecos) & !is.na(potentie_dedrain_full), potentie_dedrain_full, NA)
+
+
+geschikte_cellen <- ifel(!is.na(potentie_dedrain), 1, NA) # alleen nodig voor doelbepaling sc1 (opp. in sc2 is hetzelfde en sc3 (75%) is afgeleide van sc1)
 
 
 #///////////////////////////////////////////////////////
@@ -183,7 +212,7 @@ geschikte_cellen <- ifel(!is.na(potentie_dedrain), 1, NA)
 
 lbgp_2022 <- st_transform(lbgp_2022, st_crs(ecosysteem_2022))
 
-lbgp_2022$eco_mode <- exact_extract(ecosysteem_2022, lbgp_2022, 'mode', progress = TRUE)
+lbgp_2022$eco_mode <- exact_extract(tussenstap2_sc1, lbgp_2022, 'mode', progress = TRUE)
 
 lbgp_2022$droogte_max <- exact_extract(droogteintensiteit, lbgp_2022, 'max', progress = TRUE)
 
@@ -217,62 +246,9 @@ bos_drain <- ifel(ecosysteem_2022 %in% c(400, 401, 403, 404) & bwk_eenh1 %in% l_
 
 ```
 
-#### c) Omzetting toekomstlaag naar ecosysteemkaart
-
-- HAB1 koppelen aan tabel en verrasteren -\> omdat een perceel meestal uit een complex van meerdere streefbeelden (HAB1, HAB2, ...) met verschillende bedekkingsgraden (pHAB1, pHAB2, ...) bestaat,
-
-De BWK-codes waarop de ecosysteemkaart gebaseerd zijn komen niet steeds één-op-één overeen met de natuurstreefbeelden. Daardoor kan het voorkomen dat een perceel waarop geen natuuromvorming plaatsvindt, in de scenario's toch in een andere ecosysteemklasse terechtkomt omdat het streefbeeld niet overeenkomt met de BWK-code waarop de ecosysteemkaart 2022 gebaseerd is. Om deze afwijkingen niet te streng af te straffen, wordt de ecosysteemkaart_2022 in een aantal gevallen niet aangepast, ook als de verrasterde toekomstlaag een andere code aangeeft:
-
-- Wetlands kunnen overlappen met poelen: ecosysteem_2022 (701, 901) \<-\> toekomstlaag (902)
-- Heide en open bodem kunnen overlappen met semi-natuurlijk grasland, poelen en veengebied: ecosysteem_2022 (501, 602) \<-\> toekomstlaag (302, 501, 902, 702)
-- Veengebied kan overlappen met heide en poelen: ecosysteem_2022 (702) \<-\> toekomstlaag (501, 902)
-
-```{r toekomst_ecosysteem}
-
-#////////////////////////////////////////////////////
-# Nieuwe ecosysteemkaart voor 2050
-#////////////////////////////////////////////////////
-
-# Toekomstlaag bijsnijden en verrasteren op basis van HAB1
-percelen <- st_intersection(toekomstlaag, gebied)
-
-rcl_hab <- deel_3_reclass_natdoel # reclass tabel habitat -> eco
-
-percelen_hab1 <- percelen |>
-  left_join(rcl_hab, by = c("HAB1" = "habitat"))
-
-toekomst_eco <- rasterize(percelen_hab1, ecosysteem_2022, field = "eco")
-
-# Correctie verrasterde toekomstlaag voor onzekere classificatie (verandering tov 2022 minder streng beoordelen): 
-
-# Definieer de uitzonderingen
-uitzonderingen <- 
-  ecosysteem_2022 %in% c(101, 102, 801, 802) | # geen verandering op bebouwing, infrastructuur of rivieren
-  is.na(toekomst_eco) |
-  toekomst_eco == 0 | # code 0 in toekomstlaag = geen habitat
-  (ecosysteem_2022 %in% c(701, 901) & toekomst_eco == 902) |
-  (ecosysteem_2022 %in% c(501, 602) & toekomst_eco %in% c(302, 501, 902, 702)) |
-  (ecosysteem_2022 == 702 & toekomst_eco %in% c(501, 902))
-
-ecosysteem_2050 <- ifel(uitzonderingen, ecosysteem_2022, toekomst_eco)
-
-# Aanpassen codes grasland (302) en bos (402) voor aanwezigheid GWATES -> codes worden 320 (natte graslanden) en 410 (valleibos)
-# gwates in de toekomstlaag
-gwates_2050 <- rasterize(percelen_hab1, ecosysteem_2022, field = "gwates")
-
-ecosysteem_2050_gwates <- ifel(!is.na(gwates_2050) & !is.na(ecosysteem_2050), ecosysteem_2050, NA)
-
-ecosysteem_2050_nat <- ifel(!is.na(ecosysteem_2050_gwates) & ecosysteem_2050_gwates == 302, 320, ifel(!is.na(ecosysteem_2050_gwates) & ecosysteem_2050_gwates == 401, 410, ecosysteem_2050))
-
-# writeRaster(ecosysteem_2050, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2050.tif"), overwrite = TRUE)
-
-```
-
-#### d) Bergingscoëfficiënten en evapotranspiratie
+#### c) Bergingscoëfficiënten en evapotranspiratie
 
 De bergingscoëfficiënten worden berekend op basis van de bodetextuur.
-
-De evapotranspiratie wordt berekend via Invest model seasonal water yield. Het onderstaand script laadt de resultaten in en stemt ze af op de andere rasterkaarten van het studiegebied.
 
 ```{r bergingscoëfficiënten}
 
@@ -298,6 +274,8 @@ sy_values <- rat %>%
 sy_r <- classify(textuur, sy_values[, c("value", "sy_waarde")])
 
 ```
+
+De evapotranspiratie wordt berekend via Invest model seasonal water yield. Het onderstaand script laadt de resultaten in en stemt ze af op de andere rasterkaarten van het studiegebied.
 
 ```{r evapotranspiratie}
 
@@ -327,17 +305,17 @@ In scenario 1 wordt de doeloppervlakte geplaatst op landbouwpercelen met droogte
 
 # landbouwcellen
 
-landbouw <- ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205, 301), 1, NA)
+landbouw <- ifel(tussenstap2_sc1 %in% c(201, 202, 203, 204, 205, 301), 1, NA)
 
 # Landbouwpercelen met droogtestress
 
-r_landb_droogtestress <- mask(rasterize(landb_droogtestress, ecosysteem_2022, field = 1), ecosysteem_2022, updatevalue = NA)
+r_landb_droogtestress <- mask(rasterize(landb_droogtestress, tussenstap2_sc1, field = 1), ecosysteem_2022, updatevalue = NA)
 
 droogtestress <- ifel(distance(r_landb_droogtestress) <= 100, 1, NA)
 
 # Geschiktheidskaart: geschikte cellen met droogtestress
 
-geschikt_sc1 <- ifel(!is.na(landbouw) & !is.na(droogtestress) & !is.na(peilgestuurd), 100 + potentie_dedrain, potentie_dedrain)
+geschikt_sc1 <- ifel(!is.na(landbouw) & !is.na(droogtestress) & !is.na(peilgestuurd), 100 + potentie_dedrain, landbouw * potentie_dedrain * droogtestress)
 
 
 
@@ -372,7 +350,7 @@ patches_sc1 <- patches(geschikt_sc1, values = TRUE, directions = 8)
 
 # 2. Omzetten naar een data.frame met coördinaten
 # We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
-df <- as.data.frame(c(ecosysteem_2022, geschikt_sc1, patches_sc1), cells = TRUE, na.rm = TRUE)
+df <- as.data.frame(c(tussenstap2_sc1, geschikt_sc1, patches_sc1), cells = TRUE, na.rm = TRUE)
 
 colnames(df) <- c("cell", "eco_code", "score", "patch")
 
@@ -451,14 +429,14 @@ if (nog_nodig > 0) {
 # 5. De originele ecosysteemkaart aanpassen
 top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
 
-ecosysteem_dedrain <- deepcopy(ecosysteem_2022)
+ecosysteem_dedrain <- deepcopy(tussenstap2_sc1)
 
 ecosysteem_dedrain[top_cellen] <- code_dedrain
 
 sc1_dedrain_cellen <- ifel(ecosysteem_dedrain == 220, 1, NA)
 
 
-# writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_dedrain.tif"), overwrite = TRUE)
+writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_dedrain.tif"), overwrite = TRUE)
 
 ```
 
@@ -466,7 +444,7 @@ sc1_dedrain_cellen <- ifel(ecosysteem_dedrain == 220, 1, NA)
 
 **a) Geschiktheid en doelen**
 
-De doeloppervlakte (`sc2_doel` = `sc1_doel`) wordt geplaatst op geschikte cellen (`potentie_dedrain`) in het afstroomgebied van natuur, op plaatsen waar er natte natuur bijkomt volgens scenario 2 (`natuur_ecosysteem_sc2` -\> zie script `04_IHD`) en waar er door die bijkomende natuur vernatting optreedt (vernattingscontour_sc2 -\> zie script `x6_vernattingscontouren`).
+De doeloppervlakte (`sc2_doel` = `sc1_doel`) wordt geplaatst op geschikte cellen (`potentie_dedrain`) in het afstroomgebied van natuur, op plaatsen waar er natte natuur bijkomt volgens scenario 2 (`natuur_ecosysteem_sc2` -\> zie script `04_IHD` -\> tussenstap2 van het script `10_compilatie`) en waar er door die bijkomende natuur vernatting optreedt (vernattingscontour_sc2 -\> zie script `x6_vernattingscontouren`).
 
 Welke ecosysteemcodes komen in aanmerking voor dedrainage? We kijken daarvoor naar een combinatie van bodembedekking en bodemgebruik. We gaan ervan uit dat bodembedekking met een intensief landgebruik op een potentieel natte bodem op een of andere manier gedraineerd wordt. In Vlaanderen gaat het vooral om percelen in ruimtebeslag en landbouwgebied. We laten de percelen in ruimtebeslag buiten beschouwing omdat vernatting moeilijk combineerbaar is met bebouwing en infrastructuur. Voor landbouw brengen we akkers (2xx) en graslanden (300 en 301) in rekening. De klasse niet-gedefinieerd grasland (300) hoort strikt genomen niet bij landbouw omdat ze niet in de landbouwgebruikspercelen van dat jaar zit. Het gaat vaak om hobbylandbouw of percelen die in andere jaren wel in de landbouwaangifte zitten.
 
@@ -492,7 +470,7 @@ Indien ook cellen buiten de vernattingszone geselecteerd moeten worden om het do
 # Geschikte ecosystemen voor dedrainagemaatregelen
 #////////////////////////////////////////////////////
 
-# landbouw (2xx, 301), niet-gespecifieerd grasland (300) en populieren (bos_drain)
+# landbouw (2xx, 301), niet-gespecifieerd grasland (300) en populieren (bos_drain) in de originele ecosysteemkaart. Dit zijn de cellen waar er mogelijk een vernatting nodig is via dedrainage om (1) op de cel zelf een nat natuurdoel te realiseren of (2) op naburige cellen een nat natuurdoel te reasliseren. Die laatste groep zijn cellen die binnen de vernattingscontouren van natte natuur vallen. In beide gevallen gaat het om cellen die in de huidige toestand droog zijn (ecosysteem_2022). 
 geschikt_eco <- ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205, 300, 301) | !is.na(bos_drain), ecosysteem_2022, NA)
 
 
@@ -504,15 +482,15 @@ geschikt_eco <- ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205, 300, 301) |
 
 # 1. Vernattings volgens de toekomstlaag 
 
-# vernattingscontour_scx geeft de grondwaterstand aan op plaatsen waar er een vernatting optreedt door natuurontwikkeling volgens de toekomstlaag. Natuurcellen waar de grondwaterstand al hoog genoeg is en er dus geen bijkoimende vernatting nodig is, maken geen deel uit van de kaart.
+# vernattingscontour_scx geeft de grondwaterstand aan op plaatsen waar er een vernatting optreedt door natuurontwikkeling volgens de toekomstlaag. Natuurcellen waar de grondwaterstand al hoog genoeg is en er dus geen bijkomende vernatting nodig is, maken geen deel uit van de kaart.
 
 vernatting_2050_toekomst <- vernattingscontour_sc2
 
 # 2. Vernatting door beekherstel, veenherstel en beverdammen
 
-# Nieuwe natte natuur onder scenario 2 (los van de toekomstlaag): 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
-natte_natuur <- (natuur_ecosysteem_sc2 != ecosysteem_2022) * natuur_ecosysteem_sc2
-natte_natuur[natte_natuur == 0] <- NA
+# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
+natte_natuur <- (tussenstap2_sc2 != ecosysteem_2022) * tussenstap2_sc2
+natte_natuur <- ifel(natte_natuur %in% c(320, 410, 420, 701, 702), natte_natuur, NA)
 
 vernatting_2050_rest <- ifel(natte_natuur %in% c(320, 410), 2, ifel(natte_natuur %in% c(420, 701, 702), 1, NA))
 
@@ -526,9 +504,9 @@ vernatting_2050_sc2 <- min(c(vernatting_2050_rest, vernatting_2050_toekomst), na
 #////////////////////////////////////////////////////
 
 # Geschiktheid vernattingszone x bodemgebruik
-geschikt_zone <- ifel(vernatting_2050_sc2 %in% c(1, 2) & !is.na(geschikt_eco), 100,
-     ifel(vernatting_2050_sc2 == 3 & geschikt_eco %in% c(201, 202, 203, 204, 205, 300, 301), 100,
-          ifel(vernatting_2050_sc2 == 4 & geschikt_eco %in% c(201, 202, 203, 204, 205), 100, NA
+geschikt_zone <- ifel(vernatting_2050_sc2 %in% c(1, 2) & !is.na(geschikt_eco), 1,
+     ifel(vernatting_2050_sc2 == 3 & geschikt_eco %in% c(201, 202, 203, 204, 205, 300, 301), 1,
+          ifel(vernatting_2050_sc2 == 4 & geschikt_eco %in% c(201, 202, 203, 204, 205), 1, NA
                )
           )
      )
@@ -538,11 +516,12 @@ voedingsgebied_combi[voedingsgebied_combi > 0] <- 1
 
 
 # Geschiktheid gecombineerd (voedingsgebied, vernattingszone, bodemgebruik, potentie dedrainage)
-geschikt_sc2 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 + potentie_dedrain,
-                     ifel(is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 100 + potentie_dedrain,
-                          ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_eco), 10 + potentie_dedrain,
-                               ifel(!is.na(potentie_dedrain) & !is.na(geschikt_eco), potentie_dedrain, NA
+geschikt_sc2 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 + potentie_dedrain_full,
+                     ifel(is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 100 + potentie_dedrain_full,
+                          ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_eco), 10 + potentie_dedrain_full,
+                               ifel(!is.na(potentie_dedrain_full) & !is.na(geschikt_eco), potentie_dedrain_full, NA
                                     ))))
+
 
 ```
 
@@ -561,7 +540,7 @@ patches_sc2 <- patches(geschikt_sc2, values = TRUE, directions = 8)
 
 # 2. Omzetten naar een data.frame met coördinaten
 # We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
-df <- as.data.frame(c(ecosysteem_2022, geschikt_sc2, patches_sc2), cells = TRUE, na.rm = TRUE)
+df <- as.data.frame(c(tussenstap2_sc2, geschikt_sc2, patches_sc2), cells = TRUE, na.rm = TRUE)
 
 colnames(df) <- c("cell", "eco_code", "score", "patch")
 
@@ -640,14 +619,40 @@ if (nog_nodig > 0) {
 # 5. De originele ecosysteemkaart aanpassen
 top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
 
-ecosysteem_dedrain <- deepcopy(ecosysteem_2022)
+ecosysteem_dedrain <- deepcopy(tussenstap2_sc2)
 
 ecosysteem_dedrain[top_cellen] <- code_dedrain
 
 sc2_dedrain_cellen <- ifel(ecosysteem_dedrain == 220, 1, NA)
 
+writeRaster(sc2_dedrain_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_dedrain_cellen.tif"), overwrite = TRUE)
 
-# writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_dedrain.tif"), overwrite = TRUE)
+                     
+# Grondwaterstand vernatte cellen = subset van de cellen met dedrainagemaatregelen -> alleen de cellen met dedrainagemaatregelen waar mogelijk een impact is op het bodemgebruik. Op de rest van de cellen blijft het bodemgebruikt behouden (cf sc1).
+sc2_glg <- sc2_dedrain_cellen * vernatting_2050_sc2
+      
+# Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd). De kolommen die gebruikt worden verschillen (bij IHD-script zijn de 4 klassen een combinatie van grondwaterstand en overstromingen, hier verwijzen de klassen alleen naar de glg)
+# reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder het nieuwe glg-niveau
+
+lookup <- deel_3_reclass_lu |>
+  select(code, "glg1", "glg2", "glg3", "glg4")
+
+eco_1 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg1"]])
+eco_2 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg2"]])
+eco_3 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg3"]])
+eco_4 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg4"]])
+
+# Combineer alles = ecosysteemcellen met vernatting door dedrainage  
+sc2_ecosysteem_dedrain <- ifel(sc2_glg == 1, eco_1,
+                       ifel(sc2_glg == 2, eco_2,
+                            ifel(sc2_glg == 3, eco_3,
+                                 ifel(sc2_glg == 4, eco_4, 
+                                      tussenstap2_sc2))))
+
+# Niet vernatte cellen -> overnemen van ecosysteemkaart
+# sc2_ecosysteem_dedrain <- cover(sc2_ecosysteem_dedrain, tussenstap2_sc2)
+
+# writeRaster(sc2_ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_dedrain.tif"), overwrite = TRUE)
 
 ```
 
@@ -673,15 +678,15 @@ geschikt_eco <- ifel(ecosysteem_2022 %in% c(201, 202, 203, 204, 205, 300, 301) |
 
 # 1. Vernattings volgens de toekomstlaag 
 
-# vernattingscontour_scx geeft de grondwaterstand aan op plaatsen waar er een vernatting optreedt door natuurontwikkeling volgens de toekomstlaag. Natuurcellen waar de grondwaterstand al hoog genoeg is en er dus geen bijkoimende vernatting nodig is, maken geen deel uit van de kaart.
+# vernattingscontour_scx geeft de grondwaterstand aan op plaatsen waar er een vernatting optreedt door natuurontwikkeling volgens de toekomstlaag. Natuurcellen waar de grondwaterstand al hoog genoeg is en er dus geen bijkomende vernatting nodig is, maken geen deel uit van de kaart.
 
 vernatting_2050_toekomst <- vernattingscontour_sc3
 
 # 2. Vernatting door beekherstel, veenherstel en beverdammen
 
-# Nieuwe natte natuur onder scenario 3 (los van de toekomstlaag): 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
-natte_natuur <- (natuur_ecosysteem_sc3 != ecosysteem_2022) * natuur_ecosysteem_sc3
-natte_natuur[natte_natuur == 0] <- NA
+# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
+natte_natuur <- (tussenstap2_sc3 != ecosysteem_2022) * tussenstap2_sc3
+natte_natuur <- ifel(natte_natuur %in% c(320, 410, 420, 701, 702), natte_natuur, NA)
 
 vernatting_2050_rest <- ifel(natte_natuur %in% c(320, 410), 2, ifel(natte_natuur %in% c(420, 701, 702), 1, NA))
 
@@ -695,9 +700,9 @@ vernatting_2050_sc3 <- min(c(vernatting_2050_rest, vernatting_2050_toekomst), na
 #////////////////////////////////////////////////////
 
 # Geschiktheid vernattingszone x bodemgebruik
-geschikt_zone <- ifel(vernatting_2050_sc3 %in% c(1, 2) & !is.na(geschikt_eco), 100,
-                      ifel(vernatting_2050_sc3 == 3 & geschikt_eco %in% c(201, 202, 203, 204, 205, 300, 301), 100,
-                           ifel(vernatting_2050_sc3 == 4 & geschikt_eco %in% c(201, 202, 203, 204, 205), 100, NA
+geschikt_zone <- ifel(vernatting_2050_sc3 %in% c(1, 2) & !is.na(geschikt_eco), 1,
+                      ifel(vernatting_2050_sc3 == 3 & geschikt_eco %in% c(201, 202, 203, 204, 205, 300, 301), 1,
+                           ifel(vernatting_2050_sc3 == 4 & geschikt_eco %in% c(201, 202, 203, 204, 205), 1, NA
                            )
                       )
 )
@@ -707,11 +712,12 @@ voedingsgebied_combi[voedingsgebied_combi > 0] <- 1
 
 
 # Geschiktheid gecombineerd (voedingsgebied, vernattingszone, bodemgebruik, potentie dedrainage)
-geschikt_sc3 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 + potentie_dedrain,
-                     ifel(is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 100 + potentie_dedrain,
-                          ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_eco), 10 + potentie_dedrain,
-                               ifel(!is.na(potentie_dedrain) & !is.na(geschikt_eco), potentie_dedrain, NA
+geschikt_sc3 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 + potentie_dedrain_full,
+                     ifel(is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 100 + potentie_dedrain_full,
+                          ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_eco), 10 + potentie_dedrain_full,
+                               ifel(!is.na(potentie_dedrain_full) & !is.na(geschikt_eco), potentie_dedrain_full, NA
                                ))))
+
 
 ```
 
@@ -730,7 +736,7 @@ patches_sc3 <- patches(geschikt_sc3, values = TRUE, directions = 8)
 
 # 2. Omzetten naar een data.frame met coördinaten
 # We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
-df <- as.data.frame(c(ecosysteem_2022, geschikt_sc3, patches_sc3), cells = TRUE, na.rm = TRUE)
+df <- as.data.frame(c(tussenstap2_sc3, geschikt_sc3, patches_sc3), cells = TRUE, na.rm = TRUE)
 
 colnames(df) <- c("cell", "eco_code", "score", "patch")
 
@@ -809,14 +815,38 @@ if (nog_nodig > 0) {
 # 5. De originele ecosysteemkaart aanpassen
 top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
 
-ecosysteem_dedrain <- deepcopy(ecosysteem_2022)
+ecosysteem_dedrain <- deepcopy(tussenstap2_sc3)
 
 ecosysteem_dedrain[top_cellen] <- code_dedrain
 
 sc3_dedrain_cellen <- ifel(ecosysteem_dedrain == 220, 1, NA)
 
+writeRaster(sc3_dedrain_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen.tif"), overwrite = TRUE)
 
-# writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain.tif"), overwrite = TRUE)
+
+# Grondwaterstand vernatte cellen
+sc3_glg <- sc3_dedrain_cellen * vernatting_2050_sc3
+
+# Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd)
+# reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder de 4 hydrologische klassen
+lookup <- deel_3_reclass_lu |>
+  select(code, "glg1", "glg2", "glg3", "glg4")
+
+eco_1 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg1"]])
+eco_2 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg2"]])
+eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
+eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
+
+# Combineer alles
+sc3_ecosysteem_dedrain <- ifel(sc3_glg == 1, eco_1,
+                               ifel(sc3_glg == 2, eco_2,
+                                    ifel(sc3_glg == 3, eco_3,
+                                         ifel(sc3_glg == 4, eco_4, 
+                                              tussenstap2_sc3))))
+
+# sc3_ecosysteem_dedrain <- cover(sc3_ecosysteem_dedrain, tussenstap2_sc3)
+
+# writeRaster(sc3_ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain.tif"), overwrite = TRUE)
 
 ```
 
