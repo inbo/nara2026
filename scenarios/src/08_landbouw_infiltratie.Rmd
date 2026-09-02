@@ -50,6 +50,7 @@ De volgende datasets worden gebruikt:
 - landb_droogtestress.shp -\> percelen onder droogtestress in 2050
 - lbgp_2022.shp -\> landbouwgebruikspercelen 2022
 - droogteintensiteit.tif -\> agrarische droogte-intensiteit 2050 schaal Vlaanderen (klimaatportaal)
+- tussenstap3_sc1/sc2/sc3 -\> resultaat van plaatsing natuur, extra bos en dedrainagemaatregelen
 
 Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappen van de scenariofolder.
 
@@ -60,14 +61,11 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "gebied.shp", "effect_infilt.tif", "impact_droogte_agrar.tif", "voedingsgebied_combi.tif", "klimportaal_sc7.tif", "klimportaal_sc3.tif", "klimportaal_sc5.tif", "klimportaal_sc6.tif", "qf_2022.tif", "landb_droogtestress.shp", "droogteintensiteit.tif", "lbgp_2022.shp")
+targets <- c("ecosysteem_2022.tif", "gebied.shp", "effect_infilt.tif", "impact_droogte_agrar.tif", "voedingsgebied_combi.tif", "klimportaal_sc7.tif", "klimportaal_sc3.tif", "klimportaal_sc5.tif", "klimportaal_sc6.tif", "qf_2022.tif", "landb_droogtestress.shp", "droogteintensiteit.tif", "lbgp_2022.shp", "tussenstap3_sc1.tif", "tussenstap3_sc2.tif", "tussenstap3_sc3.tif")
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/nara2026-git/scenarios/data"
-)
-
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"), "C:/R/NARA2026/nara2026-git/scenarios/data", str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output"))
 ```
 
 ### 1.2. Data inladen
@@ -243,7 +241,7 @@ sc1_doel <- round(0.25 * f[f$value == 1, "count"], 0)
 # Doel als % van de opp. van het gebied
 opp_totaal <- pull(global(ecosysteem_2022, "notNA"))
 
-round(100*doel_infilt_25/opp_totaal, 1)
+round(100*sc1_doel/opp_totaal, 1)
 
 
 
