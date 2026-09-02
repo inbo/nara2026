@@ -67,7 +67,7 @@ studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_1m.tif", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp", "rbr_h_ontwikkelbaar.shp", "rbr_h_vrijwaren.shp")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp", "rbr_h_ontwikkelbaar.shp", "rbr_h_vrijwaren.shp")
 
 # In welke folders zitten de data?
 
@@ -236,7 +236,7 @@ r_result[sampled_cells$cell] <- sampled_cells$new_code
 writeRaster(r_result, "C:/GIS/NARA2026/3_Scenarios/ecosysteem_2022_extraverhard.tif", overwrite = TRUE)
 ```
 
-```{r doel bepalen scen1 en 2}
+```{r doel bepalen sc1 en 2}
 
 # 1. harde bestemmingen afbakenen
 hard_overig_groen <- c("0500", "0510", "0600", "0610", "0611", "0630", "0631", "0680", "0739", "042","043", "08102")
@@ -426,7 +426,8 @@ te_ontharden <- te_ontharden["onth_pc"]
 #//////////////////////////////////////////////////////////
 
 te_ontharden_sf <- st_as_sf(te_ontharden) |> 
-  st_make_valid()
+  st_make_valid() |> 
+  select(onth_pc)
 
 # Bestemmingskaart
 zacht_sf <- st_sf(type = "zacht", geometry = zacht)
@@ -436,32 +437,44 @@ bestemming <- bind_rows(zacht_sf, hard_sf) |>
   st_make_valid()
 
 # Polygonen kleiner dan 10 m² verwijderen (kleine snippers)
-te_ontharden_schoon <- st_as_sf(te_ontharden) %>%
+te_ontharden_schoon <- te_ontharden_sf %>%
   mutate(opp_m2 = as.numeric(st_area(.))) %>%
   filter(opp_m2 >= 10)
 
 # Join met bestemming als de centroide van te_ontharden in een bestemming ligt
 resultaat_sf <- st_join(te_ontharden_schoon, bestemming["type"], join = function(x, y) st_intersects(st_centroid(x), y))
 
+
+#//////////////////////////////////////////////////////////
+# Stap 4: toevoegen oppervlakte tuinverharding
+#//////////////////////////////////////////////////////////
+
+resultaat_sf <- st_join(resultaat_sf, basiskaart["TUINVERH"], join = function(x, y) st_intersects(st_centroid(x), y))
+
+
+#//////////////////////////////////////////////////////////
+# Stap 5: toevoegen gemiddelde hydrologische veerkracht
+#//////////////////////////////////////////////////////////
+resultaat_sf_clean <- resultaat_sf %>%
+  filter(!st_is_empty(.)) %>%                           # Verwijder lege geometrieën
+  st_make_valid() %>%                                   # Herstel eventuele GIS-fouten
+  st_collection_extract("POLYGON") %>%                  # Haal polygonen uit GEOMETRYCOLLECTIONS
+  filter(st_geometry_type(.) %in% c("POLYGON", "MULTIPOLYGON"))
+
+resultaat_sf_clean$hydro <- exact_extract(kans_onthwin_hydro_1m, resultaat_sf_clean, 'mean', progress = TRUE)
+
+resultaat_sf_clean <- resultaat_sf_clean |> 
+  mutate(winst = TUINVERH * onth_pc/100)
+
+
+#//////////////////////////////////////////////////////////
+# Stap 6: beïnvloedingsgebieden toevoegen
+#//////////////////////////////////////////////////////////
+
+
+
 te_ontharden <- vect(resultaat_sf)
 
-
-
-#//////////////////////////////////////////////////////////
-# Stap 4: toevoegen gemiddelde hydrologische veerkracht
-#//////////////////////////////////////////////////////////
-
-te_ontharden <- te_ontharden
-
-resultaat_sf$hydro <- exact_extract(kans_onthwin_hydro_1m, resultaat_sf, 'mean', progress = TRUE)
-
-resultaat_sf <- resultaat_sf |> 
-  mutate(winst = opp_m2 * onth_pc/100)
-
-
-#//////////////////////////////////////////////////////////
-# Stap 5: beïnvloedingsgebieden toevoegen
-#//////////////////////////////////////////////////////////
 ```
 
 ### a) Scenario 1
