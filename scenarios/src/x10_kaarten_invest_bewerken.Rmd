@@ -151,7 +151,7 @@ ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegeb
 
 # # Inladen invest_L_20xx
 # invest_L_2020 <- rast("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2022.tif")
-# invest_L_2050 <- rast("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2050.tif")
+invest_L_2050 <- rast("C:/R/NARA2026/nara2026-git/scenarios/data/l_vl_2050.tif")
 
 L_gebied_2020 <- crop(invest_L_2020, ecosysteem_2022)
 L_gebied_2020 <- mask(L_gebied_2020, ecosysteem_2022)
@@ -162,7 +162,8 @@ L_gebied_2050 <- mask(L_gebied_2050, ecosysteem_2022)
 
 writeRaster(L_gebied_2020, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/L_gebied_2020.tif"))
 
-writeRaster(L_gebied_2050, str_c("C:/R/NARA2026/nara2026-git/scenarios/data/L_gebied_2050.tif"))
+writeRaster(L_gebied_2050, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/L_gebied_2050.tif"))
+
 
 
 #//////////////////////////

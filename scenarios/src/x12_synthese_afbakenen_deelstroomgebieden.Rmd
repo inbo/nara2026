@@ -1,19 +1,43 @@
-#//////////////////////////////////////////////////
-# Afbakening deelstroomgebiedjes
-#//////////////////////////////////////////////////
+---
+title: "x12_synthese_afbakenen_deelstroomgebieden"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
 
-# Het script koppelt de codes van de deelbekkens aan de deelstroomgebiedjes
-# De polygonen van de deelstroomgebiedjes worden afgebakend via de 'watershed' tool van ArcMap
-# Zie ArcGis script 'afstroomgebieden'
-# onder Q:\Projects\PRJ_NARA_2026\1_toestand_water\toestand_water.tbx
-
+```{r packages, include=FALSE}
 library(sf)
+library(terra)
 library(dplyr)
-library(purrr)
+library(tidyverse)
+library(readxl)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `x12_synthese_afbakenen_deelstroomgebieden.Rmd`
+
+## 2. Afbakenen deelstroomgebieden
+
+Het script koppelt de codes van de deelbekkens aan de deelstroomgebiedjes. De polygonen van de deelstroomgebiedjes worden afgebakend via de 'watershed' tool van ArcMap (Zie ArcGis script '`afstroomgebieden`' onder Q:\Projects\PRJ\_NARA_2026\\1_toestand_water\toestand\_water.tbx).
+
+![](images/clipboard-552947781.png)
+
+```{r deelstroomgebieden}
 
 # Inlezen polygonen van deelstroomgebieden (Vlaanderendekkend)
 # Inlezen polygonen deelbekkens
-watershed <- st_read("C:/GIS/NARA2026/1_Toestand/watershed_intersect.shp", quiet = TRUE)
+watershed <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/watershed_intersect.shp", quiet = TRUE)
 deelbekken <- st_read("C:/GIS/basislagen/deelbekken.shp", quiet = TRUE)
 
 watershed <- st_make_valid(watershed)
@@ -47,4 +71,6 @@ mapview(watershed_deelbekken, zcol = "DEELBEKKEN") + mapview(deelbekken)
 mapview(herk_mombeek, zcol = "DEELBEKKEN") + mapview(deelbekken |> filter(DEELBEKKEN %in% c("09-11", "09-13")))
 mapview(kleine_nete, zcol = "DEELBEKKEN") + mapview(deelbekken |> filter(DEELBEKKEN %in% c("10-06", "10-07", "10-13", "10-12")))
 
+```
 
+## 
