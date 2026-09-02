@@ -254,7 +254,8 @@ percelen_df <- as.data.frame(percelen) %>%
   mutate(p_nr = sub("HAB", "pHAB", HAB_nr)) %>%
   rowwise() %>%
   mutate(bedekking = get(p_nr)) %>%
-  filter(bedekking > 30) # Criterium: alleen bedekkingsgraad > 30% telt mee
+  filter(bedekking > 30) |>  # Criterium: alleen bedekkingsgraad > 30% telt mee
+  filter(!HAB_type %in% c("geen habitat", "geen vegetatie NSB", "gh"))
 
 # 2. Koppel de grondwaterregimes
 percelen_scores <- percelen_df %>%
@@ -289,7 +290,7 @@ We voegen de zones van veenherstel toe (`scx_veenherstel` -\> zie script `04_IHD
 
 # kaart veenherstel scenario's
 # veen <- st_intersection(veen1970_poly, gebied)
-r_veen <- sc3_veenherstel
+r_veen <- sc1_veenherstel
 # r_veen_buf <- buffer(r_veen, 200) %>% ifel(1, NA)
 
 # Vectoriseren van veenkaart
@@ -545,15 +546,15 @@ totaal_voor_dissolve <- bind_rows(groot_prep, klein_prep)
 # Dissolve
 percelen_select_opp <- totaal_voor_dissolve %>%
   group_by(merge_id) %>%
-  summarise(geometry = st_union(geometry),
-            across(everything(), first), 
-            .groups = "drop") %>%
+  summarise(
+    geometry = st_union(geometry),
+    across(-geometry, first), # <- geometry hier uitsluiten
+    .groups = "drop"
+  ) %>%
   st_as_sf() %>%
   st_cast("MULTIPOLYGON") %>%
   st_make_valid() %>%
   filter(peilwijziging > filter_peil)
-
-
 
 #////////////////////////////////////////////////
 # Optie 2 - eenvoudig: samenvoegen en selecteren
@@ -760,10 +761,10 @@ vernattingscontour <- classify(glg_zone, rcl_matrix, right = TRUE)
 # contour_landb <- ifel(contour_landb == 1 | herstelzone == 1, 1, NA)
 
 # mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, zcol = "klasse")
-# mapview(glg_globaal_test, maxpixels = 2000000, maxBytes = 15 * 1024 * 1024) + mapview(percelen_glg_veen, zcol = "klasse")
+# mapview(vernattingscontour, maxpixels = 2000000, maxBytes = 15 * 1024 * 1024) + mapview(percelen_glg_veen, zcol = "klasse")
 
 # PAS NAAM BESTAND AAN (sc1, sc2, sc3)
-writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/vernattingscontour_sc3.tif"), overwrite = TRUE)
+writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/vernattingscontour_sc1.tif"), overwrite = TRUE)
 
 
 ```
