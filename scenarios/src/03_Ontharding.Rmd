@@ -60,6 +60,10 @@ De volgende datasets worden gebruikt:
 - opp_onthwin_overstr.shp -\> polygonen uit [opportuniteitenkaart onthardingswinst](https://www.vlaanderen.be/datavindplaats/catalogus/opportuniteitenkaart-onthardingswinst-niet-kerngebonden-bebouwing-in-overstromingsgebied) voor niet-kerngebonden bebouwing in overstromingsgebied
 - rbr_h_ontwikkelbaar.shp -\> ruimtebeslagrisico, hoog risico, percelen die nog ontwikkeld kunnen worden (+/- 10000 ha)
 - rbr_h_vrijwaren.shp -\> ruimtebeslagrisico, hoog risico, percelen die gevrijwaard moeten worden (+/- 30000 ha)
+- voedingsgebied_combi.tif -\> voedingsgebied van de natuurgebieden en veengebieden
+- serres_infrastruct.shp -\> serres en overkappingen uit de landbouwgebruikspercelen (voor correctie jaarbak)
+- lbgp_2022/2016.shp -\> landbouwgebruikspercelen (versie gebruikt voor aanmaak ecosysteemkaart)
+- ontwinopp_weglengte.shp -\> opportuniteitenkaart onthardingswinst te veel weg in de lengte
 
 ```{r bestanden_folders}
 
@@ -67,7 +71,7 @@ studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp", "rbr_h_ontwikkelbaar.shp", "rbr_h_vrijwaren.shp")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "ecosysteem_2016.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp", "rbr_h_ontwikkelbaar.shp", "rbr_h_vrijwaren.shp", "voedingsgebied_combi.tif", "serres_infrastruct.shp", "lbgp_2022.shp", "lbgp_2016.shp", "ontwinopp_weglengte.shp")
 
 # In welke folders zitten de data?
 
@@ -78,7 +82,7 @@ search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "
 
 ### 1.2. Data inladen
 
-Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **lu_niv2** en ze de kaarten in de Global environment.
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022** en ze de kaarten in de Global environment.
 
 ```{r data, message=FALSE, warning=FALSE }
 
@@ -107,7 +111,7 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$ecosysteem_2020
+ref_raster <- data_list$ecosysteem_2022
 
 # # Functie om rasters te harmoniseren --> hier niet toepassen, sommige rasters op 1m resolutie nodig
 # harmoniseer_raster <- function(r, ref) {
@@ -136,32 +140,21 @@ list2env(data_list, envir = .GlobalEnv)
 
 ## 2. Ontharding
 
-### 2.1 Doel bepalen
+### 2.1. Extra ruimtebeslag plaatsen
 
-Scenario 1 en 2: onthardingsdoel op basis van BRV -\> De verhardingsgraad van het ruimtebeslag in harde bestemmingen is ten laatste tegen 2050 opnieuw op het niveau van 2015. In zachte bestemmingen is er een bijkomende opgave van 20% afname van de verharding tov 2015 (voor zover ik begrijp) Volgens <https://betonmeter.be/> betekent dat 8.375 ha in harde bestemmingen en 10.999 ha in de zachte bestemmingen.
+Pas tegen 2040 moet de toename van het ruimtebeslag stoppen. In tussentijd komt er nog ruimtebeslag bij. Om de locaties waar er extra ruimtebeslag bijkomt te identificeren, steunen we op de kaart van het ruimtebeslagrisico, hoog risico (HoGent). Het RBR hoog risico bedraagt ongeveer 40000 ha.
 
-Aanpak:
+Binnen het hoog risico RBR heeft de HoGent ongeveer 30000 ha aangeduid die best gevrijwaard blijven. De overige percelen (+/- 10000 ha) kunnen wel nog ingevuld worden. Die percelen zitten in de laag 'rbr_h_ontwikkelbaar' -\> zie ArcGIS script "`ruimtebeslag_risico`".
 
-- Doelbepaling harde bestemmingen: Per deelgebied de verharding van jaarBAK 2015 in harde bestemmingen vergelijken met de verharding van jaarbak 2022 in die bestemmingen
-  - De harde bestemmingen komen overeen met de bestemmingscategorieën ‘Wonen’ (01), ‘Recreatie’ (02), ‘Industrie – buiten poorten’ (07), ‘Industrie – poorten’ (7p) en delen van ‘Overig groen’ (04) en ‘Overige’ (08) van de [Ruimteboekhouding RSV](https://indicatoren.omgeving.vlaanderen.be/indicatoren/ruimteboekhouding-rsv) (laag rbh.shp). De tabel op p 18-20 van [Poelmans et al 2016 - Indicatoren ruimtelijk rendement -](https://omgeving.vlaanderen.be/sites/default/files/2021-10/Rapport_indicatoren%20ruimtelijk%20rendement.pdf) geeft aan welke gedetailleerde categorieën uit de ruimteboekhouding tot de harde en de zachte bestemmingen behoren.
-- Doelbepaling zachte bestemmingen: verschil tussen verharding in niet-harde bestemmingen in 2022 en in 2015 + 20% van de verharding in de niet-harde bestemmingen in 2015.
+Binnen die percelen gaan we uit van een verhardingsgraad van 50% (code 101). De overige 50% verdelen we over hoog groen (103) en laag groen (104).
 
-Aanvullend: compenseren voor bijkomende verharding tussen 2022 en 2040. Het BRV stelt een geleidelijke afname voor van het netto bijkomend ruimtebeslag tegen 2040, met als tussenmijlpaal een maximale ruimtebeslag-snelheid van 3 ha/dag tegen 2025. Ugent berekende dat het totale quotum bijkomend ruimtebeslag voor Vlaanderen nog maximaal 11.933 ha bedraagt voor de periode 2022 tot 2040. Zowat de helft van het ruimtebeslag is momenteel verhard. We rekenen met eenzelfde verhardingsgraad (50%) voor het bijkomende ruimtebeslag. **We gaan ervan uit dat er alleen ruimtebeslag bijkomt binnen harde bestemmingen.**
-
-```{r extra_ruimtebeslag}
+```{r}
 
 #//////////////////////////////////////////
 # Extra ruimtebeslag plaatsen
 #//////////////////////////////////////////
 
-# Pas tegen 2040 moet de toename van het ruimtebeslag stoppen. In tussentijd komt er nog ruimtebeslag bij.
-# Om de locaties waar er extra ruimtebeslag bijkomt te identificeren, steunen we op de kaart van het
-# ruimtebeslagrisico, hoog risico (HoGent). Het RBR hoog risico bedraagt ongeveer 40000 ha.
-# Binnen het hoog risico RBR heeft de HoGent ongeveer 30000 ha aangeduid die best gevrijwaard blijven.
-# De overige percelen (+/- 10000 ha) kunnen wel nog ingevuld worden. Die percelen zitten in de laag
-# 'rbr_h_ontwikkelbaar' -> zie ArcGIS script "ruimtebeslag_risico".
-# Binnen die percelen gaan we uit van een verhardingsgraad van 50% (code 101). De overige 50% verdelen we over
-# hoog groen (103) en laag groen (104).
+# Het onderstaande script plaatst dat nieuwe ruimtebeslag op de ecosysteemkaart
 
 r_eco <- ecosysteem_2022
 v_poly <- vect(rbr_h_ontwikkelbaar)
@@ -229,12 +222,26 @@ sampled_cells <- dt_geschikt[, {
 }, by = poly_id]
 
 # 6. Update het raster en opslaan
-r_result <- r_eco
-r_result[sampled_cells$cell] <- sampled_cells$new_code
+ecosysteem_2040verhard <- r_eco
+ecosysteem_2040verhard[sampled_cells$cell] <- sampled_cells$new_code
 
 
-writeRaster(r_result, "C:/GIS/NARA2026/3_Scenarios/ecosysteem_2022_extraverhard.tif", overwrite = TRUE)
+# writeRaster(ecosysteem_2040verhard, "C:/GIS/NARA2026/3_Scenarios/ecosysteem_2022_extraverhard.tif", overwrite = TRUE)
 ```
+
+### 2.2. Doel bepalen
+
+#### a) Scenario 1 en 2
+
+Scenario 1 en 2: onthardingsdoel op basis van BRV -\> De verhardingsgraad van het ruimtebeslag in harde bestemmingen is ten laatste tegen 2050 opnieuw op het niveau van 2015. In zachte bestemmingen is er een bijkomende opgave van 20% afname van de verharding tov 2015 (voor zover ik begrijp) Volgens <https://betonmeter.be/> betekent dat 8.375 ha in harde bestemmingen en 10.999 ha in de zachte bestemmingen.
+
+Aanpak:
+
+- Doelbepaling harde bestemmingen: Per deelgebied de verharding van jaarBAK 2015 in harde bestemmingen vergelijken met de verharding van jaarbak 2022 in die bestemmingen
+  - De harde bestemmingen komen overeen met de bestemmingscategorieën ‘Wonen’ (01), ‘Recreatie’ (02), ‘Industrie – buiten poorten’ (07), ‘Industrie – poorten’ (7p) en delen van ‘Overig groen’ (04) en ‘Overige’ (08) van de [Ruimteboekhouding RSV](https://indicatoren.omgeving.vlaanderen.be/indicatoren/ruimteboekhouding-rsv) (laag rbh.shp). De tabel op p 18-20 van [Poelmans et al 2016 - Indicatoren ruimtelijk rendement -](https://omgeving.vlaanderen.be/sites/default/files/2021-10/Rapport_indicatoren%20ruimtelijk%20rendement.pdf) geeft aan welke gedetailleerde categorieën uit de ruimteboekhouding tot de harde en de zachte bestemmingen behoren.
+- Doelbepaling zachte bestemmingen: verschil tussen verharding in niet-harde bestemmingen in 2022 en in 2015 + 20% van de verharding in de niet-harde bestemmingen in 2015.
+
+Aanvullend brengen we ook de **verharding die er bijkomt tussen 2022 en 2040** in rekening. Het BRV stelt een geleidelijke afname voor van het netto bijkomend ruimtebeslag tegen 2040, met als tussenmijlpaal een maximale ruimtebeslag-snelheid van 3 ha/dag tegen 2025. de HoGent berekende dat het totale quotum bijkomend ruimtebeslag voor Vlaanderen nog maximaal 11.933 ha bedraagt voor de periode 2022 tot 2040. Zowat de helft van het ruimtebeslag is momenteel verhard. We rekenen met eenzelfde verhardingsgraad (50%) voor het bijkomende ruimtebeslag. **We gaan ervan uit dat er alleen ruimtebeslag bijkomt binnen harde bestemmingen.**
 
 ```{r doel bepalen sc1 en 2}
 
@@ -265,14 +272,27 @@ zacht <- st_difference(rbh_gebied, hard) |>
 
 
 # 3. Verharding binnen bestemmingen
+
+# Aanpassen jaarbak: verwijderen verharding op landbouwpercelen die geen infrastructuur of serres is
+
+landb_nietverhard_2022 <- lbgp_2022 |> 
+  filter(GWSGRPH_LB != "Landbouwinfrastructuur") |> 
+  filter(!GESP_PM_LB %in% c('Serres / permanente overkapping - met groeimedium', 'Serres / permanente overkapping - met groeimedium,Voorteelt en nateelt in volle grond (bij hoofdteelt op groeimedium)', 'Serres / permanente overkapping - met groeimedium,Voorteelt in volle grond (bij hoofdteelt op groeimedium)', 'Serres / permanente overkapping - vollegrondsproductie'))
+
+landb_nietverhard_2016 <- lbgp_2016 |> 
+  filter(GWSGRPH_LB != "Landbouwinfrastructuur") |> 
+  filter(!GESP_PM_LB %in% c('Serres / permanente overkapping - met groeimedium', 'Serres / permanente overkapping - met groeimedium,Voorteelt en nateelt in volle grond (bij hoofdteelt op groeimedium)', 'Serres / permanente overkapping - met groeimedium,Voorteelt in volle grond (bij hoofdteelt op groeimedium)', 'Serres / permanente overkapping - vollegrondsproductie'))
+
 # In harde bestemmingen
 verhard_in_hard_2015 <- jaarbak_2015 |> # Resolutie jaarbak = 1 m²
   crop(vect(hard)) |>
-  mask(vect(hard))
+  mask(vect(hard)) |>
+  mask(vect(landb_nietverhard_2016), inverse = TRUE) # verwijder niet verharde landbouwpercelen
 
 verhard_in_hard_2022 <- jaarbak_2022 |>
   crop(vect(hard)) |>
-  mask(vect(hard))
+  mask(vect(hard)) |> 
+  mask(vect(landb_nietverhard_2022), inverse = TRUE) # verwijder niet verharde landbouwpercelen
 
 hard_verhard_2015 <- round(pull(global(verhard_in_hard_2015, "sum", na.rm = TRUE))/10000, 0) # in ha
 hard_verhard_2022 <- round(pull(global(verhard_in_hard_2022, "sum", na.rm = TRUE))/10000, 0) # in ha
@@ -280,11 +300,13 @@ hard_verhard_2022 <- round(pull(global(verhard_in_hard_2022, "sum", na.rm = TRUE
 # In zachte bestemmingen
 verhard_in_zacht_2015 <- jaarbak_2015 |>
   crop(vect(zacht)) |>
-  mask(vect(zacht))
+  mask(vect(zacht)) |> 
+  mask(vect(landb_nietverhard_2016), inverse = TRUE)
 
 verhard_in_zacht_2022 <- jaarbak_2022 |>
   crop(vect(zacht)) |>
-  mask(vect(zacht))
+  mask(vect(zacht)) |> 
+  mask(vect(landb_nietverhard_2022), inverse = TRUE)
 
 zacht_verhard_2015 <- round(pull(global(verhard_in_zacht_2015, "sum", na.rm = TRUE))/10000, 0) # in ha
 zacht_verhard_2022 <- round(pull(global(verhard_in_zacht_2022, "sum", na.rm = TRUE))/10000, 0) # in ha
@@ -306,35 +328,87 @@ doel_hard_sc1 <- (hard_verhard_2022 + extraverhard_2040) - hard_verhard_2015
 
 # Doel zachte bestemming = verharding in zachte bestemming 2022 - verharding in harde bestemming 2015 - 0.2 * verharding in harde bestemming 2015
 
-doel_zacht_sc1 <- zacht_verhard_2022 - (zacht_verhard_2015 - 0.2 * zacht_verhard_2015)
+doel_zacht_sc1 <- round(zacht_verhard_2022 - (zacht_verhard_2015 - 0.2 * zacht_verhard_2015), 0)
 
 ```
 
-Scenario 3:
+##### **Op basis van de ecosysteemkaart**
 
-- Doel: 50% van laagste categorie wegen (landbouwwegen) verwijderen + alle [verspreide bebouwing](https://www.vlaanderen.be/datavindplaats/catalogus/kernen-linten-verspreide-bebouwing-in-vlaanderen-verspreide-bebouwing-toestand-2022) in overstromingsgevoelig gebied en in natuurnetwerken (-\> wat is dat? SBZH?)
+```{r doelen_ecosysteemkaarten}
 
-### 2.2 Doel invullen
+#///////////////////////////////////////////////////////////////////////
+# Op basis van de ecosysteemkaarten
+#///////////////////////////////////////////////////////////////////////
 
-Een poging, om niet met vage clusteralgoritmes te moeten werken:
+hard2016 <- ifel(ecosysteem_2016 %in% c(101, 102), 1, NA)
+hard2022 <- ifel(ecosysteem_2022 %in% c(101, 102), 1, NA)
 
-1)  We selecteren de klassen "royaal verhard" en "overmatig verhard" uit de basiskaart die we opgebouwd hebben met de onthardingstool van dOMG. Daartoe laten we dezelfde rekenregels los op die basiskaart als degene die vervat zitten in de legende van de tool (zie ook GIS-handleiding voor de redenering achter de grenswaarden).
+hard_r <- rasterize(vect(hard), ecosysteem_2022, field = 1)
+zacht_r <- rasterize(vect(zacht), ecosysteem_2022, field = 1)
 
-    **Opmerking: wat met de extra verharding die erbij komt tot 2040? -\> ongemoeid laten omdat het weinig waarschijnlijk is dat vers verharde percelen al snel opnieuw onthard worden?**
+# In harde bestemmingen
+verhard_in_hard_2016 <- ifel(!is.na(hard_r), hard2016, NA)
+verhard_in_hard_2022_es <- ifel(!is.na(hard_r), hard2022, NA) 
+ 
 
-2)  We voegen de geselecteerde polygonen samen met de polygonen van de "opportuniteitenkaart onthardingswinst: niet-kerngebonden gebouwen in overstromingsgebied" --\> ofwel deze kaart eerst gebruiken: al deze polygonen worden sowieso volledig onthard, wat overblijft van het doelopp realiseren we in de andere polygonen
+hard_verhard_2016 <- round(pull(global(verhard_in_hard_2016, "sum", na.rm = TRUE))/100, 0) # in ha
+hard_verhard_2022_es <- round(pull(global(verhard_in_hard_2022_es, "sum", na.rm = TRUE))/100, 0) # in ha
 
-3)  we voegen per polygoon een score toe voor gewenst percentage ontharding: 50% voor tuinen, 25% andere oververharde percelen, 100% voor niet-kerngebonden gebouwen in overstromingsgebied
+# In zachte bestemmingen
+verhard_in_zacht_2016 <- ifel(!is.na(zacht_r), hard2016, NA)
+verhard_in_zacht_2022_es <- ifel(!is.na(zacht_r), hard2022, NA)
 
-4)  we voegen een kolom toe met harde/zachte bestemming
 
-5)  We voegen een kolom toe met per polygoon de gemiddelde score van de prioriteitenkaart hydrologische veerkracht (gemiddelde van de rasterkaart per polygoon)
+zacht_verhard_2016 <- round(pull(global(verhard_in_zacht_2016, "sum", na.rm = TRUE))/100, 0) # in ha
+zacht_verhard_2022_es <- round(pull(global(verhard_in_zacht_2022_es, "sum", na.rm = TRUE))/100, 0) # in ha
 
-6)  We groeperen de polygonen per bouwblok of per statistische sector en voegen opnieuw een kolom toe met de score van de prioriteitenkaart hydrologische veerkracht (gemiddelde per bouwblok of per statistische sector dus)
 
-7)  We rangschikken de polygonen op bestemmingstype, op hoogste score per bouwblok of statistische sector, en daarbinnen op hoogste score per polygoon.
+# 4. Bijkomende verharding in harde bestemmingen tegen 2040 (50% van bijkomend ruimtebeslag)
 
-8)  We vullen het doeloppervlak als volgt in: eerst de percelen met de hoogste scores per bouwblok of statistische sector invullen (obv gewenst percentage ontharding: opp perceel x fractie ontharding), als het doelopp bijna bereikt is en de volledige in te vullen oppervlakte per bouwblok of statistische sector te groot: binnen een bouwblok of statistische sector eerst de hoogste scores invullen (obv gewenst percentage ontharding) tot het doeloppervlak bereikt wordt.
+f2022 <- freq(ecosysteem_2022)
+f2040 <- freq(ecosysteem_2040verhard)
+
+extraverhard_2040 <- round((sum(f2040[f2040$value %in% c(101, 102), "count"]) - sum(f2022[f2022$value %in% c(101, 102), "count"]))/100, 0)
+
+#////////////////////////////
+# Doelbepaling
+#////////////////////////////
+
+# Doel harde bestemming = (verharding in harde bestemming 2022 + extra verharding tegen 2040) - verharding in harde bestemming 2015
+
+doel_hard_sc1_es <- (hard_verhard_2022_es + extraverhard_2040) - hard_verhard_2016
+
+# Doel zachte bestemming = verharding in zachte bestemming 2022 - verharding in harde bestemming 2015 - 0.2 * verharding in harde bestemming 2015
+
+doel_zacht_sc1_es <- round(zacht_verhard_2022_es - (zacht_verhard_2016 - 0.2 * zacht_verhard_2016), 0)
+```
+
+#### b) Scenario 3
+
+In scenario 3 verhogen we het ambitieniveau voor ontharding:
+
+- Alle oververharde **tuinen, publieke terreinen en bedrijventerreinen**
+- **Alle gebouwen in overstromingsgevoelig gebied** worden verwijderd
+- Alle oververharde wegen
+
+Het doel wordt niet opvoorhand berekend maar rechtstreeks bij de allocatie van de onthardingscellen (zie verder 2.3 c).
+
+### 2.3. Doel alloceren
+
+Aanpak:
+
+1)  We selecteren de klassen "**royaal verhard**" en "**overmatig verhard**" uit de basiskaart die we opgebouwd hebben met de onthardingstool van dOMG. Daartoe laten we dezelfde rekenregels los op die basiskaart als degene die vervat zitten in de legende van de tool (zie ook GIS-handleiding voor de redenering achter de grenswaarden). De **extra verharding die erbij komt tot 2040** laten we ongemoeid omdat het weinig waarschijnlijk is dat vers verharde percelen al snel opnieuw onthard worden.
+2)  We voegen de wegen toe uit de laag 'Opportuniteitenkaart onthardingswinst: **te veel weg in de lengte**'. Deze wegen krijgen een onthardingspercentage van 100% (volledig verwijderen).
+3)  We voegen de geselecteerde polygonen samen met de polygonen van de "opportuniteitenkaart onthardingswinst: **niet-kerngebonden gebouwen in overstromingsgebied**".
+4)  We voegen per polygoon een score toe voor het **gewenst percentage ontharding**: 50% voor tuinen, 25% andere oververharde percelen, 100% voor niet-kerngebonden gebouwen in overstromingsgebied
+5)  We voegen een kolom toe met **harde/zachte bestemming**
+6)  We voegen een kolom toe met per polygoon de gemiddelde score van de prioriteitenkaart **hydrologische veerkracht** (gemiddelde van de rasterkaart per polygoon).
+7)  We vullen het doeloppervlak als volgt in:
+    1)  Scenario 1: eerst de percelen in overstromingsgebied en de wegen die te lang zijn (onthardingspercentage 100%), de rest van de percelen wordt geselecteerd op basis van aflopende score voor hydrologische veerkracht tot het doeloppervlak bereikt wordt.
+    2)  Scenario 2: eerst de percelen binnen het voedingsgebied van natuur en daarna de volgorde zoals in scenario 1.
+    3)  Scenario 3: alle geschikt percelen worden geselecteerd.
+
+### 0) Geschikte percelen
 
 ```{r doel invullen}
 
@@ -371,63 +445,127 @@ oververhard <- basiskaart |>
     (izk == 3 & BEKO == "Bu") |
     # Regel 7: OF wegen overgedragen door AWV naar de gemeente (standaard overmatig verhard) (WEGCAT bevat S of P --> geldt enkel als wegsegmenten.shp gebaseerd is op versie voor 2025, nu zijn er nieuwe categorieën)
     (grepl("S|P", WEGCAT)) |
+    
+    # Extra regel: landbouwpercelen met 1% <verharding < 5% 
+    # (landgebr == 13 & TUINVERHpc > 1 & TUINVERHpc < 5) |  
   
     # Regel 8: OF publieke campussen (izk = 4) met meer dan 50% tuinverharding (max 1/3 verharding is streefdoel);
     (izk == 4 & TUINVERHpc >= 50) |
   
     # Regel 9: OF privaat residentieel gebied (izk = 5 of landgebr = 1 AND aantal adressen per wegsegment < 9) met meer dan 120 m² tuinverharding (40m² is streefdoel voor basisbehoefte, 80m² is vergunningsvrij)
-    ((izk == 5 | landgebr == 1) & adres < 9 & TUINVERH >= 120) |
-  
+    ((izk == 5 | landgebr == 1) & adres < 9 & TUINVERH >= 80) | # AANGEPAST: >= 120 -> >= 80
     # Regel 10: OF private bedrijvenzone (izk = 6) met meer dan 75% tuinverharding
     (izk == 6 & TUINVERHpc >= 75)
   )
+
+# Verwijder serres (centroide in percelen oververhard)
+oververhard <- oververhard[lengths(st_intersects(oververhard, st_centroid(serres_infrastruct))) == 0, ]
 
   # kolom toevoegen: potentieel onthardingspercentage = 50% voor residentiële tuinen, 25% elders
 oververhard <- oververhard |> 
   mutate(onth_pc = if_else(
     (izk == 5 | landgebr == 1) & adres < 9, 
-    50, 
-    25, missing = 25)) |> 
-  select(onth_pc)
+    50, 25, missing = 25)) |> 
+  select(onth_pc, TUINVERH, TUINVERHpc, landgebr) |> 
+  st_make_valid()
   
+
+#//////////////////////////////////////////////////////////
+# Stap 2 : Extra selectie wegen die te lang zijn (overbodig)
+#//////////////////////////////////////////////////////////
+
+basiskaart_wegen <- basiskaart %>%
+  filter(landgebr <= 0) |> 
+  vect() |> 
+  makeValid()
+
+wegen_lijn <- st_intersection(ontwinopp_weglengte, gebied)
+wegen_lijn$FID <- NULL # de FID-kolom is gereserveerd voor QGIS
+# wegen korter dan 50m verwijderen
+wegen_lijn_filt <- wegen_lijn[as.numeric(st_length(wegen_lijn)) >= 50, ]
+
+qgis_result <- qgis_run_algorithm(
+  "native:buffer",
+  INPUT = wegen_lijn_filt,
+  DISTANCE = 15,
+  SEGMENTS = 5,
+  END_CAP_STYLE = 1,
+  JOIN_STYLE = 0,
+  MITER_LIMIT = 2,
+  DISSOLVE = TRUE,
+  SEPARATE_DISJOINT = FALSE
+)
+
+wegen_buffer <- qgis_as_terra(qgis_result) |> 
+  makeValid()
+
+qgis_result <- qgis_run_algorithm(
+  "native:clip",
+  INPUT = basiskaart_wegen,
+  OVERLAY = wegen_buffer
+)
+
+wegen_poly <- qgis_as_terra(qgis_result)
+
+# Alleen stukken overhouden die nog niet in 'oververhard' zitten
+qgis_result <- qgis_run_algorithm(
+  "native:difference",
+  INPUT = wegen_poly,
+  OVERLAY = oververhard
+)
+
+wegen_poly_cut <- qgis_as_terra(qgis_result)
+
+# snippers verwijderen
+wegen_poly_filt <- wegen_poly_cut[expanse(wegen_poly_cut) >= 200, ]
+
+# onthardingspercentage = 100% -> volledig ontharden
+wegen_poly_filt <- wegen_poly_filt |> 
+  st_as_sf() |> 
+  mutate(onth_pc = 100) |> 
+  select(onth_pc, TUINVERH, TUINVERHpc, landgebr)
+  
+# Samenvoegen met oververhard
+oververhard_wegen <- bind_rows(oververhard, wegen_poly_filt)
 
 
 #//////////////////////////////////////////////////////////
-# Stap 2: samenvoegen met niet-kerngebonden bebouwing in overstromingsgebied
+# Stap 3: samenvoegen met niet-kerngebonden bebouwing in overstromingsgebied
 #//////////////////////////////////////////////////////////
 
 # kolom toevoegen: potentieel onthardingspercentage = 100%
 
 overbebouwd <- opp_onthwin_overstr |> 
   st_intersection(gebied) |> 
-  mutate(onth_pc = 100) |> 
-  select(onth_pc)
+  mutate(onth_pc = 100, TUINVERH = 0, TUINVERHpc = 0, landgebr = 100) |> 
+  select(onth_pc, TUINVERH, TUINVERHpc, landgebr) 
 
 
 # Gebruik QGIS union om beide lagen te combineren en het maximum te nemen bij een overlap
-oververhard_v <- vect(oververhard)
-overbebouwd_v <- vect(overbebouwd)
-
 qgis_result <- qgis_run_algorithm(
   "native:union",
-  INPUT = oververhard_v,
-  OVERLAY = overbebouwd_v
+  INPUT = oververhard_wegen,
+  OVERLAY = overbebouwd
 )
 
 te_ontharden <- qgis_as_terra(qgis_result)
 
 te_ontharden$onth_pc <- pmax(te_ontharden$onth_pc, te_ontharden$onth_pc_2, na.rm = TRUE)
-te_ontharden <- te_ontharden["onth_pc"]
+te_ontharden$TUINVERH <- pmin(te_ontharden$TUINVERH, te_ontharden$TUINVERH_2, na.rm = TRUE)
+te_ontharden$TUINVERHpc <- pmin(te_ontharden$TUINVERHpc, te_ontharden$TUINVERHpc_2, na.rm = TRUE)
+te_ontharden$landgebr <- pmin(te_ontharden$landgebr, te_ontharden$landgebr_2, na.rm = TRUE)
 
+
+te_ontharden <- te_ontharden[c("onth_pc", "TUINVERH", "TUINVERHpc", "landgebr")]
 
 
 #//////////////////////////////////////////////////////////
-# Stap 3: toevoegen bestemming (hard/zacht)
+# Stap 4: toevoegen bestemming (hard/zacht)
 #//////////////////////////////////////////////////////////
 
 te_ontharden_sf <- st_as_sf(te_ontharden) |> 
   st_make_valid() |> 
-  select(onth_pc)
+  select(onth_pc, TUINVERH, TUINVERHpc, landgebr)
 
 # Bestemmingskaart
 zacht_sf <- st_sf(type = "zacht", geometry = zacht)
@@ -445,55 +583,63 @@ te_ontharden_schoon <- te_ontharden_sf %>%
 resultaat_sf <- st_join(te_ontharden_schoon, bestemming["type"], join = function(x, y) st_intersects(st_centroid(x), y))
 
 
-#//////////////////////////////////////////////////////////
-# Stap 4: toevoegen oppervlakte tuinverharding
-#//////////////////////////////////////////////////////////
-
-resultaat_sf <- st_join(resultaat_sf, basiskaart["TUINVERH"], join = function(x, y) st_intersects(st_centroid(x), y))
-
 
 #//////////////////////////////////////////////////////////
 # Stap 5: toevoegen gemiddelde hydrologische veerkracht
 #//////////////////////////////////////////////////////////
+
 resultaat_sf_clean <- resultaat_sf %>%
-  filter(!st_is_empty(.)) %>%                           # Verwijder lege geometrieën
-  st_make_valid() %>%                                   # Herstel eventuele GIS-fouten
-  st_collection_extract("POLYGON") %>%                  # Haal polygonen uit GEOMETRYCOLLECTIONS
+  filter(!st_is_empty(.)) %>% # Verwijder lege geometrieën
+  st_make_valid() %>%         # Herstel eventuele GIS-fouten
+  st_collection_extract("POLYGON") %>%  # Haal polygonen uit GEOMETRYCOLLECTIONS
   filter(st_geometry_type(.) %in% c("POLYGON", "MULTIPOLYGON"))
 
 resultaat_sf_clean$hydro <- exact_extract(kans_onthwin_hydro_1m, resultaat_sf_clean, 'mean', progress = TRUE)
 
 resultaat_sf_clean <- resultaat_sf_clean |> 
-  mutate(winst = TUINVERH * onth_pc/100)
+  # tuinen -> 50% verharding verwijderen
+  mutate(winst = if_else(onth_pc == 50, TUINVERH * 0.5,
+  # andere percelen met verharding -> 25% ontharden
+  if_else(onth_pc == 25 & TUINVERH > 0, TUINVERH * 0.25,
+  # wegen en volledig verharde percelen
+  if_else(onth_pc == 25 & TUINVERH == 0, opp_m2 * 0.25,
+  # gebouwen in overstromingsgebied en te lange wegen -> 100% ontharden
+  if_else(onth_pc == 100, opp_m2 * 1, opp_m2 * 0.25))))) |> 
+  mutate(winst_ha = round(winst/10000, 4))
+
+# write_sf(resultaat_sf_clean, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_test.shp"), overwrite = TRUE)
 
 
 #//////////////////////////////////////////////////////////
-# Stap 6: beïnvloedingsgebieden toevoegen
+# Stap 6: voedingsgebieden natuur toevoegen
 #//////////////////////////////////////////////////////////
 
+voedingsgebied_01 <- ifel(is.na(voedingsgebied_combi), 0, 1)
 
+resultaat_sf_clean$voeding <- exact_extract(voedingsgebied_01, resultaat_sf_clean, "mean")
 
-te_ontharden <- vect(resultaat_sf)
-
+# Minstens 50% van het perceel moet in voedingsgebied liggen
+ontharding_potent <- resultaat_sf_clean |> 
+  mutate(voeding01 = if_else(voeding >= 0.5, 1, 0))
 ```
 
 ### a) Scenario 1
 
 ```{r allocatie_sc1}
 
-geselecteerd_sf <- resultaat_sf %>%
+geselecteerd_sf <- ontharding_potent %>%
   # 1. Koppel het juiste doel aan het betreffende type
   mutate(doel = case_when(
-    type == "zacht" ~ doel_zacht_sc1 * 10000,
-    type == "hard"  ~ doel_hard_sc1 * 10000,
+    type == "zacht" ~ doel_zacht_sc1,
+    type == "hard"  ~ doel_hard_sc1,
     TRUE ~ NA_real_
   )) %>%
   # 2. Groepeer per type
   group_by(type) %>%
-  # 3. Sorteer aflopend op geschiktheid binnen de groep
-  arrange(desc(hydro), .by_group = TRUE) %>%
+  # 3. Sorteer aflopend op geschiktheid binnen de groep + eerst de 100% onthardingspercelen (overstromingsgebied)
+  arrange(desc(onth_pc == 100), desc(hydro), .by_group = TRUE) %>%
   # 4. Bereken de cumulatieve winst
-  mutate(cum_winst = cumsum(winst)) %>%
+  mutate(cum_winst = cumsum(winst_ha)) %>%
   # 5. Selecteer zolang de gecumuleerde winst van de vorige stap het doel nog niet bereikte
   filter(lag(cum_winst, default = 0) < doel) %>%
   # 6. Maak de groepering weer ongedaan
@@ -502,9 +648,14 @@ geselecteerd_sf <- resultaat_sf %>%
 opp_sc1 <- geselecteerd_sf |> 
   st_make_valid() |> 
   group_by(type) |>
-  summarise(opp = round(sum(winst)/10000),0 )
+  summarise(opp = round(sum(winst)/10000),0 ) |> 
+  pull(type, opp)
 
-write_sf(geselecteerd_sf, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_sc1.shp"), overwrite = TRUE)
+# write_sf(geselecteerd_sf, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_sc1.shp"), overwrite = TRUE)
+
+# inzoomen op deelgebied
+# (mapview(geselecteerd_sf, col.region = "red"))@map |> 
+  # setView(lng = 5.35, lat = 50.8356, zoom = 17)
 
 
 
@@ -512,41 +663,284 @@ write_sf(geselecteerd_sf, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_sc1.shp"
 # Ecosysteemkaart aanpassen
 #//////////////////////////////////////
 
-# 25 = wegen -> 1/4de van de cellen met code 102 worden omgezet naar code 104 (laag groen)
-# 50 = tuinen -> alle cellen omzetten naar code 104 of 103 omdat verharding in tuinen (102) op de kaart staat
-# 100 = volledig te verwijderen gebouwen -> 101 en 102 omzetten naar 103 of 104
+# onth_pc 25 -> 1/4de van de cellen met code 102 worden omgezet naar code 104 (laag groen)
+# onth_pc 50 -> 1/2de van de cellen omzetten naar code 104 of 103
+# onth_pc 100 = volledig te ontharden percelen -> 101 en 102 omzetten naar 104
 
-te_ontharden_onth <- rasterize(geselecteerd_sf, ecosysteem_2022, field = "onth_pc")
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard, field = "onth_pc")
 
-
-ecosysteem_2022_nieuw <- ecosysteem_2022
+ecosysteem_2040_onthard <- ecosysteem_2040verhard
 
 # Haal de waarden op als getallen voor snelle verwerking
-v_eco  <- values(ecosysteem_2022)
-v_doel <- values(te_ontharden_onth)
+v_eco  <- values(ecosysteem_2040verhard)
+v_doel <- values(onthpc_r)
 
-# Onthardingspercentage 100: cellen met 101 of 102 (gebouwen en verharding) worden 104
+# Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
 v_eco[v_doel == 100 & v_eco %in% c(101, 102)] <- 104
 
-# Onthardingspercentage 50: cellen met 102 (verharding in tuinen) worden 104
-v_eco[v_doel == 50 & v_eco == 102] <- 104
-
-# Onthardingspercentage 25 (wegen, pleinen): willekeurig 25% van de 102-cellen selecteren en omzetten naar 104
-idx_25 <- which(v_doel == 25 & v_eco == 102)
+# Onthardingspercentage 50: willekeurig 50% van de 102-cellen (verharding) worden 104
+idx_50 <- which(v_doel == 50 & v_eco == 102)
 
 set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
-idx_steekproef <- sample(idx_25, size = round(length(idx_25) * 0.25))
-v_eco[idx_steekproef] <- 104
+idx_steekproef50 <- sample(idx_50, size = round(length(idx_50) * 0.75)) # 0.75 ipv 0.5 omdat verharding in tuinen ongeveer 50% onderschat wordt in de ecosysteemkaart
+v_eco[idx_steekproef50] <- 104
+
+# Onthardingspercentage 25 (wegen, pleinen): willekeurig 25% van de 102-cellen selecteren en omzetten naar 104
+idx_25 <- which(v_doel == 25 & v_eco == 102) # een deel van deze wegen staat niet op de ecosysteemkaart -> draagt bij aan onderschatting ontharding in zachte bestemming 
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
+v_eco[idx_steekproef25] <- 104
 
 # 6. Schrijf de aangepaste waarden terug in het raster
-values(ecosysteem_2022_nieuw) <- v_eco
+values(ecosysteem_2040_onthard) <- v_eco
 
-writeRaster(ecosysteem_2022_nieuw, "C:/GIS/NARA2026/3_Scenarios/ontharding_ecosysteem_sc1.tif")
+
+writeRaster(ecosysteem_2040_onthard, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_ontharding.tif"), overwrite = TRUE)
+
+
+
+#//////////////////////////////////////////
+# Controle: vergelijk resultaat met doelen
+#//////////////////////////////////////////
+
+# # ecosysteemkaart met ontharde cellen
+# hard2040_onthard <- ifel(ecosysteem_2040_onthard %in% c(101, 102), 1, NA)
+# # ecosysteemkaart 2022 + extra verharding tot 2040
+# hard2040_hard <- ifel(ecosysteem_2040verhard %in% c(101, 102), 1, NA)
+# 
+# verhard_in_hard_2040_es <- ifel(!is.na(hard_r), hard2040_onthard, NA)
+# verhard_in_hard_2040h_es <- ifel(!is.na(hard_r), hard2040_hard, NA)
+# 
+# 
+# hard_verhard_2040_es <- round(pull(global(verhard_in_hard_2040_es, "sum", na.rm = TRUE))/100, 0) # in ha
+# hard_verhard_2040h_es <- round(pull(global(verhard_in_hard_2040h_es, "sum", na.rm = TRUE))/100, 0) # in ha
+# 
+# # In zachte bestemmingen
+# verhard_in_zacht_2040_es <- ifel(!is.na(zacht_r), hard2040_onthard, NA)
+# verhard_in_zacht_2040h_es <- ifel(!is.na(zacht_r), hard2040_hard, NA)
+# 
+# 
+# zacht_verhard_2040_es <- round(pull(global(verhard_in_zacht_2040_es, "sum", na.rm = TRUE))/100, 0) # in ha
+# zacht_verhard_2040h_es <- round(pull(global(verhard_in_zacht_2040h_es, "sum", na.rm = TRUE))/100, 0) # in ha
+# 
+# 
+# doel_hard2040 <- hard_verhard_2040h_es - hard_verhard_2040_es
+# 
+# doel_zacht2040 <- zacht_verhard_2040h_es - zacht_verhard_2040_es
+
 ```
 
-## **Oude versie:**
+### b) Scenario 2
 
-### Aantal inwoners per statistische sector
+```{r allocatie_sc2}
+
+geselecteerd_sf <- ontharding_potent %>%
+  # 1. Koppel het juiste doel aan het betreffende type
+  mutate(doel = case_when(
+    type == "zacht" ~ doel_zacht_sc1,
+    type == "hard"  ~ doel_hard_sc1,
+    TRUE ~ NA_real_
+  )) %>%
+  # 2. Groepeer per type
+  group_by(type) %>%
+  # 3. Sorteer aflopend op geschiktheid binnen de groep + eerst de 100% onthardingspercelen (overstromingsgebied)
+  arrange(desc(voeding01 == 1), desc(onth_pc == 100), desc(hydro), .by_group = TRUE) %>%
+  # 4. Bereken de cumulatieve winst
+  mutate(cum_winst = cumsum(winst_ha)) %>%
+  # 5. Selecteer zolang de gecumuleerde winst van de vorige stap het doel nog niet bereikte
+  filter(lag(cum_winst, default = 0) < doel) %>%
+  # 6. Maak de groepering weer ongedaan
+  ungroup()
+
+opp_sc2 <- geselecteerd_sf |> 
+  st_make_valid() |> 
+  group_by(type) |>
+  summarise(opp = round(sum(winst)/10000),0 ) |> 
+  pull(type, opp)
+
+# write_sf(geselecteerd_sf, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_sc2.shp"), overwrite = TRUE)
+
+
+#//////////////////////////////////////
+# Ecosysteemkaart aanpassen
+#//////////////////////////////////////
+
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard, field = "onth_pc")
+
+ecosysteem_2040_onthard <- ecosysteem_2040verhard
+
+# Haal de waarden op als getallen voor snelle verwerking
+v_eco  <- values(ecosysteem_2040verhard)
+v_doel <- values(onthpc_r)
+
+# Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
+v_eco[v_doel == 100 & v_eco %in% c(101, 102)] <- 104
+
+# Onthardingspercentage 50: willekeurig 50% van de 102-cellen (verharding) worden 104
+idx_50 <- which(v_doel == 50 & v_eco == 102)
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef50 <- sample(idx_50, size = round(length(idx_50) * 0.75)) # 0.75 ipv 0.5 omdat verharding in tuinen ongeveer 50% onderschat wordt in de ecosysteemkaart
+v_eco[idx_steekproef50] <- 104
+
+# Onthardingspercentage 25 (wegen, pleinen): willekeurig 25% van de 102-cellen selecteren en omzetten naar 104
+idx_25 <- which(v_doel == 25 & v_eco == 102) # een deel van deze wegen staat niet op de ecosysteemkaart -> draagt bij aan onderschatting ontharding in zachte bestemming 
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
+v_eco[idx_steekproef25] <- 104
+
+# 6. Schrijf de aangepaste waarden terug in het raster
+values(ecosysteem_2040_onthard) <- v_eco
+
+
+writeRaster(ecosysteem_2040_onthard, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_ontharding.tif"), overwrite = TRUE)
+
+```
+
+### c) Scenario 3
+
+```{r allocatie_sc3}
+
+geselecteerd_sf <- ontharding_potent
+
+opp_sc3 <- geselecteerd_sf |> 
+  st_make_valid() |> 
+  group_by(type) |>
+  summarise(opp = round(sum(winst)/10000),0 ) |> 
+  pull(type, opp)
+
+# write_sf(geselecteerd_sf, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_sc2.shp"), overwrite = TRUE)
+
+
+#//////////////////////////////////////
+# Ecosysteemkaart aanpassen
+#//////////////////////////////////////
+
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard, field = "onth_pc")
+
+ecosysteem_2040_onthard <- ecosysteem_2040verhard
+
+# Haal de waarden op als getallen voor snelle verwerking
+v_eco  <- values(ecosysteem_2040verhard)
+v_doel <- values(onthpc_r)
+
+# Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
+v_eco[v_doel == 100 & v_eco %in% c(101, 102)] <- 104
+
+# Onthardingspercentage 50: willekeurig 50% van de 102-cellen (verharding) worden 104
+idx_50 <- which(v_doel == 50 & v_eco == 102)
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef50 <- sample(idx_50, size = round(length(idx_50) * 0.75)) # 0.75 ipv 0.5 omdat verharding in tuinen ongeveer 50% onderschat wordt in de ecosysteemkaart
+v_eco[idx_steekproef50] <- 104
+
+# Onthardingspercentage 25 (wegen, pleinen): willekeurig 25% van de 102-cellen selecteren en omzetten naar 104
+idx_25 <- which(v_doel == 25 & v_eco == 102) # een deel van deze wegen staat niet op de ecosysteemkaart -> draagt bij aan onderschatting ontharding in zachte bestemming 
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
+v_eco[idx_steekproef25] <- 104
+
+# 6. Schrijf de aangepaste waarden terug in het raster
+values(ecosysteem_2040_onthard) <- v_eco
+
+
+writeRaster(ecosysteem_2040_onthard, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_ontharding.tif"), overwrite = TRUE)
+```
+
+# Extra [Niet runnen]
+
+## x1. Afkoppeling gebouwen
+
+Gebouwen met minstens 100 m² tuin of een perceelgrootte van minstens 120 m² zijn verplicht om bij nieuwbouw of grondige verbouwing een infiltratievoorziening aan te leggen. We selecteren alle bebouwde cellen die grenzen aan een of meerdere niet-bebouwde cellen. Aangezien een rastercel 100 m² is, gaan we ervan uit dat we daarmee de gebouwen selecteren waarvoor de verplichting geldt. Cellen met code 101 in de ecosysteemkaart zijn gebouwen, cellen met codes \>= 103 zijn niet-bebouwde cellen.
+
+### x1.1. Huidige toestand
+
+We veronderstellen dat het regenwater van gebouwen (code 101) die binnen een zone vallen met riolering (riolering.shp) wordt afgevoerd naar de riolering en niet infiltreert in de bodem.
+
+Binnen deze groep verfijnen we het aantal gebouwen waarvan het regenwater niet infiltreert op basis van het percentage nieuwbouw. We gaan er daarbij vanuit dat nieuwe gebouwen sinds 2014 voorzien zijn van een infiltratievoorziening (verplichting in gewestelijke hemelwaterverordening). Infiltratievoorzieningen bij renovaties zijn slechts verplicht sinds 2023 en worden niet mee in rekening gebracht. Tussen 2014 en 2024 kwamen er 117000 gebouwen bij. Dat is 4% van het gebouwenbestand in 2024. We gaan ervan uit dat die **4%** geldig is voor zowel gebieden met als zonder riolering.
+
+**Opmerking**: 4% is waarschijnlijk een overschatting omdat niet alle nieuwbouw voorzien kan worden van een infiltratievoorziening.
+
+### x1.2. Scenario's
+
+Het aantal gebouwen waarvan het regenwater infiltreert verhogen we in scenario 1 en 2 op basis van de huidige renovatiesnelheid.
+
+In 2024 waren er 2.7 miljoen gebouwen in Vlaanderen ([Statbel](https://statbel.fgov.be/nl/themas/bouwen-wonen/gebouwenpark#news)). Jaarlijks (2024) worden in Vlaanderen ongeveer 20000 renovatievergunningen uitgereikt (residentieel en niet-residentieel -\> zie [Statbel](https://statbel.fgov.be/nl/themas/bouwen-wonen/bouwvergunningen)). Dat is ongeveer 0.75% van het gebouwenbestand per jaar (of 3 per 1000 inwoners). Dat betekent dat tussen 2024 en 2050 ruwweg **19%** van de gebouwen gerenoveerd wordt. We gaan ervan uit dat die gebouwen voldoen aan de hemelwaterverordening van 2023 en een infiltratievoorziening installeren.
+
+**Opmerking**: De Vlaamse langetermijnrenovatiestrategie voor gebouwen 2050 stelt als doel dat jaarlijks **3%** van de gebouwen gerenoveerd moet worden. Dat is **78%** van de gebouwen tegen 2050.-\> sluit eerder aan bij het maximalistisch scenario (3).
+
+*Rapport VLARIO: Om de huidige overstromingsveiligheid te behouden voor een terugkeerperiode van 20 jaar, is een afkoppeling (liefst ontharding, of anders afkoppeling van de riolering) van verharde oppervlakken nodig van 35% tegen 2050 en 53% tegen 2100.*
+
+**Opmerking**: omdat een groot deel van het regenwater herbruikt wordt (toiletspoeling, wassen), zal dat deel niet infiltreren en toch afspoelen via de riolering. Op basis van de dagelijkse neerslag, een hemelwaterput van 5000 l, een dakoppervlak van 125 m² en een gemiddeld regenwatergebruik van 100 l per dag (zie [VLARIO-rapport](https://www.vlario.be/site/files/downloads/Rapport-VLARIO-Impact-klimaatverandering-op-rioleringen.pdf)), wordt de infiltratie geschat op **65% van de jaarlijkse neerslag** (= overloopvolume van de hemelwaterput).
+
+Scenario's:
+
+- scenario 1: 23% extra infiltratie van bebouwde oppervlakte (4% huidige toestand + 19% trend tot 2050) **random** verdeeld over de bebouwde cellen (met tuin en riolering)
+- scenario 2: 23% van bebouwde oppervlakte verdeeld over de bebouwde cellen (idem sc 1) die het **meest geschikt zijn voor infiltratie**
+- scenario 3: 100% van bebouwde oppervlakte (idem sc 1)
+
+#### a) Scenario 1
+
+```{r afkoppeling_sc1}
+
+# 1. Maak binair masker van bebouwde en onbebouwde cellen
+# Bebouwd (101) krijgt waarde 1, de rest NA
+bebouwd <- ifel(ecosysteem_2022 == 101, 1, NA)
+
+# Niet-verhard (>= 103) krijgt waarde 1, de rest NA
+niet_verhard <- ifel(ecosysteem_2022 >= 103, 1, NA)
+
+# 2. Identificeer de cellen die grenzen aan niet-verharde cellen
+# We kijken in een 3x3 window rondom elke bebouwde cel.
+# Als er minstens één niet-bebouwde buur is, telt de focal functie dit op.
+randen_masker <- focal(niet_verhard, w = 3, fun = "sum", na.rm = TRUE)
+# Selecteer alleen cellen die bebouwd zijn én grenzen aan niet-verhard (> 0)
+bebouwd_tuin <- mask(bebouwd, randen_masker, maskvalues = NA, updatevalue = NA)
+
+
+# Selecteer de gebouwpixels die in een gebied met riolering liggen
+bebouwd_riool <- mask(bebouwd, st_transform(riolering, st_crs(bebouwd)))
+
+# combineer gebouw met riolering en tuin = potentieel infiltratie
+bebouwd_infiltratie <- bebouwd_riool * bebouwd_tuin
+
+mapview(bebouwd, col.region = "red", na.color = "transparent") + mapview(bebouwd_riool, col.region = "blue", na.color = "transparent") + mapview(bebouwd_tuin, col.region = "green", na.color = "transparent") + mapview(bebouwd_infiltratie, col.region = "yellow", na.color = "transparent")
+
+# Doelstelling scenario's
+infiltratie_n <- freq(bebouwd_infiltratie) %>% pull() # aantal bebouwde cellen met tuin
+infiltratie_doel <- round(infiltratie_n * 0.23, 0) # 4% reeds afgekoppeld + 19% trend
+
+# 3. Willekeurige selectie
+# Haal de indices op van alle cellen die aan de criteria voldoen
+cel_nummers <- cells(bebouwd_infiltratie)
+
+# Kies een random aantal
+n_samples <- infiltratie_doel 
+
+# Controleer of we genoeg cellen hebben, anders nemen we alles
+if(length(cel_nummers) > n_samples) {
+  random_cel_nummers <- sample(cel_nummers, n_samples)
+} else {
+  random_cel_nummers <- cel_nummers
+}
+
+# Maak een leeg raster en vul de random cellen
+infiltratie_sc <- rast(ecosysteem_2022)
+values(infiltratie_sc) <- NA
+infiltratie_sc[random_cel_nummers] <- 1
+
+mapview(infiltratie_sc, na.color = "transparent") + mapview(ontharding_1na, col.regions = "darkblue", na.color = "transparent")
+
+# 5. Resultaat opslaan of bekijken
+# writeRaster(infiltratie_sc, "infiltratie_sc.tif", overwrite = TRUE)
+```
+
+## x2. Ontharding op basis van \# inwoners
+
+### x2.1. Aantal inwoners per statistische sector
 
 ```{r bevolking_sector}
 
@@ -738,137 +1132,4 @@ mapview(ontharding_kaart) + mapview(geschiktheid) + mapview(gemeente_studiegebie
 ontharding_1na <- ifel(ontharding_kaart == 0, NA, 1)
 mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
   mapview(ontharding_1na, col.regions = "darkblue", na.color = "transparent") + mapview(gemeente_studiegebied, zcol = "CNIS5")
-```
-
-### b) Scenario 2
-
-Verharde oppervlakte binnen kernen ontharden op de meest geschikte geschikte locaties (doorgrondkaart + infiltratiegebied)
-
-**Geschiktheidskaart**
-
-```{r geschiktheid_sc2}
-
-
-```
-
-**Cellen alloceren**
-
-```{r allocatie_sc2}
-
-```
-
-### c) Scenario 3
-
-100% verharde oppervlakte binnen kernen ontharden
-
-**Geschiktheidskaart**
-
-```{r geschiktheid_sc3}
-```
-
-**Cellen alloceren**
-
-```{r allocatie_sc3}
-```
-
-## 3. Afkoppeling gebouwen
-
-We willen inschatten hoe ...
-
-Gebouwen met minstens 100 m² tuin of een perceelgrootte van minstens 120 m² zijn verplicht om bij nieuwbouw of grondige verbouwing een infiltratievoorziening aan te leggen. We selecteren alle bebouwde cellen die grenzen aan een of meerdere niet-bebouwde cellen. Aangezien een rastercel 100 m² is, gaan we ervan uit dat we daarmee de gebouwen selecteren waarvoor de verplichting geldt. Cellen met code 101 in de ecosysteemkaart zijn gebouwen, cellen met codes \>= 103 zijn niet-bebouwde cellen.
-
-### 3.1. Huidige toestand
-
-We veronderstellen dat het regenwater van gebouwen (code 101) die binnen een zone vallen met riolering (riolering.shp) wordt afgevoerd naar de riolering en niet infiltreert in de bodem.
-
-Binnen deze groep verfijnen we het aantal gebouwen waarvan het regenwater niet infiltreert op basis van het percentage nieuwbouw. We gaan er daarbij vanuit dat nieuwe gebouwen sinds 2014 voorzien zijn van een infiltratievoorziening (verplichting in gewestelijke hemelwaterverordening). Infiltratievoorzieningen bij renovaties zijn slechts verplicht sinds 2023 en worden niet mee in rekening gebracht. Tussen 2014 en 2024 kwamen er 117000 gebouwen bij. Dat is 4% van het gebouwenbestand in 2024. We gaan ervan uit dat die **4%** geldig is voor zowel gebieden met als zonder riolering.
-
-**Opmerking**: 4% is waarschijnlijk een overschatting omdat niet alle nieuwbouw voorzien kan worden van een infiltratievoorziening.
-
-### 3.2. Scenario's
-
-Het aantal gebouwen waarvan het regenwater infiltreert verhogen we in scenario 1 en 2 op basis van de huidige renovatiesnelheid.
-
-In 2024 waren er 2.7 miljoen gebouwen in Vlaanderen ([Statbel](https://statbel.fgov.be/nl/themas/bouwen-wonen/gebouwenpark#news)). Jaarlijks (2024) worden in Vlaanderen ongeveer 20000 renovatievergunningen uitgereikt (residentieel en niet-residentieel -\> zie [Statbel](https://statbel.fgov.be/nl/themas/bouwen-wonen/bouwvergunningen)). Dat is ongeveer 0.75% van het gebouwenbestand per jaar (of 3 per 1000 inwoners). Dat betekent dat tussen 2024 en 2050 ruwweg **19%** van de gebouwen gerenoveerd wordt. We gaan ervan uit dat die gebouwen voldoen aan de hemelwaterverordening van 2023 en een infiltratievoorziening installeren.
-
-**Opmerking**: De Vlaamse langetermijnrenovatiestrategie voor gebouwen 2050 stelt als doel dat jaarlijks **3%** van de gebouwen gerenoveerd moet worden. Dat is **78%** van de gebouwen tegen 2050.-\> sluit eerder aan bij het maximalistisch scenario (3).
-
-*Rapport VLARIO: Om de huidige overstromingsveiligheid te behouden voor een terugkeerperiode van 20 jaar, is een afkoppeling (liefst ontharding, of anders afkoppeling van de riolering) van verharde oppervlakken nodig van 35% tegen 2050 en 53% tegen 2100.*
-
-**Opmerking**: omdat een groot deel van het regenwater herbruikt wordt (toiletspoeling, wassen), zal dat deel niet infiltreren en toch afspoelen via de riolering. Op basis van de dagelijkse neerslag, een hemelwaterput van 5000 l, een dakoppervlak van 125 m² en een gemiddeld regenwatergebruik van 100 l per dag (zie [VLARIO-rapport](https://www.vlario.be/site/files/downloads/Rapport-VLARIO-Impact-klimaatverandering-op-rioleringen.pdf)), wordt de infiltratie geschat op **65% van de jaarlijkse neerslag** (= overloopvolume van de hemelwaterput).
-
-Scenario's:
-
-- scenario 1: 23% extra infiltratie van bebouwde oppervlakte (4% huidige toestand + 19% trend tot 2050) **random** verdeeld over de bebouwde cellen (met tuin en riolering)
-- scenario 2: 23% van bebouwde oppervlakte verdeeld over de bebouwde cellen (idem sc 1) die het **meest geschikt zijn voor infiltratie**
-- scenario 3: 100% van bebouwde oppervlakte (idem sc 1)
-
-#### a) Scenario 1
-
-```{r afkoppeling_sc1}
-
-# 1. Maak binair masker van bebouwde en onbebouwde cellen
-# Bebouwd (101) krijgt waarde 1, de rest NA
-bebouwd <- ifel(ecosysteem_2022 == 101, 1, NA)
-
-# Niet-verhard (>= 103) krijgt waarde 1, de rest NA
-niet_verhard <- ifel(ecosysteem_2022 >= 103, 1, NA)
-
-# 2. Identificeer de cellen die grenzen aan niet-verharde cellen
-# We kijken in een 3x3 window rondom elke bebouwde cel.
-# Als er minstens één niet-bebouwde buur is, telt de focal functie dit op.
-randen_masker <- focal(niet_verhard, w = 3, fun = "sum", na.rm = TRUE)
-# Selecteer alleen cellen die bebouwd zijn én grenzen aan niet-verhard (> 0)
-bebouwd_tuin <- mask(bebouwd, randen_masker, maskvalues = NA, updatevalue = NA)
-
-
-# Selecteer de gebouwpixels die in een gebied met riolering liggen
-bebouwd_riool <- mask(bebouwd, st_transform(riolering, st_crs(bebouwd)))
-
-# combineer gebouw met riolering en tuin = potentieel infiltratie
-bebouwd_infiltratie <- bebouwd_riool * bebouwd_tuin
-
-mapview(bebouwd, col.region = "red", na.color = "transparent") + mapview(bebouwd_riool, col.region = "blue", na.color = "transparent") + mapview(bebouwd_tuin, col.region = "green", na.color = "transparent") + mapview(bebouwd_infiltratie, col.region = "yellow", na.color = "transparent")
-
-# Doelstelling scenario's
-infiltratie_n <- freq(bebouwd_infiltratie) %>% pull() # aantal bebouwde cellen met tuin
-infiltratie_doel <- round(infiltratie_n * 0.23, 0) # 4% reeds afgekoppeld + 19% trend
-
-# 3. Willekeurige selectie
-# Haal de indices op van alle cellen die aan de criteria voldoen
-cel_nummers <- cells(bebouwd_infiltratie)
-
-# Kies een random aantal
-n_samples <- infiltratie_doel 
-
-# Controleer of we genoeg cellen hebben, anders nemen we alles
-if(length(cel_nummers) > n_samples) {
-  random_cel_nummers <- sample(cel_nummers, n_samples)
-} else {
-  random_cel_nummers <- cel_nummers
-}
-
-# Maak een leeg raster en vul de random cellen
-infiltratie_sc <- rast(ecosysteem_2022)
-values(infiltratie_sc) <- NA
-infiltratie_sc[random_cel_nummers] <- 1
-
-mapview(infiltratie_sc, na.color = "transparent") + mapview(ontharding_1na, col.regions = "darkblue", na.color = "transparent")
-
-# 5. Resultaat opslaan of bekijken
-# writeRaster(infiltratie_sc, "infiltratie_sc.tif", overwrite = TRUE)
-```
-
-#### b) Scenario 2
-
-```{r afkoppeling_sc2}
-
-
-```
-
-#### c) Scenario 3
-
-```{r afkoppeling_sc3}
-
-
 ```
