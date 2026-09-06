@@ -53,6 +53,7 @@ De volgende datasets worden gebruikt:
 
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
 - ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA)
+- tussenstap3_sc....tif -\> ecosysteemkaart van het gebied, na realisatie van natuurdoelen per scenario
 - oever_paars.shp -\> polygonen rivieren (wtz) van paarse waterlopen
 - oever_blauw_poly.shp -\> polygonen rivieren (wtz) van blauwe waterlopen
 - oever_blauw_lijn.shp -\> lijnen rivieren (wlas) van rest blauwe waterlopen waarvoor geen wtz-polygonen zijn
@@ -60,27 +61,27 @@ De volgende datasets worden gebruikt:
 - habrl.shp -\> SBZ-gebieden
 - rbh.shp -\> ruimteboekhouding voor gebieden met groene gewestplanbestemming
 - gewascode.tif -\> kaart met de teeltcodes van landbouwpercelen
-- deel_3_reclass_gewascode_nit.xlsx -\> tabel die teeltcodes verbind met nitraatgevoeligheid (1 = niet-nitraatgevoelig)
+- deel_3_reclass_gewascode_nit.xlsx -\> tabel die teeltcodes verbindt met nitraatgevoeligheid (1 = niet-nitraatgevoelig)
+- deel_3_reclass_gewascode_erosie.xlsx -\> tabel die teeltcodes verbindt met erosiegevoeligheid (C-factor > = 0,5 = erosiegevoelig)
 - KLE.shp -\> KLE-polygonen in landbouwgebied
 - hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
-- afstroomgebied_5m.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied
+- afstroomgebied_5m_crs.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied
 - erosie.shp -\> polygonenkaart met de erosiegevoeligheidszones (groen, geel, oranje, rood, paars) 
 - geel_oranje.shp -\> polygonenkaart met de erosiegevoeligheidszones: enkel geel (erosiegevoeligheid: laag) en oranje (erosiegevoeligheid: medium) --> owv de grote oppervlakte geel, besluiten we enkel oranje gebieden prioritair in te vullen
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("afstroomgebied_fin.tif", "ecosysteem_2022.tif","erosie.shp", "geel_oranje.shp", "gebied.shp", "oever_paars.shp", "oever_blauw_poly.shp", "oever_blauw_lijn.shp", "gebnit.shp", "gewascode.tif", "habrl.shp", "hag.tif","KLE.shp", "rbh.shp", "deel_3_reclass_gewascode_nit.xlsx")
+targets <- c("ecosysteem_2022.tif","tussenstap3_sc1.tif", "tussenstap3_sc2.tif", "tussenstap3_sc3.tif", "erosie.shp", "geel_oranje.shp", "oranje.shp", "gebied.shp", "oever_paars.shp", "oever_blauw_poly.shp", "oever_blauw_lijn.shp", "gebnit.shp", "habrl.shp", "hag.tif","KLE.shp", "rbh.shp", "deel_3_reclass_gewascode_nit.xlsx", "deel_3_reclass_gewascode_erosie.xlsx")
 
 # In welke folders zitten de data?
 
 search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/scenarios/data"
-)
+  "C:/R/NARA2026/scenarios/data")
 
 # Waar slaan we het resultaat op?
 
@@ -90,7 +91,7 @@ result_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten")
 
 ### 1.2. Data inladen
 
-Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022** en de kaarten in de Global environment.
 
 ```{r data_inladen}
 
@@ -143,6 +144,18 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 
 # 3. Zet bestanden in je Global Environment
 list2env(data_list_ok, envir = .GlobalEnv)
+
+# Apart voor afstroomgebied_5m_crs, en gewascode, want nog geen categorische variabelen
+afstroomgebied <- rast(file.path(result_path, "afstroomgebied_5m_crs.tif")) |> 
+  as.factor() |> 
+  project(ref_raster, method = "near") |> 
+  mask(ref_raster)
+
+gewascode <- rast(file.path(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"), "gewascode.tif")) |> 
+  as.factor() |> 
+  project(ref_raster, method = "near") |> 
+  mask(ref_raster)
+
 ```
 
 ## 2. Oeverzones afbakenen
@@ -152,14 +165,14 @@ Het onderstaande script berekent de oppervlakte van de beschermingsstroken langs
 De regels verschillen voor waterlopen uit de VHA (**blauwe** lijnen en polygonen) en overige waterlopen (**paarse** polygonen).
 
 - De kaarten van de waterlopen met aanduiding van de wettelijke breedtes van de oeverzone, komen van het open [dataportaal van landbouw](https://landbouwcijfers.vlaanderen.be/open-geodata-waterlagen-op-de-verzamelaanvraag) en kunnen in het [geoloket van landbouw](https://landbouwcijfers.vlaanderen.be/geoloket-landbouw) geraadpeegd worden. De dataset bestaat uit: twee polygonenbestanden (water_1m_fytovrij_1m_teelt_en_5_of_10m_mestvrij_2025_polygonen_2025-02-19.shp -\> korte naam = 'paars' en water_3m_fytovrij_1m_teelt_en_5_of_10m_mestvrij_2025_polygonen_2025-02-19.shp -\> korte naam = 'blauw_poly') en een lijnenbestand (water_3m_fytovrij_1m_teelt_en_5_of_10m_mestvrij_2025_lijnen_2025-02-19.shp -\> korte naam = 'blauw_lijn').
-- Daarnaast heb ik een polygonenbestand van **nitraatgebieden** (Gebnit.shp) met 4 gebiedstypes (veld GTOMSCH), een polygonenbestand met **habitatrichtlijngebienden** (habrl201301.shp) en een polygonenbestand met **ruimtelijke bestemmingen** (rbh met codes '01, '02', '03', '04', '05', '06', ...).
-- Ik heb ook een rasterbestand van het **landgebruik** (ecosysteem.tif).
-- Ik moet voor de rivieren een buffer definiëren op basis van hun ligging in de nitraatgebieden, VEN en SBZ.
+- Daarnaast heb ik een polygonenbestand van **nitraatgebieden** (Gebnit.shp) met 4 gebiedstypes (veld GTOMSCH), een polygonenbestand met **habitatrichtlijngebieden** (habrl.shp) en een polygonenbestand met **ruimtelijke bestemmingen** (rbh met codes '01, '02', '03', '04', '05', '06', ...).
+- Ik heb ook een rasterbestand van het **landgebruik** (ecosysteem_2022.tif).
+- Ik moet voor de rivieren een buffer definiëren op basis van hun ligging in de nitraatgebieden en habitatrichtlijngebieden.
   - In een eerste stap moet het lijnenbestand (blauw_lijn) omgezet worden naar een polygonenbestand met breedte van 1m (buffer 0.5m).
   - Vervolgens moeten de 3 polygonenbestanden samengevoegd worden tot 1 polygonenbestand met 1 veld dat de naam aangeeft (paars, blauw_lijn, blauw_poly).
   - Vervolgens moet er een extra veld (oever) gecreëerd worden dat aangeeft hoe breed de buffer moet zijn, volgens deze regels:
     - een **paarse** polygoon moet overal waarde 1 krijgen.
-    - Een **blauwe** lijn of polygoon binnen **SBZ, gebiedstype GTOMSCH 2 of 3 of groene bestemmingen** (rbh code '03', '04' of '05') moet waarde 5 krijgen. Tenzij het aangrenzende landbouwperceel niet-nitraatgevoelige teelten bevat. Dan wordt de standaardwaarde 3 gehanteerd. (zie correctie in deel 3 van het oeverzonescript)
+    - Een **blauwe** lijn of polygoon binnen **SBZ-H, gebiedstype GTOMSCH 2 of 3 of groene bestemmingen** (rbh code '03', '04' of '05') moet waarde 5 krijgen. Tenzij het aangrenzende landbouwperceel niet-nitraatgevoelige teelten bevat. Dan wordt de standaardwaarde 3 gehanteerd. (zie correctie in deel 3 van het oeverzonescript)
     - Een **blauwe** lijn of polygoon binnen gebiedstype GTOMSCH 0 of 1 en buiten SBZ en groene bestemmingen moeten waarde 3 krijgen. 
   - Als alle polygonen een waarde hebben, moeten de polygonen omgezet worden naar een raster op basis van het veld 'oever' = de nieuwe waarde en het raster moet dezelfde extent hebben als het raster 'ecosysteem'.
 
@@ -304,21 +317,27 @@ writeRaster(oever_fractie_kle, file.path(result_path,"kle_fractie_oever.tif"), o
 
 In elk scenario: streefdoel 15% KLE voor elke prioritaire zone. In scenario 1 en 2 is het totale streefdoel in landbouwgebied 10%, in scenario 3 is het streefdoel 10% in de ganse landbouwzone buiten de prioritair zone.
 
-### 3.1 Huidige fractie KLE bepalen
+### 3.1 Huidige fractie KLE bepalen stap 1: KLE-kaarten samenvoegen
 
-De oeverzone-KLE's uit deel 2 en de andere KLE's in landbouwgebied (uitgenomen bosrand) voegen we samen tot 1 kaart. Die kaart schalen we op naar 1 ha-resolutie. Ze toont de fractie KLE's per ha.
+De oeverzone-KLE's uit deel 2 en de andere KLE's in landbouwgebied (uitgenomen bosrand) voegen we samen tot 1 kaart. Die kaart schalen we op naar 1 ha-resolutie. Ze toont de fractie KLE's per ha. De oppervlakte landbouwgebied verschilt in elk scenario, dus verschilt ook de huidige fractie KLE's per scenario.
 
 Het doel voor het ganse landbouwgebied = 10% van alle landbouwcellen. Het tekort berekenen we als het verschil tussen de huidige opp KLE in landbouwgebied en het doeloppervlak.
 
-```{r huidig aandeel KLE en doel}
-# --- 1.  HUIDIGE AANDEEL KLE BEPALEN ---
-# KLE klasse bosrand telt niet mee (grenzend aan natuur cf regels LUCAS)
-KLE <- KLE %>%
+```{r huidig aandeel KLE stap1}
+# --- HUIDIGE AANDEEL KLE BEPALEN - STAP1 ---
+# KLE klasse bosrand telt niet mee (grenzend aan natuur cf regels LUCAS), bosrand apart nodig voor vervolg
+KLE_sel <- KLE %>%
   filter(subklasse != "bosrand")
+bosrand <- KLE %>%
+  filter(subklasse == "bosrand")
 
-# KLE inladen als Spat_vect voor snelle verrastering
-KLE <- vect(KLE)
-huidige_kle <- project(KLE, crs(ecosysteem))
+# KLE en bosrand inladen als Spat_vect voor snelle verrastering
+KLE_sel <- vect(KLE_sel)
+huidige_kle <- project(KLE_sel, crs(ecosysteem))
+
+bosrand <- vect(bosrand)
+bosrand <- project(bosrand, crs(ecosysteem))
+bosrand_10m <-  rasterize(bosrand, ecosysteem)
 
 # Bereken de fractie KLE per 10m cel
 kle_fractie_10m <- rasterize(huidige_kle, ecosysteem, cover = TRUE)
@@ -327,25 +346,78 @@ kle_fractie_10m <- rasterize(huidige_kle, ecosysteem, cover = TRUE)
 kle_fractie_10m_tot <- mosaic(kle_fractie_10m, oever_fractie_kle, fun = "max")
 kle_fractie_10m_tot_01 <- ifel(!is.na(kle_fractie_10m_tot), kle_fractie_10m_tot, 0)
 
-# Enkel KLEs in landbouwgebied tellen mee
-landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry, nog uit te sluiten types?
-landbouw_masker <- ecosysteem %in% c(landbouw_codes)
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker
-writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_huidig.tif"), overwrite = TRUE)
+```
 
-# Aggregeren naar hectare (100m)
+```{r startkaart - huidig aandeel KLE stap 2}
+# --- HUIDIGE AANDEEL KLE BEPALEN voor startkaart - STAP2 ---
+
+# Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
+# KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
+# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart, tenzij het bosranden zijn.
+landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 300, 301, 400, 404)
+
+landbouw_masker <- ifel(ecosysteem_2022 %in% landbouw_codes, 1, NA)
+landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
+landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, NA)
+mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
+
+buffer_masker <- ecosysteem_2022 %in% buffer_codes
+landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, NA)
+ 
+mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
+
+kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start.tif"), overwrite = TRUE)
+
+```
+
+### 3.2 Scenario 1: prioriteit gaat naar niet-HAG
+
+#### 3.2.1 huidige fractie KLE bepalen stap 2 en totaal doel afbakenen
+
+```{r scen1 - deel 1 huidig aandeel KLE stap2 en doel}
+# --- 1.1  HUIDIGE AANDEEL KLE BEPALEN - STAP2 ---
+
+# Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
+# KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
+# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
+landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 300, 301, 400, 404)
+
+landbouw_masker <- ifel(tussenstap3_sc1 %in% landbouw_codes, 1, NA)
+landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
+landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
+#mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
+
+buffer_masker <- tussenstap3_sc1 %in% buffer_codes
+landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, 0)
+ 
+#mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
+
+kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc1.tif"), overwrite = TRUE)
+
+# Enkel landbouwcellen binnen landbouwgebied of met kle's tellen mee als landbouwgebied
+landbouw_masker_01 <- ifel(is.na(landbouw_masker), 0, landbouw_masker)
+landbouw_masker_KLE <- landbouw_masker_01 + kle_fractie_10m_fin
+landbouw_masker_echt <- ifel(landbouw_masker_KLE > 1, 1, landbouw_masker_KLE)
+landbouw_masker_echt_01 <- ifel(landbouw_masker_KLE > 0, 1, 0)
+
+mapview(landbouw_masker, col = "blue") + mapview(landbouw_masker_echt)
+
+#mapview(kle_fractie_10m_fin) + mapview(landbouw_masker_echt) + mapview(landbouw_masker, col = "blue") 
+# Aggregeren naar hectare (100m). NA waarden tellen niet mee bij berekening (dus indien 95 niet-NA cellen, wordt het gemiddelde berekend van deze 95 cellen)
 huidige_fractie_ha <- aggregate(kle_fractie_10m_fin, fact = 10, fun = mean, na.rm = TRUE)
-landbouw_fractie_ha <- aggregate(landbouw_masker, fact = 10, fun = mean, na.rm = TRUE)
+landbouw_fractie_ha <- aggregate(landbouw_masker_echt, fact = 10, fun = mean, na.rm = TRUE)
 
-# --- 2. TOTAAL DOEL IN LANBOUWGEBIED BEPALEN VOOR SCEN 1 en 2 (in m²) ---
-
-# 2.1 in geheel landbouwgebied
-totaal_landbouw_opp <- global(landbouw_masker, "sum", na.rm = TRUE)$sum * 100 # in m² obv 100 m² cellen
+# --- 1.2  TOTAAL DOEL IN LANDBOUWGEBIED (in m²)
+totaal_landbouw_opp <- global(landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100 # in m² obv 100 m² cellen
 totaal_doel_opp <- totaal_landbouw_opp * 0.10
-huidig_opp <- global(kle_fractie_10m_tot * landbouw_masker, "sum", na.rm = TRUE)$sum * 100 # in m² obv 100 m² cellen
+huidig_opp <- global(kle_fractie_10m_fin*landbouw_masker_echt_01, "sum", na.rm = TRUE)$sum * 100 # in m² obv 100 m² cellen
 tekort_totaal <- totaal_doel_opp - huidig_opp
 
-cat("Doel in landbouwzone scenario 1 en 2:", round(totaal_doel_opp/10000, 1), "ha\nTekort in landbouwzone scenario 1 en 2:", round(tekort_totaal/10000,1), "ha")
+cat("Doel in landbouwzone scenario 1:", round(totaal_doel_opp/10000, 1), "ha\nTekort in landbouwzone scenario 1:", round(tekort_totaal/10000,1), "ha")
 
 # Ter controle ook berekend op ha-versie: zelfde uitkomst
 totaal_landbouw_opp2 <- global(landbouw_fractie_ha, "sum", na.rm = TRUE)$sum
@@ -353,23 +425,26 @@ totaal_doel_opp2 <- totaal_landbouw_opp2 * 0.10
 landbouw_masker2 <- landbouw_fractie_ha > 0
 huidig_opp2 <- global(huidige_fractie_ha * landbouw_masker2, "sum", na.rm = TRUE)$sum
 tekort_totaal2 <- totaal_doel_opp2 - huidig_opp2
-cat("Doel in landbouwzone scenario 1 en 2 ovb ha-cellen:", totaal_doel_opp2, "ha\nTekort in landbouwzone scenario 1 en 2 obv ha-cellen:", tekort_totaal2, "ha")
+cat("Doel in landbouwzone scenario 1 ovb ha-cellen:", totaal_doel_opp2, "ha\nTekort in landbouwzone scenario 1 obv ha-cellen:", tekort_totaal2, "ha")
 
 ```
 
-### 3.2 Scenario 1: prioriteit gaat naar niet-HAG
-```{r scen1 - deel 1 voorbereiding}
+#### 3.2.2 Prioritair gebied afbakenen
 
-# --- 1. DATA VOORBEREIDING EN PRIORITAIR GEBIED AFBAKENEN ---
-# prioritair gebied afbakenen en aggregeren naar hectare
+```{r scen1 - deel 2 voorbereiding}
+
+# --- 2. DATA VOORBEREIDING EN PRIORITAIR GEBIED AFBAKENEN ---
+# Prioritair gebied afbakenen en aggregeren naar hectare
 niet_hag <- ifel(is.na(hag), 1, 0)
 prior_gebied <- aggregate(niet_hag, fact = 10, fun = max, na.rm = TRUE)
 ```
 
-```{r scen1 - deel 2 prioriteit}
-# --- 2. PRIORITEIT: NIET-HAG (15% KLE) ---
+#### 3.2.3 Prioritair gebied invullen
 
-# 2.1 Bereken doel (ha)
+```{r scen1 - deel 3 prioriteit}
+# --- 3. PRIORITEIT: NIET-HAG (15% KLE) ---
+
+# 3.1 Bereken doel (ha)
 landbouw_prior_masker <- (prior_gebied > 0) & (landbouw_fractie_ha > 0)
 opp_landbouw_prior <- global(landbouw_fractie_ha * landbouw_prior_masker, "sum", na.rm = TRUE)$sum 
 doel_opp_prior <- opp_landbouw_prior * 0.15
@@ -378,7 +453,7 @@ huidig_opp_prior <- global(huidige_fractie_ha * landbouw_prior_masker, "sum", na
 
 tekort_totaal_prior <- doel_opp_prior - huidig_opp_prior
 
-# 2.2. Bereken potentieel in prioritair gebied
+# 3.2. Bereken potentieel in prioritair gebied
 # Identificeer hectares landbouw in niet-HAG die minder dan 15% KLE hebben
 ruimte_tot_15_ha <- (0.15 * landbouw_fractie_ha) - huidige_fractie_ha
 
@@ -390,7 +465,7 @@ potentieel_prior <- ifel(landbouw_prior_masker & (ruimte_tot_15_ha > 0),
 totaal_potentieel_prior <- global(potentieel_prior, "sum", na.rm = TRUE)$sum
 
 
-# 2.3 Verdeel tekort proportioneel over landbouwhectares met ruimte. Hoe groter het tekort, hoe meer KLE's erbij komen: we focussen de inspanningen op waar de achterstand het grootst is.
+# 3.3 Verdeel tekort proportioneel over landbouwhectares met ruimte. Hoe groter het tekort, hoe meer KLE's erbij komen: we focussen de inspanningen op waar de achterstand het grootst is.
 
 if(tekort_totaal_prior > 0 && totaal_potentieel_prior > 0) {
   factor_prior <- min(1, tekort_totaal_prior / totaal_potentieel_prior)
@@ -415,8 +490,10 @@ cat("Doel: ", doel_opp_prior, " ha\nGerealiseerd: ", prior_nieuwe_opp_ha, " ha")
 
 ```
 
-```{r scen 1 - deel3 rest invullen}
-# --- 3. REST VAN HET GEBIED (BUDGET INVULLEN TOT 10% TOTAAL) ---
+#### 3.2.4 Rest landbouwgebied invullen
+
+```{r scen 1 - deel4 rest invullen}
+# --- 4. REST VAN HET GEBIED (BUDGET INVULLEN TOT 10% TOTAAL) ---
 resterend_budget <- tekort_totaal/10000 - geplaatst_prior
 
 # Bereken potentieel in de rest van het gebied (tot max 10% per hectare)
@@ -442,17 +519,19 @@ cat("Doel: ", resterend_budget, " ha\nGerealiseerd: ", geplaatst_rest, " ha")
 
 ```
 
-```{r scen 1 - deel4 resultaat}
-# --- 4. FINALE KAART ---
-# 4.1 finale kaart in ha resolutie
+#### 3.2.5 Resultaat op 100m en 10m resolutie
+
+```{r scen 1 - deel5 resultaat}
+# --- 5. FINALE KAART ---
+# 5.1 finale kaart in ha resolutie
 landbouw_masker_ha <- landbouw_fractie_ha > 0
 nieuwe_fractie_ha <- huidige_fractie_ha * landbouw_masker_ha + tekort_prior_fin + tekort_rest_fin #landbouwmasker toepassen of de rest van de huidige fractie ook laten staan?
 
 # Controle: halen we de 10% in het hele landbouwgebied?
 totaal_nieuwe_opp_ha <- global(nieuwe_fractie_ha, "sum", na.rm = TRUE)$sum # op basis van ha-cellen
-cat("Doel: ", totaal_doel_opp/10000, " ha\nGerealiseerd: ", totaal_nieuwe_opp_ha, " ha")
+cat("Doel: ", totaal_doel_opp/10000, " ha\nGerealiseerd obv ha-cellen: ", totaal_nieuwe_opp_ha, " ha")
 
-# 4.2 finale kaart in 10m resolutie
+# 5.2 finale kaart in 10m resolutie
 
 # KLE-fractie berekenen relatief ten opzichte van de aanwezige landbouw
 # Hierdoor wordt de waarde per pixel hoger in hectares waar minder landbouw is.
@@ -473,10 +552,10 @@ scen1_10m_fin <- scen1_10m_ruw %>%
   crop(ecosysteem)
 
 # Enkel landbouwcellen behouden
-scen1_10m_landbouw <- ifel(landbouw_masker == 1, scen1_10m_fin, 0)
+scen1_10m_landbouw <- ifel(landbouw_masker_echt > 0, scen1_10m_fin, 0)
 mapview(scen1_10m_landbouw)
 
-writeRaster(scen1_10m_landbouw, file.path(result_path, "scen1_kle_fractie.tif"), overwrite = TRUE)
+writeRaster(scen1_10m_landbouw, file.path(result_path, "kle_fractie_sc1.tif"), overwrite = TRUE)
 
 
 # Controle: halen we de 10% in het hele landbouwgebied?
@@ -487,23 +566,27 @@ cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen
  
 ### 3.3 Scenario 2 en 3: prioriteit gaat naar afstroomgebied en (gele en) oranje erosiezones
 
-Elke prioritaire deelzone (elk afstroomgebied per natuurgebied en het hele erosiegevoelige gebied) wordt apart opgevuld tot 15% KLE. 
+Elke prioritaire deelzone (elk afstroomgebied per natuurgebied en het hele erosiegevoelige gebied) wordt apart opgevuld tot een totaal van 15% KLE per deelzone (niet per cel).
 --> gele én oranje zones of enkel oranje meenemen?? Nu gaat het om een heel grote oppervlakte, test weinig het specifieke effect van die afstroomgebieden. --> voorlopig enkel oranje zones geselecteerd
- 
+
+#### 3.3.1 Prioritair gebied afbakenen
 ```{r scen2 en 3 - deel1 voorbereiding}
 # --- 1. DATA VOORBEREIDING EN PRIORITAIR GEBIED AFBAKENEN ---
+
+# Prioritair gebied afbakenen en aggregeren naar hectare
+
 # geel_oranje inladen als SpatVect voor snelle verrastering
 geel_oranje <- geel_oranje %>%
   filter(klasse_va %in% c("medium", "medium /c")) #voorlopig enkel oranje geselecteerd
 geel_oranje <- vect(geel_oranje)
 geel_oranje <- project(geel_oranje, crs(ecosysteem))
 
-afstroming <- ifel(is.na(afstroomgebied_fin), 0, afstroomgebied_fin)
+afstroming <- ifel(is.na(afstroomgebied), 0, afstroomgebied)
 
 # Aggregeren naar hectare (100m)
 afstroming_ha <- aggregate(afstroming, fact = 10, fun = max, na.rm = TRUE)
 
-# Voeg gele en oranje percelen toe aan het raster met deelafstroomgebieden
+# Voeg (gele en) oranje percelen (met erosiegevoelige gewassen) toe aan het raster met deelafstroomgebieden
 # 1. Haal alle unieke ID's van de deelafstroomgebieden op (behalve NA of 0) en bepaal nieuwe waarde van gele en oranje erosiezones
 unieke_ids <- unique(round(afstroming_ha, 1))[, 1]
 unieke_ids <- unieke_ids[!is.na(unieke_ids) & unieke_ids != 0]
@@ -513,12 +596,77 @@ nieuwe_id <- max(unieke_ids, na.rm = TRUE) + 1
 geel_oranje$id_waarde <- nieuwe_id
 leeg_raster <- ifel(afstroming_ha >= 0, 0, 0)
 geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
-prior_gebied <- ifel(afstroming_ha == 0 & !is.na(geel_oranje_rast), geel_oranje_rast, afstroming_ha)
-mapview(prior_gebied)
+
+# 3. enkel erosiegevoelige gewassen selecteren
+tbl_gewas_erosie <- deel_3_reclass_gewascode_erosie %>% select(gewascode, c_factor) %>% as.matrix()
+gewas_erosie <- classify(x = gewascode, rcl = tbl_gewas_erosie, others = 0)
+gewas_erosie_ha <- aggregate(gewas_erosie, fact = 10, fun = max, na.rm = TRUE) # of beter project(gewas_erosie, afstroming_ha, fun = max, na.rm = TRUE)?
+geel_oranje_rast_fin <- ifel(gewas_erosie_ha >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+
+prior_gebied <- ifel(afstroming_ha == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, afstroming_ha)
+mapview(prior_gebied) #+ mapview(geel_oranje_rast_fin, col = "blue")
 
 ```
 
-```{r scen2 en3 - deel2 prioriteit invullen}
+#### 3.3.2 Scenario 2
+
+##### 3.3.2.1 huidige fractie KLE bepalen stap 2 en totaal doel afbakenen
+```{r scen2 - deel 1 huidig aandeel KLE stap2 en doel}
+# --- 1.1  HUIDIGE AANDEEL KLE BEPALEN - STAP2 ---
+
+# Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
+# KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
+# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart, tenzij het bosranden zijn.
+landbouw_codes <- c(201, 202, 204, 205, 300, 301, 220, 230) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 300, 301, 400, 404, 220, 230)
+
+landbouw_masker <- ifel(tussenstap3_sc2 %in% landbouw_codes, 1, NA)
+landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
+landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
+#mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
+
+buffer_masker <- tussenstap3_sc2 %in% buffer_codes
+landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, 0)
+ 
+#mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
+
+kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc2.tif"), overwrite = TRUE)
+
+# Enkel landbouwcellen binnen landbouwgebied of met kle's tellen mee als landbouwgebied
+landbouw_masker_01 <- ifel(is.na(landbouw_masker), 0, landbouw_masker)
+landbouw_masker_KLE <- landbouw_masker_01 + kle_fractie_10m_fin
+landbouw_masker_echt <- ifel(landbouw_masker_KLE > 1, 1, landbouw_masker_KLE)
+landbouw_masker_echt_01 <- ifel(landbouw_masker_KLE > 0, 1, 0)
+
+mapview(landbouw_masker, col = "blue") + mapview(landbouw_masker_echt)
+
+#mapview(kle_fractie_10m_fin) + mapview(landbouw_masker_echt) + mapview(landbouw_masker, col = "blue") 
+
+# Aggregeren naar hectare (100m). NA waarden tellen niet mee bij berekening (dus indien 95 niet-NA cellen, wordt het gemiddelde berekend van deze 95 cellen)
+huidige_fractie_ha <- aggregate(kle_fractie_10m_fin, fact = 10, fun = mean, na.rm = TRUE)
+landbouw_fractie_ha <- aggregate(landbouw_masker_echt, fact = 10, fun = mean, na.rm = TRUE)
+
+# --- 1.2  TOTAAL DOEL IN LANDBOUWGEBIED (in m²)
+totaal_landbouw_opp <- global(landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100 # in m² obv 100 m² cellen
+totaal_doel_opp <- totaal_landbouw_opp * 0.10
+huidig_opp <- global(kle_fractie_10m_fin*landbouw_masker_echt_01, "sum", na.rm = TRUE)$sum * 100 # in m² obv 100 m² cellen
+tekort_totaal <- totaal_doel_opp - huidig_opp
+
+cat("Doel in landbouwzone scenario 2:", round(totaal_doel_opp/10000, 1), "ha\nTekort in landbouwzone scenario 2:", round(tekort_totaal/10000,1), "ha")
+
+# Ter controle ook berekend op ha-versie: zelfde uitkomst
+totaal_landbouw_opp2 <- global(landbouw_fractie_ha, "sum", na.rm = TRUE)$sum
+totaal_doel_opp2 <- totaal_landbouw_opp2 * 0.10
+landbouw_masker2 <- landbouw_fractie_ha > 0
+huidig_opp2 <- global(huidige_fractie_ha * landbouw_masker2, "sum", na.rm = TRUE)$sum
+tekort_totaal2 <- totaal_doel_opp2 - huidig_opp2
+cat("Doel in landbouwzone scenario 2 ovb ha-cellen:", totaal_doel_opp2, "ha\nTekort in landbouwzone scenario 2 obv ha-cellen:", tekort_totaal2, "ha")
+
+```
+
+##### 3.3.2.2 Prioritair gebied invullen - tot 15% KLE per deelzone
+```{r scen2 - deel2 prioriteit invullen}
 # --- 2. PRIORITEIT: DEELAFSTROOMGEBIEDEN EN GELE/ORANJE EROSIEPERCELEN (15% DOEL PER GEBIED)---
 
 # Maak een leeg raster (alleen nullen) met dezelfde structuur om de tekorten in op te slaan
@@ -585,7 +733,7 @@ cat("Doel: ", doel_lokaal_som, " ha\nGerealiseerd: ", prior_nieuwe_opp_ha, " ha"
 
 ```
 
-#### 3.3.1 Scenario 2: rest invullen - totaal landbouwgebied 10% KLE
+##### 3.3.2.3 Rest invullen - totaal landbouwgebied 10% KLE
 
 ```{r scen 2 - deel3 rest invullen}
 # --- 3. REST VAN HET GEBIED (BUDGET INVULLEN TOT 10% TOTAAL) ---
@@ -613,6 +761,8 @@ geplaatst_rest <- global(tekort_rest_fin, "sum", na.rm = TRUE)$sum
 cat("Doel: ", resterend_budget, " ha\nGerealiseerd: ", geplaatst_rest, " ha")
 ```
 
+#### 3.3.2.4 Resultaat op 100m en 10m resolutie
+
 ```{r scen 2 - deel4 resultaat}
 # --- 4. FINALE KAART ---
 # 4.1 finale kaart in ha resolutie
@@ -638,16 +788,16 @@ kle_landbouw_ha <- ifel(is.nan(kle_landbouw_ha) | is.infinite(kle_landbouw_ha),
 kle_landbouw_ha <- ifel(kle_landbouw_ha > 1, 1, kle_landbouw_ha)
 
 # Omzetten naar 10m resolutie 
-scen2_10m_ruw <- disagg(kle_landbouw_ha, fact = 10) # geeft raster dat niet helemaal overeenkomt met ecosysteem.tif en dus landbouw_masker, maar wel de juiste waarden behoudt (itt resample)
+scen2_10m_ruw <- disagg(kle_landbouw_ha, fact = 10) # geeft raster dat niet helemaal overeenkomt met ecosysteem_2022.tif en dus landbouw_masker, maar wel de juiste waarden behoudt (itt resample)
 scen2_10m_fin <- scen2_10m_ruw %>% 
   extend(ecosysteem) %>% 
   crop(ecosysteem)
 
 # Enkel landbouwcellen behouden
-scen2_10m_landbouw <- ifel(landbouw_masker == 1, scen2_10m_fin, 0)
+scen2_10m_landbouw <- ifel(landbouw_masker_echt > 0, scen2_10m_fin, 0)
 mapview(scen2_10m_landbouw)
 
-writeRaster(scen2_10m_landbouw, file.path(result_path, "scen2_kle_fractie.tif"), overwrite = TRUE)
+writeRaster(scen2_10m_landbouw, file.path(result_path, "kle_fractie_sc2.tif"), overwrite = TRUE)
 
 
 # Controle: halen we de 10% in het hele landbouwgebied?
@@ -656,7 +806,114 @@ cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen
 
 ```
  
-#### 3.3.2 Scenario 3: rest invullen - totaal restgebied 10% KLE
+#### 3.3.3 Scenario 3
+##### 3.3.3.1 huidige fractie KLE bepalen stap 2
+```{r scen3 - deel 1 huidig aandeel KLE stap2}
+# --- 1.1  HUIDIGE AANDEEL KLE BEPALEN - STAP2 ---
+
+# Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
+# KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
+# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart, tenzij het bosranden zijn.
+landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 300, 301, 400, 404)
+
+landbouw_masker <- ifel(tussenstap3_sc2 %in% landbouw_codes, 1, NA)
+landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
+landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, NA)
+#mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
+
+buffer_masker <- tussenstap3_sc2 %in% buffer_codes
+landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, NA)
+ 
+#mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
+
+kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc3.tif"), overwrite = TRUE)
+
+# Enkel landbouwcellen binnen landbouwgebied of met kle's tellen mee als landbouwgebied
+landbouw_masker_01 <- ifel(is.na(landbouw_masker), 0, landbouw_masker)
+landbouw_masker_KLE <- landbouw_masker_01 + kle_fractie_10m_fin
+landbouw_masker_echt <- ifel(landbouw_masker_KLE > 1, 1, landbouw_masker_KLE)
+landbouw_masker_echt_01 <- ifel(landbouw_masker_KLE > 0, 1, 0)
+
+#mapview(landbouw_masker, col = "blue") + mapview(landbouw_masker_echt)
+
+#mapview(kle_fractie_10m_fin) + mapview(landbouw_masker_echt) + mapview(landbouw_masker, col = "blue") 
+# Aggregeren naar hectare (100m). NA waarden tellen niet mee bij berekening (dus indien 95 niet-NA cellen, wordt het gemiddelde berekend van deze 95 cellen)
+huidige_fractie_ha <- aggregate(kle_fractie_10m_fin, fact = 10, fun = mean, na.rm = TRUE)
+landbouw_fractie_ha <- aggregate(landbouw_masker_echt, fact = 10, fun = mean, na.rm = TRUE)
+
+```
+
+##### 3.3.3.2 Prioritair gebied invullen - tot 15% KLE per deelzone
+```{r scen3 - deel2 prioriteit invullen}
+# --- 2. PRIORITEIT: DEELAFSTROOMGEBIEDEN EN GELE/ORANJE EROSIEPERCELEN (15% DOEL PER GEBIED)---
+
+# Maak een leeg raster (alleen nullen) met dezelfde structuur om de tekorten in op te slaan
+tekort_prior_fin <- ifel(landbouw_fractie_ha >= 0, 0, 0)
+tekort_lokaal_som <- 0 # voor de controle
+doel_lokaal_som <- 0 # voor de controle
+
+# Haal alle unieke ID's van de prioritaire gebieden op (behalve NA of 0)
+unieke_ids <- unique(round(prior_gebied, 1))[, 1]
+unieke_ids <- unieke_ids[!is.na(unieke_ids) & unieke_ids != 0]
+
+# START DE LOOP
+for (i in unieke_ids) {
+  
+  # 1. Maak een specifiek masker voor DIT deelgebied
+  lokaal_masker <- (prior_gebied == i) & (landbouw_fractie_ha > 0)
+  
+    # Als er geen landbouw in dit deelgebied ligt, skippen we het
+  if (global(lokaal_masker, "sum", na.rm = TRUE)$sum == 0) next
+  
+  # 2. Bereken lokaal doeloppervlak en huidig opp (in ha)
+  opp_landbouw_lokaal <- global(landbouw_fractie_ha * lokaal_masker, "sum", na.rm = TRUE)$sum
+  doel_opp_lokaal <- opp_landbouw_lokaal * 0.15
+  huidig_opp_lokaal <- global(huidige_fractie_ha * lokaal_masker, "sum", na.rm = TRUE)$sum
+  doel_lokaal_som <- doel_lokaal_som + doel_opp_lokaal
+  
+  # 3. Bereken het lokale tekort
+  tekort_lokaal <- doel_opp_lokaal - huidig_opp_lokaal
+  tekort_lokaal_som <- tekort_lokaal_som + tekort_lokaal # voor controle
+  
+  # 4. Bereken lokaal potentieel (ruimte tot 15% per hectare)
+  ruimte_tot_15_ha <- (0.15 * landbouw_fractie_ha) - huidige_fractie_ha
+  potentieel_lokaal <- ifel(lokaal_masker & (ruimte_tot_15_ha > 0), ruimte_tot_15_ha, 0)
+  
+  totaal_potentieel_lokaal <- global(potentieel_lokaal, "sum", na.rm = TRUE)$sum
+  
+  # 5. Verdeel het tekort lokaal (als er een tekort is)
+  if(tekort_lokaal > 0 && totaal_potentieel_lokaal > 0) {
+    factor_lokaal <- min(1, tekort_lokaal / totaal_potentieel_lokaal)
+    tekort_lokaal_fin <- potentieel_lokaal * factor_lokaal
+      # Melding (optioneel)
+  if(tekort_lokaal > totaal_potentieel_lokaal) {
+    message("Let op: Het lokale doel van 15% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 15%.")
+  }
+    
+    # Voeg dit lokale resultaat toe aan het cumulatieve raster
+    tekort_prior_fin <- tekort_prior_fin + tekort_lokaal_fin
+    
+    cat("Deelgebied", i, ": Doel van 15% ingevuld met", (global(tekort_lokaal_fin, "sum", na.rm = TRUE)$sum), "ha\n")
+  } else {
+    cat("Deelgebied", i, ": Heeft al voldoende KLE (>= 15% gemiddeld).\n")
+  }
+}
+
+# Controle: is het hele tekort in afstroomgebied geplaatst? 
+geplaatst_prior <- global(tekort_prior_fin, "sum", na.rm = TRUE)$sum
+cat("Doel: ", tekort_lokaal_som, " ha\nGerealiseerd: ", geplaatst_prior, " ha")
+
+# Controle: halen we de 15% in het hele prioritaire gebied?
+landbouw_prior_masker <- (prior_gebied > 0) & (landbouw_fractie_ha > 0)
+prior_nieuwe_fractie_ha <- huidige_fractie_ha*landbouw_prior_masker + tekort_prior_fin
+prior_nieuwe_opp_ha <- global(prior_nieuwe_fractie_ha, "sum", na.rm = TRUE)$sum
+cat("Doel: ", doel_lokaal_som, " ha\nGerealiseerd: ", prior_nieuwe_opp_ha, " ha")
+
+```
+
+##### 3.3.3.3 rest invullen - totaal restgebied 10% KLE
 
 ```{r scen  3 - deel3 rest invullen}
 
@@ -692,6 +949,8 @@ geplaatst_rest <- global(tekort_rest_fin, "sum", na.rm = TRUE)$sum
 cat("Doel: ", tekort_rest, " ha\nGerealiseerd: ", geplaatst_rest, " ha")
 ```
 
+#### 3.3.2.4 Resultaat op 100m en 10m resolutie
+
 ```{r scen 3 - deel4 resultaat}
 # --- 4. FINALE KAART ---
 # 4.1 finale kaart in ha resolutie
@@ -719,14 +978,14 @@ scen3_10m_fin <- scen3_10m_ruw %>%
   crop(ecosysteem)
 
 # Enkel landbouwcellen behouden
-scen3_10m_landbouw <- ifel(landbouw_masker == 1, scen3_10m_fin, 0)
-mapview(scen3_10m_landbouw)
+scen3_10m_landbouw <- ifel(landbouw_masker_echt > 0, scen3_10m_fin, 0)
+#mapview(scen3_10m_landbouw)
 
-writeRaster(scen3_10m_landbouw, file.path(result_path, "scen3_kle_fractie.tif"), overwrite = TRUE)
+writeRaster(scen3_10m_landbouw, file.path(result_path, "kle_fractie_sc3.tif"), overwrite = TRUE)
 
 
 # Controle: halen we de 10% in het hele restgebied? --> klopt niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor restgebied en per prioritair gebied? Dan ook in 2 vorige scenario's!
-rest_masker_10m <- (landbouw_masker == 1 & afstroming == 0)
+rest_masker_10m <- (landbouw_masker_echt > 0 & afstroming == 0)
 totaal_rest_doel_m2 <- global(rest_masker_10m, "sum", na.rm = TRUE)$sum*100*0.10 # op basis van 100m2-cellen
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_landbouw*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
 cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
@@ -784,7 +1043,7 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 # 
 # # Resultaat wegschrijven
 # mapview(scen3_10m_corr2)
-# writeRaster(scen3_10m_corr2, file.path(result_path, "scen3_kle_fractie_gecorrigeerd.tif"), overwrite = TRUE)
+# writeRaster(scen3_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc3.tif"), overwrite = TRUE)
 # 
 # # Controle: halen we de 10% in het hele restgebied?
 # totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_corr2*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
