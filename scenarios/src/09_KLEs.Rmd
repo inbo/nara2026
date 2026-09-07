@@ -353,19 +353,19 @@ kle_fractie_10m_tot_01 <- ifel(!is.na(kle_fractie_10m_tot), kle_fractie_10m_tot,
 
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
-# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart, tenzij het bosranden zijn.
+# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
 landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 300, 301, 400, 404)
 
 landbouw_masker <- ifel(ecosysteem_2022 %in% landbouw_codes, 1, NA)
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
-landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, NA)
-mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
+landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
+#mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
 
 buffer_masker <- ecosysteem_2022 %in% buffer_codes
-landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, NA)
+landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, 0)
  
-mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
+#mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
 kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start.tif"), overwrite = TRUE)
@@ -398,7 +398,9 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
 kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc1.tif"), overwrite = TRUE)
 
-# Enkel landbouwcellen binnen landbouwgebied of met kle's tellen mee als landbouwgebied
+mapview(kle_fractie_10m_fin)
+
+# Enkel landbouwcellen of buffercellen met kle's tellen mee als landbouwgebied
 landbouw_masker_01 <- ifel(is.na(landbouw_masker), 0, landbouw_masker)
 landbouw_masker_KLE <- landbouw_masker_01 + kle_fractie_10m_fin
 landbouw_masker_echt <- ifel(landbouw_masker_KLE > 1, 1, landbouw_masker_KLE)
@@ -553,13 +555,65 @@ scen1_10m_fin <- scen1_10m_ruw %>%
 
 # Enkel landbouwcellen behouden
 scen1_10m_landbouw <- ifel(landbouw_masker_echt > 0, scen1_10m_fin, 0)
-mapview(scen1_10m_landbouw)
+#mapview(scen1_10m_landbouw)
 
 writeRaster(scen1_10m_landbouw, file.path(result_path, "kle_fractie_sc1.tif"), overwrite = TRUE)
 
+# Controle: halen we de 10% in het hele landbouwgebied? --> klopt niet helemaal door afbakening prioritaire gebieden op 1ha-resolutie, 15% in prioritair gebied zal ook niet helemaal kloppen: correctie nodig voor landbouwgebied en per prioritair gebied? Dan in alle scenario's!
+totaal_nieuwe_opp_m2 <- global(scen1_10m_landbouw, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_m2/10000, 1), " ha")
+
+# Om de percentages wel mooi te laten kloppen in landbouwgebied en prioritair gebied
+
+# Correctiefactor prioritaire gebieden
+scen1_10m_corr <- scen1_10m_landbouw
+
+  # Afbakening prioritaire gebieden 10m resolutie
+  prior_masker_10m <- niet_hag
+
+  # Bereken hoeveel landbouw en KLE er echt op 10m resolutie liggen
+  opp_landbouw_10m <- global(prior_masker_10m*landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100
+  doel_kle_10m <- opp_landbouw_10m * 0.15
+  huidig_kle_10m <- global(scen1_10m_corr * prior_masker_10m, "sum", na.rm = TRUE)$sum * 100
+
+  corr_factor <- doel_kle_10m / huidig_kle_10m
+  
+  # Pas de correctie toe, maar ENKEL voor de cellen van DIT deelgebied
+  gecorrigeerde_cellen <- scen1_10m_corr * corr_factor
+  
+  # Update de kaart via ifel
+  scen1_10m_corr <- ifel(prior_masker_10m == 1, gecorrigeerde_cellen, scen1_10m_corr)
+  
+  # Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
+  scen1_10m_corr <- ifel(scen1_10m_corr > 1, 1, scen1_10m_corr)
+  
+# Correctiefactor restgebied
+  scen1_10m_corr2 <- scen1_10m_corr
+ 
+  # Afbakening restgebied en doel restgebied op 10m resolutie
+    geplaatst_prior <- global(scen1_10m_corr*prior_masker_10m, "sum", na.rm = TRUE)$sum * 100
+    rest_masker_10m <- ifel(prior_masker_10m == 0 & landbouw_masker_echt > 0, 1, 0)
+    totaal_nieuwe_opp_rest_m2 <- global(scen1_10m_corr*rest_masker_10m, "sum", na.rm = TRUE)$sum * 100
+    totaal_rest_doel_m2 <- totaal_doel_opp - geplaatst_prior
+
+corr_factor <- totaal_rest_doel_m2 / totaal_nieuwe_opp_rest_m2
+
+
+  # Pas de correctie toe, maar ENKEL voor de cellen van restgebied
+  gecorrigeerde_cellen <- scen1_10m_corr2 * corr_factor
+  
+  # Update de kaart via ifel
+  scen1_10m_corr2 <- ifel(rest_masker_10m == 1, gecorrigeerde_cellen, scen1_10m_corr2)
+  
+  # Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
+  scen1_10m_corr2 <- ifel(scen1_10m_corr2 > 1, 1, scen1_10m_corr2)
+  
+  # Resultaat wegschrijven
+  mapview(scen1_10m_corr2)
+  writeRaster(scen1_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc1.tif"), overwrite = TRUE)
 
 # Controle: halen we de 10% in het hele landbouwgebied?
-totaal_nieuwe_opp_m2 <- global(scen1_10m_landbouw, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+totaal_nieuwe_opp_m2 <- global(scen1_10m_corr2, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
 cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_m2/10000, 1), " ha")
 
 ```
@@ -633,7 +687,9 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
 kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc2.tif"), overwrite = TRUE)
 
-# Enkel landbouwcellen binnen landbouwgebied of met kle's tellen mee als landbouwgebied
+mapview(kle_fractie_10m_fin)
+
+# Enkel landbouwcellen of buffercellen met kle's tellen mee als landbouwgebied
 landbouw_masker_01 <- ifel(is.na(landbouw_masker), 0, landbouw_masker)
 landbouw_masker_KLE <- landbouw_masker_01 + kle_fractie_10m_fin
 landbouw_masker_echt <- ifel(landbouw_masker_KLE > 1, 1, landbouw_masker_KLE)
@@ -800,8 +856,78 @@ mapview(scen2_10m_landbouw)
 writeRaster(scen2_10m_landbouw, file.path(result_path, "kle_fractie_sc2.tif"), overwrite = TRUE)
 
 
-# Controle: halen we de 10% in het hele landbouwgebied?
+# Controle: halen we de 10% in het hele landbouwgebied? --> klopt niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor landbouwgebied en per prioritair gebied? Dan in alle scenario's!
 totaal_nieuwe_opp_m2 <- global(scen2_10m_landbouw, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_m2/10000, 1), " ha")
+
+# Om de percentages wel mooi te laten kloppen in landbouwgebied en prioritair gebied
+
+# Correctiefactor prioritaire gebieden
+scen2_10m_corr <- scen2_10m_landbouw
+
+  # Afbakening prioritaire gebieden 10m resolutie
+  leeg_raster <- ifel(afstroming >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
+  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+
+for (i in unieke_ids) {
+
+  # Maak het 10m masker voor dit specifieke deelgebied
+  lokaal_masker_10m <- (prior_gebied_10m == i) & (landbouw_masker_echt > 0)
+
+  # Bereken hoeveel landbouw en KLE er echt op 10m resolutie liggen
+  opp_landbouw_10m <- global(lokaal_masker_10m*landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100
+  if (opp_landbouw_10m == 0) next
+
+  doel_kle_10m <- opp_landbouw_10m * 0.15
+  huidig_kle_10m <- global(scen2_10m_corr * lokaal_masker_10m, "sum", na.rm = TRUE)$sum * 100
+
+  # Bereken de correctiefactor voor dit deelgebied
+  # nu te weinig: factor > 1, nu te veel: factor < 1.
+  if (huidig_kle_10m > 0) {
+    corr_factor <- doel_kle_10m / huidig_kle_10m
+
+    # 3. Pas de correctie toe, maar ENKEL voor de cellen van DIT deelgebied
+    gecorrigeerde_cellen <- scen2_10m_corr * corr_factor
+
+    # Update de kaart via ifel
+    scen2_10m_corr <- ifel(lokaal_masker_10m == 1, gecorrigeerde_cellen, scen2_10m_corr)
+  }
+}
+
+# Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
+scen2_10m_corr <- ifel(scen2_10m_corr > 1, 1, scen2_10m_corr)
+
+# Correctiefactor restgebied
+scen2_10m_corr2 <- scen2_10m_corr
+
+    # Afbakening restgebied en doel restgebied op 10m resolutie
+    prior_masker_10m <- ifel(prior_gebied_10m > 0, 1, 0)
+    geplaatst_prior <- global(scen2_10m_corr*prior_masker_10m, "sum", na.rm = TRUE)$sum * 100
+    rest_masker_10m <- ifel(prior_gebied_10m == 0 & landbouw_masker_echt > 0, 1, 0)
+    totaal_nieuwe_opp_rest_m2 <- global(scen2_10m_corr*rest_masker_10m, "sum", na.rm = TRUE)$sum * 100
+    totaal_rest_doel_m2 <- totaal_doel_opp - geplaatst_prior
+
+corr_factor <- totaal_rest_doel_m2 / totaal_nieuwe_opp_rest_m2
+
+
+# Pas de correctie toe, maar ENKEL voor de cellen van restgebied
+gecorrigeerde_cellen <- scen2_10m_corr2 * corr_factor
+
+# Update de kaart via ifel
+scen2_10m_corr2 <- ifel(rest_masker_10m == 1, gecorrigeerde_cellen, scen2_10m_corr2)
+
+# Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
+scen2_10m_corr2 <- ifel(scen2_10m_corr2 > 1, 1, scen2_10m_corr2)
+
+# Resultaat wegschrijven
+mapview(scen2_10m_corr2)
+writeRaster(scen2_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc2.tif"), overwrite = TRUE)
+
+# Controle: halen we de 10% in het hele landbouwgebied?
+totaal_nieuwe_opp_m2 <- global(scen2_10m_corr2, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
 cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_m2/10000, 1), " ha")
 
 ```
@@ -813,30 +939,32 @@ cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen
 
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
-# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart, tenzij het bosranden zijn.
+# Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
 landbouw_codes <- c(201, 202, 204, 205, 300, 301) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 300, 301, 400, 404)
 
 landbouw_masker <- ifel(tussenstap3_sc2 %in% landbouw_codes, 1, NA)
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
-landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, NA)
+landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
 
 buffer_masker <- tussenstap3_sc2 %in% buffer_codes
-landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, NA)
+landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker_buf, 0)
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
 kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc3.tif"), overwrite = TRUE)
 
-# Enkel landbouwcellen binnen landbouwgebied of met kle's tellen mee als landbouwgebied
+mapview(kle_fractie_10m_fin)
+
+# Enkel landbouwcellen of buffercellen met kle's tellen mee als landbouwgebied
 landbouw_masker_01 <- ifel(is.na(landbouw_masker), 0, landbouw_masker)
 landbouw_masker_KLE <- landbouw_masker_01 + kle_fractie_10m_fin
 landbouw_masker_echt <- ifel(landbouw_masker_KLE > 1, 1, landbouw_masker_KLE)
 landbouw_masker_echt_01 <- ifel(landbouw_masker_KLE > 0, 1, 0)
 
-#mapview(landbouw_masker, col = "blue") + mapview(landbouw_masker_echt)
+mapview(landbouw_masker, col = "blue") + mapview(landbouw_masker_echt)
 
 #mapview(kle_fractie_10m_fin) + mapview(landbouw_masker_echt) + mapview(landbouw_masker, col = "blue") 
 # Aggregeren naar hectare (100m). NA waarden tellen niet mee bij berekening (dus indien 95 niet-NA cellen, wordt het gemiddelde berekend van deze 95 cellen)
@@ -984,69 +1112,70 @@ scen3_10m_landbouw <- ifel(landbouw_masker_echt > 0, scen3_10m_fin, 0)
 writeRaster(scen3_10m_landbouw, file.path(result_path, "kle_fractie_sc3.tif"), overwrite = TRUE)
 
 
-# Controle: halen we de 10% in het hele restgebied? --> klopt niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor restgebied en per prioritair gebied? Dan ook in 2 vorige scenario's!
+# Controle: halen we de 10% in het hele restgebied? --> klopt niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor restgebied en per prioritair gebied? Dan in alle scenario's!
 rest_masker_10m <- (landbouw_masker_echt > 0 & afstroming == 0)
 totaal_rest_doel_m2 <- global(rest_masker_10m, "sum", na.rm = TRUE)$sum*100*0.10 # op basis van 100m2-cellen
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_landbouw*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
 cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
 
 # Om de percentages wel mooi te laten kloppen in restgebied en prioritair gebied
-# # Correctiefactor restgebied
-# scen3_10m_corr <- scen3_10m_landbouw
-# corr_factor <- totaal_rest_doel_m2 / totaal_nieuwe_opp_rest_m2
-# 
-#     # Pas de correctie toe, maar ENKEL voor de cellen van restgebied
-#     gecorrigeerde_cellen <- scen3_10m_corr * corr_factor
-# 
-#     # Update de kaart via ifel
-#     scen3_10m_corr <- ifel(rest_masker_10m == 1, gecorrigeerde_cellen, scen3_10m_corr)
-# 
-# # Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
-# scen3_10m_corr <- ifel(scen3_10m_corr > 1, 1, scen3_10m_corr)
-# 
-# # Correctiefactor prioritaire gebieden
-# scen3_10m_corr2 <- scen3_10m_corr
-#   
-#   # Afbakening prioritaire gebieden 10m resolutie
-#   leeg_raster <- ifel(afstroming >= 0, 0, 0)
-#   geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
-#   prior_gebied <- ifel(afstroming == 0 & !is.na(geel_oranje_rast), geel_oranje_rast, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
-#   prior_gebied <- ifel(prior_gebied == 0, afstroming, prior_gebied)
-#   
-# for (i in unieke_ids) {
-#   
-#   # Maak het 10m masker voor dit specifieke deelgebied
-#   lokaal_masker_10m <- (prior_gebied == i) & (landbouw_masker == 1)
-#   
-#   # Bereken hoeveel landbouw en KLE er echt op 10m resolutie liggen
-#   opp_landbouw_10m <- global(lokaal_masker_10m, "sum", na.rm = TRUE)$sum * 100
-#   if (opp_landbouw_10m == 0) next
-#   
-#   doel_kle_10m <- opp_landbouw_10m * 0.15
-#   huidig_kle_10m <- global(scen3_10m_corr2 * lokaal_masker_10m, "sum", na.rm = TRUE)$sum * 100
-#   
-#   # Bereken de correctiefactor voor dit deelgebied
-#   # nu te weinig: factor > 1, nu te veel: factor < 1.
-#   if (huidig_kle_10m > 0) {
-#     corr_factor <- doel_kle_10m / huidig_kle_10m
-#     
-#     # 3. Pas de correctie toe, maar ENKEL voor de cellen van DIT deelgebied
-#     gecorrigeerde_cellen <- scen3_10m_corr2 * corr_factor
-#     
-#     # Update de kaart via ifel
-#     scen3_10m_corr2 <- ifel(lokaal_masker_10m == 1, gecorrigeerde_cellen, scen3_10m_corr2)
-#   }
-# }
-# 
-# # Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0 
-# scen3_10m_corr2 <- ifel(scen3_10m_corr2 > 1, 1, scen3_10m_corr2)
-# 
-# # Resultaat wegschrijven
-# mapview(scen3_10m_corr2)
-# writeRaster(scen3_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc3.tif"), overwrite = TRUE)
-# 
-# # Controle: halen we de 10% in het hele restgebied?
-# totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_corr2*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-# cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+# Correctiefactor restgebied
+scen3_10m_corr <- scen3_10m_landbouw
+corr_factor <- totaal_rest_doel_m2 / totaal_nieuwe_opp_rest_m2
+
+    # Pas de correctie toe, maar ENKEL voor de cellen van restgebied
+    gecorrigeerde_cellen <- scen3_10m_corr * corr_factor
+
+    # Update de kaart via ifel
+    scen3_10m_corr <- ifel(rest_masker_10m == 1, gecorrigeerde_cellen, scen3_10m_corr)
+
+# Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
+scen3_10m_corr <- ifel(scen3_10m_corr > 1, 1, scen3_10m_corr)
+
+# Correctiefactor prioritaire gebieden
+scen3_10m_corr2 <- scen3_10m_corr
+
+  # Afbakening prioritaire gebieden 10m resolutie
+  leeg_raster <- ifel(afstroming >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
+  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+
+for (i in unieke_ids) {
+
+  # Maak het 10m masker voor dit specifieke deelgebied
+  lokaal_masker_10m <- (prior_gebied_10m == i) & (landbouw_masker_echt > 0)
+
+  # Bereken hoeveel landbouw en KLE er echt op 10m resolutie liggen
+  opp_landbouw_10m <- global(lokaal_masker_10m*landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100
+  if (opp_landbouw_10m == 0) next
+
+  doel_kle_10m <- opp_landbouw_10m * 0.15
+  huidig_kle_10m <- global(scen3_10m_corr2 * lokaal_masker_10m, "sum", na.rm = TRUE)$sum * 100
+
+  # Bereken de correctiefactor voor dit deelgebied
+  # nu te weinig: factor > 1, nu te veel: factor < 1.
+  if (huidig_kle_10m > 0) {
+    corr_factor <- doel_kle_10m / huidig_kle_10m
+
+    # 3. Pas de correctie toe, maar ENKEL voor de cellen van DIT deelgebied
+    gecorrigeerde_cellen <- scen3_10m_corr2 * corr_factor
+
+    # Update de kaart via ifel
+    scen3_10m_corr2 <- ifel(lokaal_masker_10m == 1, gecorrigeerde_cellen, scen3_10m_corr2)
+  }
+}
+
+# Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
+scen3_10m_corr2 <- ifel(scen3_10m_corr2 > 1, 1, scen3_10m_corr2)
+
+# Resultaat wegschrijven
+mapview(scen3_10m_corr2)
+writeRaster(scen3_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc3.tif"), overwrite = TRUE)
+
+# Controle: halen we de 10% in het hele restgebied?
+totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_corr2*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
 
 ```
