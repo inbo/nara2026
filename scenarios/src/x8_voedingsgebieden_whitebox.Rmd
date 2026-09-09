@@ -17,7 +17,7 @@ library(dplyr)
 
 In dit script bakenen we de grondwatervoedingsgebieden van natuurgebieden af met Whiteboxtools. 
 Het resultaat is een raster met per natuurgebied een ruw voedingsgebied (een apart id-nummer voor elk natuurgebied) op 10m resolutie. 
-Dat gebied voegen we in een volgend script (x8) samen met de resultaten van een modpath-analyse om per natuurgebied een meer robuust voedingsgebied af te bakenen.
+Dat gebied voegen we in een volgend script (x9) samen met de resultaten van een modpath-analyse om per natuurgebied een meer robuust voedingsgebied af te bakenen.
 
 ## 1. Data laden en omzetten naar het juiste formaat
 
