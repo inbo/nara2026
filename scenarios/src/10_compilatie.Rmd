@@ -57,11 +57,11 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "toekomstlaag.shp", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "sc1_ecosysteem_infilt.tif", "sc2_ecosysteem_infilt.tif", "sc3_ecosysteem_infilt.tif", "sc1_ecosysteem_dedrain.tif", "sc2_ecosysteem_dedrain.tif", "sc3_ecosysteem_dedrain.tif", "sc1_bosuitbreiding.tif", "sc2_bosuitbreiding.tif", "sc3_bosuitbreiding.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "sc1_ecosysteem_ontharding.tif", "sc2_ecosysteem_ontharding.tif", "sc3_ecosysteem_ontharding.tif")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "toekomstlaag.shp", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "sc1_ecosysteem_infilt.tif", "sc2_ecosysteem_infilt.tif", "sc3_ecosysteem_infilt.tif", "sc1_ecosysteem_dedrain.tif", "sc2_dedrain_cellen.tif", "sc3_dedrain_cellen.tif", "sc1_bosuitbreiding.tif", "sc2_bosuitbreiding.tif", "sc3_bosuitbreiding.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "sc1_ecosysteem_ontharding.tif", "sc2_ecosysteem_ontharding.tif", "sc3_ecosysteem_ontharding.tif")
 
 # In welke folders zitten de data?
 
@@ -193,6 +193,8 @@ Mogelijke vernattingscontouren van terrestrische natuurdoelen die buiten de peri
 
 ![Figuur 1. Plaatsing van nieuwe natuur in scenario 1 en mogelijke conflicten met droge natuur en landbouw.](images/invulling_scenario1-02.png){width="350"}
 
+#### 1. Natuur plaatsen
+
 ```{r scenario1}
 
 #//////////////////////////////////////////////////////////////
@@ -258,33 +260,33 @@ tussenstap1_sc1 <- classify(r_key, m_reclass)
 tussenstap1_sc1 <- cover(tussenstap1_sc1, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
 
 
-# Overzichtstabel veranderingen (niet-natuur codes: "vernatting" primeert op "ecosysteem_2050_nat" voor landbouw en stedelijk, "ecosysteem_2050_nat" primeert op "vernatting" voor water, slikken en schorren)
-library(kableExtra)
-
-tabel_gekleurd <- lookup_table %>%
-  filter(e %in% c(201, 302, 320, 401, 410, 501, 602, 701, 801)) %>%
-  mutate(
-    # Check of de code is gewijzigd ten opzichte van ecosysteem_2050_nat
-    is_gewijzigd = resultaat != e,
-    
-    # Geef gewijzigde codes een opvallende achtergrondkleur (bijv. zacht rood)
-    cel_waarde = ifelse(
-      is_gewijzigd,
-      cell_spec(resultaat, background = "#ffcccc", color = "#990000", bold = TRUE),
-      cell_spec(resultaat, color = "#333333")
-    )
-  ) %>%
-  select(v, e, cel_waarde) %>%
-  pivot_wider(
-    names_from = e,
-    values_from = cel_waarde
-  ) %>%
-  rename(`vernatting` = v) # header voor de eerste kolom
-
-tabel_gekleurd %>%
-  kbl(escape = FALSE, align = "c") %>%
-  kable_styling(bootstrap_options = c("bordered", "hover"), full_width = FALSE) %>%
-  add_header_above(c(" " = 1, "ecosysteem_2050_nat" = 9))
+# # Overzichtstabel veranderingen (niet-natuur codes: "vernatting" primeert op "ecosysteem_2050_nat" voor landbouw en stedelijk, "ecosysteem_2050_nat" primeert op "vernatting" voor water, slikken en schorren)
+# library(kableExtra)
+# 
+# tabel_gekleurd <- lookup_table %>%
+#   filter(e %in% c(201, 302, 320, 401, 410, 501, 602, 701, 801)) %>%
+#   mutate(
+#     # Check of de code is gewijzigd ten opzichte van ecosysteem_2050_nat
+#     is_gewijzigd = resultaat != e,
+#     
+#     # Geef gewijzigde codes een opvallende achtergrondkleur (bijv. zacht rood)
+#     cel_waarde = ifelse(
+#       is_gewijzigd,
+#       cell_spec(resultaat, background = "#ffcccc", color = "#990000", bold = TRUE),
+#       cell_spec(resultaat, color = "#333333")
+#     )
+#   ) %>%
+#   select(v, e, cel_waarde) %>%
+#   pivot_wider(
+#     names_from = e,
+#     values_from = cel_waarde
+#   ) %>%
+#   rename(`vernatting` = v) # header voor de eerste kolom
+# 
+# tabel_gekleurd %>%
+#   kbl(escape = FALSE, align = "c") %>%
+#   kable_styling(bootstrap_options = c("bordered", "hover"), full_width = FALSE) %>%
+#   add_header_above(c(" " = 1, "ecosysteem_2050_nat" = 9))
 
 
 #//////////////////////////////////////////////////////////////
@@ -302,7 +304,11 @@ tussenstap2_sc1 <- ifel(tussenstap1_sc1 %in% c(104, 201, 202, 203, 204, 205, 300
 # Tussenstap 2 wordt gebruikt als input voor de plaatsing van dedrainagemaatregelen
 writeRaster(tussenstap2_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc1.tif"), overwrite = TRUE)
 
+```
 
+#### 2. Dedrainage invoegen
+
+```{r dedrainage}
 
 #//////////////////////////////////////////////////////////////
 # 3. Dedrainagemaatregelen toevoegen
@@ -310,41 +316,76 @@ writeRaster(tussenstap2_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 
 # sc1_ecosysteem_dedrain -> akkers met dedrainagemaatregelen hebben code 220, maar blijven akkers in scenario  1. Op andere cellen worden geen maatregelen genomen. Deze kaart verschilt dus niet van de originele kaart (ecosysteem_2022) -> niet in rekening brengen
 
+tussenstap2_sc1 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc1.tif"))
+
 sc1_ecosysteem_dedrain <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_dedrain.tif"))
 
-tussenstap3_sc1 <- ifel(sc1_ecosysteem_dedrain == 220, tussenstap2_sc1, sc1_ecosysteem_dedrain)
+tussenstap3_sc1 <- ifel(sc1_ecosysteem_dedrain == 220, 220, tussenstap2_sc1)
 
 # Tussenstap 3 wordt gebruikt als input voor de plaatsing van infiltratiecellen en KLE
 writeRaster(tussenstap3_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc1.tif"), overwrite = TRUE)
 
+```
 
+#### 3. Infiltratie en KLE invoegen
+
+```{r infiltratie_kle}
 
 #//////////////////////////////////////////////////////////////
 # 4. Infiltratiecellen en KLE toevoegen
 #//////////////////////////////////////////////////////////////
 
+tussenstap3_sc1 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc1.tif"))
+
+sc1_ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_infilt.tif"))
+
+
+
+# KLE-kaart opdelen in klassen
+
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_sc1 <- classify(kle_fractie_gecorrigeerd_sc1, rcl_matrix, right = TRUE)
+
 # Cellen met infiltratiemaatregelen krijgen code 210
 sc1_ecosysteem_infilt # in sc1 en 2 blijven dit akkers / in sc3 is er een versie waar het akkers blijven (75%-scenario) en een versie waar de cellen van sc2 veranderen in grasland/bos
 
-test <- ifel(sc1_ecosysteem_infilt == 210, tussenstap3, NA)
+test <- ifel(sc1_ecosysteem_infilt %in% c(201, 202, 203, 204, 205, 210, 220) & !is.na(kle_recl_sc1), 
+             )
 
 
-tussenstap4 <- "nog in te vullen"
-  
+
+
+tussenstap4_sc1 <- "nog in te vullen"
+
+writeRaster(tussenstap4_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc1.tif"), overwrite = TRUE)
+
+
 # Wat doen we met de KLE-cellen?
 # Optie 1: alle cellen met KLE worden aan een nieuwe code toegewezen met aparte kc- en CV-waarden -> input in Invest
 # Optie 2: we berekenen manueel wat het effect is (los van Invest)
+```
 
+#### 4. Onthardingscellen invoegen
+
+```{r ontharding}
 
 #//////////////////////////////////////////////////////////////
 # 6. Onthardingscellen toevoegen
 #//////////////////////////////////////////////////////////////
 
+tussenstap4_sc1 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc1.tif"))
+
+
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
-sc1_ecosysteem_finaal <- ifel(tussenstap4 %in% c(101, 102) & !sc1_ecosysteem_ontharding %in% c(101, 102), sc1_ecosysteem_ontharding, tussenstap4)
-
-
+sc1_ecosysteem_finaal <- ifel(tussenstap4_sc1 %in% c(101, 102) & !sc1_ecosysteem_ontharding %in% c(101, 102), sc1_ecosysteem_ontharding, tussenstap4_sc1)
 ```
 
 ### 2.2. Scenario 2
@@ -356,6 +397,8 @@ De **terrestrische natuurdoelen** worden gerealiseerd ongeacht mogelijke conflic
 Mogelijke vernattingscontouren van terrestrische natuurdoelen die buiten de perimeter van natuurgebied vallen en dus een mogelijke impact hebben op het omliggende landgebruik leiden tot wijzigingen van dat landgebruik (Figuur 2 - B~c2~ en A~c1~). Op locaties waar een vernatting plaatsvindt door de realisatie van natuurdoelen maar het landgebruik compatibel is, blijft het landgebruik ongewijzigd (bv. beperkte vernatting thv grasland: A~c2~). Ook bij vernatting binnen natuurgebied wijzigen de voorziene natuurdoelen naar een natter type als ze originele doelen niet matchen met vernatting (C~c1~ en B~c1~).
 
 ![Figuur 2. Plaatsing van nieuwe natuur in scenario 2 en mogelijke conflicten met droge natuur en landbouw.](images/invulling_scenario2-01.png){width="350"}
+
+#### 1. Natuur plaatsen
 
 ```{r scenario2}
 
@@ -461,8 +504,6 @@ gekozen_eco <- selectRange(c(eco_1, eco_2, eco_3, eco_4), vernattingscontour_sc2
 
 tussenstap1_sc2_2 <- cover(gekozen_eco, tussenstap1_sc2)
 
-# writeRaster(tussenstap1_sc2_2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap_test.tif"), overwrite = TRUE)
-
 ```
 
 **c) Toevoegen extra bos en maatregelen voor dedrainage en infiltratie**
@@ -482,7 +523,11 @@ tussenstap2_sc2 <- ifel(tussenstap1_sc2_2 %in% c(104, 201, 202, 203, 204, 205, 3
 # Tussenstap 2 wordt gebruikt als input voor de plaatsing van dedrainagemaatregelen
 writeRaster(tussenstap2_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc2.tif"), overwrite = TRUE)
 
+```
 
+#### 2. Dedrainage invoegen
+
+```{r dedrainage_sc2}
 
 #//////////////////////////////////////////////////////////////
 # 3. Dedrainagemaatregelen toevoegen
@@ -490,35 +535,59 @@ writeRaster(tussenstap2_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 
 # sc2_dedrain_cellen -> cellen met dedrainagemaatregelen. Een deel daarvan wordt natuur door de vernatting, het andere deel zijn landbouwcellen waar het landgebruik behouden blijft, maar de grondwaterstand verhoogd wordt via aangepaste drainage.
 
+tussenstap2_sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc2.tif"))
+
+sc2_dedrain_cellen <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_dedrain_cellen.tif"))
+
 tussenstap3_sc2 <- ifel(!is.na(sc2_dedrain_cellen) & tussenstap2_sc2 %in% c(201, 202, 203, 204, 205), 220, ifel(!is.na(sc2_dedrain_cellen) & tussenstap2_sc2 %in% c(300, 301), 330, tussenstap2_sc2))
 
 
 # Tussenstap 3 wordt gebruikt als input voor de plaatsing van infiltratiecellen en KLE
 writeRaster(tussenstap3_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc2.tif"), overwrite = TRUE)
 
+```
 
+#### 3. Infiltratie en KLE invoegen
+
+```{r infiltratie_sc2}
 
 #//////////////////////////////////////////////////////////////
 # 4. Infiltratiecellen toevoegen
 #//////////////////////////////////////////////////////////////
 
+tussenstap3_sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc2.tif"))
+
+sc2_ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_infilt.tif"))
+
+
 sc2_ecosysteem_infilt # in sc1 en 2 blijven dit akkers / in sc3 is er een versie waar het akkers blijven (75%-scenario) en een versie waar de cellen van sc2 veranderen in grasland/bos
 
-test <- ifel(sc2_ecosysteem_infilt == 210, tussenstap3, NA)
+test <- ifel(sc2_ecosysteem_infilt == 210, tussenstap3_sc2, NA)
 
 
 
+
+
+```
+
+#### 4. Onthardingscellen invoegen
+
+```{r ontharding_sc2}
 
 #//////////////////////////////////////////////////////////////
 # 6. Onthardingscellen toevoegen
 #//////////////////////////////////////////////////////////////
 
+tussenstap4_sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc2.tif"))
+
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
-sc2_ecosysteem_finaal <- ifel(tussenstap4 %in% c(101, 102) & !sc2_ecosysteem_ontharding %in% c(101, 102), sc2_ecosysteem_ontharding, tussenstap4)
+sc2_ecosysteem_finaal <- ifel(tussenstap4_sc2 %in% c(101, 102) & !sc2_ecosysteem_ontharding %in% c(101, 102), sc2_ecosysteem_ontharding, tussenstap4_sc2)
 ```
 
 ### 2.3. Scenario 3
+
+#### 1. Natuur plaatsen
 
 **a) Nieuwe natuur volgens toekomstlaag en aquatische natuur**
 
@@ -618,7 +687,6 @@ gekozen_eco <- selectRange(c(eco_1, eco_2, eco_3, eco_4), vernattingscontour_sc3
 
 tussenstap1_sc3_2 <- cover(gekozen_eco, tussenstap1_sc3)
 
-writeRaster(tussenstap1_sc3_2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap_test.tif"), overwrite = TRUE)
 ```
 
 **c) Toevoegen extra bos en maatregelen voor dedrainage en infiltratie**
@@ -638,7 +706,11 @@ tussenstap2_sc3 <- ifel(tussenstap1_sc3_2 %in% c(104, 201, 202, 203, 204, 205, 3
 # Tussenstap 2 wordt gebruikt als input voor de plaatsing van dedrainagemaatregelen
 writeRaster(tussenstap2_sc3, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc3.tif"), overwrite = TRUE)
 
+```
 
+#### 2. Dedrainage invoegen
+
+```{r dedrainage_sc3}
 
 #//////////////////////////////////////////////////////////////
 # 3. Dedrainagemaatregelen toevoegen
@@ -646,30 +718,51 @@ writeRaster(tussenstap2_sc3, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 
 # sc3_dedrain_cellen -> cellen met dedrainagemaatregelen. Een deel daarvan wordt natuur door de vernatting, het andere deel zijn landbouwcellen waar het landgebruik behouden blijft, maar de grondwaterstand verhoogd wordt via aangepaste drainage.
 
+tussenstap2_sc3 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc3.tif"))
+
+sc3_dedrain_cellen <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen.tif"))
+
 tussenstap3_sc3 <- ifel(!is.na(sc3_dedrain_cellen) & tussenstap2_sc3 %in% c(201, 202, 203, 204, 205), 220, ifel(!is.na(sc3_dedrain_cellen) & tussenstap2_sc3 %in% c(300, 301), 330, tussenstap2_sc3))
 
 
 # Tussenstap 3 wordt gebruikt als input voor de plaatsing van infiltratiecellen
 writeRaster(tussenstap3_sc3, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3.tif"), overwrite = TRUE)
 
+```
 
+#### 3. Infiltratie en KLE invoegen
+
+```{r infiltratie_sc3}
 
 #//////////////////////////////////////////////////////////////
 # 4. Infiltratiecellen toevoegen
 #//////////////////////////////////////////////////////////////
 
-sc2_ecosysteem_infilt # in sc1 en 2 blijven dit akkers / in sc3 is er een versie waar het akkers blijven (75%-scenario) en een versie waar de cellen van sc2 veranderen in grasland/bos
+tussenstap3_sc3 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3.tif"))
 
-test <- ifel(sc2_ecosysteem_infilt == 210, tussenstap3, NA)
+sc3_ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_infilt.tif"))
 
 
+sc3_ecosysteem_infilt # in sc1 en 2 blijven dit akkers / in sc3 is er een versie waar het akkers blijven (75%-scenario) en een versie waar de cellen van sc2 veranderen in grasland/bos
+
+test <- ifel(sc3_ecosysteem_infilt == 210, tussenstap3_sc3, NA)
+
+
+
+```
+
+#### 4. Onthardingscellen invoegen
+
+```{r ontharding_sc3}
 
 
 #//////////////////////////////////////////////////////////////
 # 6. Onthardingscellen toevoegen
 #//////////////////////////////////////////////////////////////
 
+tussenstap4_sc3 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3.tif"))
+
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
-sc3_ecosysteem_finaal <- ifel(tussenstap4 %in% c(101, 102) & !sc3_ecosysteem_ontharding %in% c(101, 102), sc3_ecosysteem_ontharding, tussenstap4)
+sc3_ecosysteem_finaal <- ifel(tussenstap4_sc3 %in% c(101, 102) & !sc3_ecosysteem_ontharding %in% c(101, 102), sc3_ecosysteem_ontharding, tussenstap4_sc3)
 ```
