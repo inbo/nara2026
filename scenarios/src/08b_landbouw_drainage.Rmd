@@ -78,7 +78,7 @@ search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "
 
 ### 1.2. Data inladen
 
-Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en zet de kaarten in de Global environment.
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022** en zet de kaarten in de Global environment.
 
 ```{r data, message=FALSE, warning=FALSE }
 
@@ -205,10 +205,14 @@ geschikte_cellen <- ifel(!is.na(potentie_dedrain), 1, NA) # alleen nodig voor do
 
 
 #///////////////////////////////////////////////////////
-# 2. Akkerpercelen met droogtestress  
+# 2. Akkerpercelen met droogtestress (alleen sc1) 
 #///////////////////////////////////////////////////////
   
 # cf. methode klimaatportaal: Akkerpercelen (lgbp_2022) met droogte-intensiteit op een locatie binnen perceel > 1
+
+droogteintensiteit <- project(droogteintensiteit, crs(ecosysteem_2022))
+droogteintensiteit <- mask(crop(droogteintensiteit, ecosysteem_2022), ecosysteem_2022)
+droogteintensiteit <- resample(droogteintensiteit, ecosysteem_2022, "near")
 
 lbgp_2022 <- st_transform(lbgp_2022, st_crs(ecosysteem_2022))
 
@@ -231,7 +235,7 @@ verplichting_peilgestuurd <- st_transform(verplichting_peilgestuurd, crs(ecosyst
 peilgestuurd <- mask(rasterize(verplichting_peilgestuurd, ecosysteem_2022, field = 1), ecosysteem_2022, updatevalue = NA)
 ```
 
-#### b) Bossen voor drainage
+#### b) Bossen voor dedrainage
 
 Het script identificeert de boscellen in de ecosysteemkaart (4xx) waarop populieren voorkomen. We gebruiken daarvoor de verrasterde BWK (bwk_eenh1) die de basis vormt voor de opmaak van de ecosysteemkaart Vlaanderen. De BWK-codes die beginnen met "l." duiden de populierenbestanden aan.
 
@@ -303,7 +307,8 @@ In scenario 1 wordt de doeloppervlakte geplaatst op landbouwpercelen met droogte
 
 ```{r geschiktheid_sc1}
 
-# landbouwcellen
+# landbouwcellen in finale kaart omdat landbouw behouden blijft in sc1.
+# ter info: in sc2 en 3 wordt dedrainage ook gebruikt om vernatting voor natuurdoelen te realiseren. Voor die natuurdoelen worden landbouwcellen omgezet in natuur. De dedrainagemaatregelen moeten dus ook geplaatste kunnen worden op 'oude' landbouwcellen die in de scenario's natuur worden. 
 
 landbouw <- ifel(tussenstap2_sc1 %in% c(201, 202, 203, 204, 205, 301), 1, NA)
 
@@ -327,9 +332,9 @@ sc1_doel <- round(0.25 * f[f$value == 1, "count"], 0)
 
 
 # Doel als % van de opp. van het gebied
-opp_totaal <- pull(global(ecosysteem_2022, "notNA"))
+# opp_totaal <- pull(global(ecosysteem_2022, "notNA"))
 
-round(100*sc1_doel/opp_totaal, 1)
+# round(100*sc1_doel/opp_totaal, 1)
 
 ```
 
@@ -354,7 +359,7 @@ df <- as.data.frame(c(tussenstap2_sc1, geschikt_sc1, patches_sc1), cells = TRUE,
 
 colnames(df) <- c("cell", "eco_code", "score", "patch")
 
-df <- df[!is.na(df$eco_code), ]
+df <- df[!is.na(df$eco_code), ] # eco_code is eigenlijk overbodig
 
 patch_info <- df |>
   group_by(patch) |>
@@ -523,13 +528,12 @@ geschikt_sc2 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 +
                                     ))))
 
 
+sc2_doel <- sc1_doel
 ```
 
 **b) Allocatie maatregelen**
 
 ```{r allocatie_sc2}
-
-sc2_doel <- sc1_doel
 
 # Nieuwe codes voor aanpassing ecosysteemkaart
 code_dedrain <- 220
@@ -660,6 +664,11 @@ sc2_ecosysteem_dedrain <- ifel(sc2_glg == 1, eco_1,
 
 **a) Geschiktheid en doelen**
 
+- De geschiktheidskaart wordt identiek opgebouwd als die van scenario 2.
+- Er worden twee doelen gehanteerd:
+  - oppervlakte = 75% van geschikte cellen (cf. plaatsing zoals in scenario 2, maar hoger doel)
+  - oppervlakte = 25% van geschikte cellen, maar alle dedrainagecellen worden natuur
+
 ```{r geschiktheid_sc3}
 
 #////////////////////////////////////////////////////
@@ -719,13 +728,19 @@ geschikt_sc3 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 +
                                ))))
 
 
+# Twee doelen voor scenario 3
+# 75% van geschikte cellen (eventueel met behoud van landbouw)
+sc3_doel75 <- (sc1_doel / 0.25) * 0.75
+# 25% van geschikte cellen, maar alles wordt natuur
+sc3_doel25 <- sc1_doel
+
 ```
 
 **b) Allocatie maatregelen**
 
-```{r allocatie_sc3}
+#### a) 75% van geschikte cellen
 
-sc3_doel <- (sc1_doel / 0.25) * 0.75
+```{r allocatie_sc3_75}
 
 # Nieuwe codes voor aanpassing ecosysteemkaart
 code_dedrain <- 220
@@ -766,9 +781,9 @@ while(i <= nrow(patch_info)){
   # eerste patch van deze scoregroep
   eerste <- which(patch_info$score == huidige_score)[1]
   # zijn we nog ruim onder het doel?
-  if(totaal + scoregroep$oppervlakte[1] < sc3_doel){
+  if(totaal + scoregroep$oppervlakte[1] < sc3_doel75){
     for(j in 1:nrow(scoregroep)){
-      if(totaal + scoregroep$oppervlakte[j] <= sc3_doel){
+      if(totaal + scoregroep$oppervlakte[j] <= sc3_doel75){
         geselecteerde_patches <-
           c(geselecteerde_patches,
             scoregroep$patch[j])
@@ -786,7 +801,7 @@ while(i <= nrow(patch_info)){
 top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
 
 # Hoeveel cellen komen we tekort?
-nog_nodig <- sc3_doel - length(top_cellen)
+nog_nodig <- sc3_doel75 - length(top_cellen)
 
 if (nog_nodig > 0) {
   laatste_score <- patch_info$score[i]
@@ -819,13 +834,13 @@ ecosysteem_dedrain <- deepcopy(tussenstap2_sc3)
 
 ecosysteem_dedrain[top_cellen] <- code_dedrain
 
-sc3_dedrain_cellen <- ifel(ecosysteem_dedrain == 220, 1, NA)
+sc3_dedrain_cellen_75 <- ifel(ecosysteem_dedrain == 220, 1, NA)
 
-writeRaster(sc3_dedrain_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen.tif"), overwrite = TRUE)
+writeRaster(sc3_dedrain_cellen_75, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen_75.tif"), overwrite = TRUE)
 
 
 # Grondwaterstand vernatte cellen
-sc3_glg <- sc3_dedrain_cellen * vernatting_2050_sc3
+sc3_glg_75 <- sc3_dedrain_cellen_75 * vernatting_2050_sc3
 
 # Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd)
 # reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder de 4 hydrologische klassen
@@ -838,15 +853,142 @@ eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
 eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
 
 # Combineer alles
-sc3_ecosysteem_dedrain <- ifel(sc3_glg == 1, eco_1,
-                               ifel(sc3_glg == 2, eco_2,
-                                    ifel(sc3_glg == 3, eco_3,
-                                         ifel(sc3_glg == 4, eco_4, 
+sc3_ecosysteem_dedrain_75 <- ifel(sc3_glg_75 == 1, eco_1,
+                               ifel(sc3_glg_75 == 2, eco_2,
+                                    ifel(sc3_glg_75 == 3, eco_3,
+                                         ifel(sc3_glg_75 == 4, eco_4, 
                                               tussenstap2_sc3))))
 
-# sc3_ecosysteem_dedrain <- cover(sc3_ecosysteem_dedrain, tussenstap2_sc3)
+sc3_ecosysteem_dedrain_75 <- cover(sc3_ecosysteem_dedrain_75, tussenstap2_sc3)
 
-# writeRaster(sc3_ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain.tif"), overwrite = TRUE)
+# writeRaster(sc3_ecosysteem_dedrain_75, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain_75.tif"), overwrite = TRUE)
+
+```
+
+#### b) 25% van geschikte cellen
+
+```{r allocatie_sc3_25}
+
+# Nieuwe codes voor aanpassing ecosysteemkaart
+code_dedrain <- 220
+
+
+# 1. Identificeer de clusters van aaneengesloten cellen 
+patches_sc3 <- patches(geschikt_sc3, values = TRUE, directions = 8)
+
+# 2. Omzetten naar een data.frame met coördinaten
+# We nemen de celindex mee om later de waarden exact terug te kunnen plaatsen
+df <- as.data.frame(c(tussenstap2_sc3, geschikt_sc3, patches_sc3), cells = TRUE, na.rm = TRUE)
+
+colnames(df) <- c("cell", "eco_code", "score", "patch")
+
+df <- df[!is.na(df$eco_code), ]
+
+patch_info <- df |>
+  group_by(patch) |>
+  summarise(
+    score = mean(score), # gemiddelde score per patch
+    oppervlakte = n(),
+    .groups = "drop"
+  ) |>
+  arrange(desc(score))
+
+
+# 3. Plaats eerst de cellen per volledige cluster
+
+geselecteerde_patches <- c()
+totaal <- 0
+i <- 1
+
+while(i <= nrow(patch_info)){
+  huidige_score <- patch_info$score[i]
+  scoregroep <-
+    patch_info |>
+    filter(score == huidige_score)
+  # eerste patch van deze scoregroep
+  eerste <- which(patch_info$score == huidige_score)[1]
+  # zijn we nog ruim onder het doel?
+  if(totaal + scoregroep$oppervlakte[1] < sc3_doel25){
+    for(j in 1:nrow(scoregroep)){
+      if(totaal + scoregroep$oppervlakte[j] <= sc3_doel25){
+        geselecteerde_patches <-
+          c(geselecteerde_patches,
+            scoregroep$patch[j])
+        totaal <- totaal + scoregroep$oppervlakte[j]
+      }
+    }
+  } else {
+    break
+  }
+  i <- eerste + nrow(scoregroep)
+}
+
+# 4. Plaats de resterende cellen
+# Verzamel de cellen van de al geselecteerde (volledige) patches
+top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
+
+# Hoeveel cellen komen we tekort?
+nog_nodig <- sc3_doel25 - length(top_cellen)
+
+if (nog_nodig > 0) {
+  laatste_score <- patch_info$score[i]
+  kandidaten <- patch_info |> 
+    filter(score == laatste_score) |> 
+    arrange(oppervlakte)
+  for (k in seq_len(nrow(kandidaten))) {
+    if (nog_nodig <= 0) break
+    # Haal alle cel-IDs op van de huidige kandidaat-patch
+    kandidaat_cellen <- df$cell[df$patch == kandidaten$patch[k]]
+    aantal_in_patch <- length(kandidaat_cellen)
+    if (aantal_in_patch <= nog_nodig) {
+      # selecteer de hele patch
+      top_cellen <- c(top_cellen, kandidaat_cellen)
+      nog_nodig <- nog_nodig - aantal_in_patch
+    } else {
+      # patch te groot -> neem exact aantal cellen dat nog nodig is
+      top_cellen <- c(top_cellen, kandidaat_cellen[1:nog_nodig])
+      nog_nodig <- 0
+    }
+  }
+}
+
+
+
+# 5. De originele ecosysteemkaart aanpassen
+top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
+
+ecosysteem_dedrain <- deepcopy(tussenstap2_sc3)
+
+ecosysteem_dedrain[top_cellen] <- code_dedrain
+
+sc3_dedrain_cellen_25 <- ifel(ecosysteem_dedrain == 220, 1, NA)
+
+writeRaster(sc3_dedrain_cellen_25, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen_25.tif"), overwrite = TRUE)
+
+
+# Grondwaterstand vernatte cellen
+sc3_glg_25 <- sc3_dedrain_cellen_25 * vernatting_2050_sc3
+
+# Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd)
+# reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder de 4 hydrologische klassen
+lookup <- deel_3_reclass_lu |>
+  select(code, "glg1", "glg2", "glg3", "glg4")
+
+eco_1 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg1"]])
+eco_2 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg2"]])
+eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
+eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
+
+# Combineer alles
+sc3_ecosysteem_dedrain_25 <- ifel(sc3_glg_25 == 1, eco_1,
+                               ifel(sc3_glg_25 == 2, eco_2,
+                                    ifel(sc3_glg_25 == 3, eco_3,
+                                         ifel(sc3_glg_25 == 4, eco_4,
+                                              tussenstap2_sc3))))
+
+sc3_ecosysteem_dedrain_25 <- cover(sc3_ecosysteem_dedrain_25, tussenstap2_sc3)
+
+# writeRaster(sc3_ecosysteem_dedrain_25, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain_25.tif"), overwrite = TRUE)
 
 ```
 
@@ -1164,6 +1306,7 @@ df_jaar <- df_sim_long %>%
   filter(Variabele != "Bodemwatervolume") %>% # Alleen de stromen
   group_by(Texture_label, Scenario_label, Variabele) %>%
   summarise(Totaal_m3 = sum(Volume_m3), .groups = "drop")
+
 
 # 2. Gestapelde staafdiagrammen per scenario
 ggplot(df_jaar, aes(x = Texture_label, y = Totaal_m3, fill = Variabele)) +
