@@ -1,0 +1,363 @@
+---
+title: "x13_resultaten_berekenen_invest_swy"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(reticulate)
+
+# Inladen functie voor Investmodel
+source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_seasonal_water_yield.R")
+
+```
+
+Het script berekent de **infiltratie** (L, local recharge), **evapotranspiratie** (aet), **afstroming** (QF, quickflow), bijdrage aan het **basisdebiet** (B, baseflow) en de **cumulatieve bijdrage aan het basisdebiet** (B_sum) via het Investmodel [Seasonal Water Yield](https://storage.googleapis.com/releases.naturalcapitalproject.org/invest-userguide/latest/en/seasonal_water_yield.html). B geeft de bijdrage van elke cel aan het finale basisdebiet en B_sum geeft de hoeveel water die via een cel uiteindelijk in de rivier terechtkomt (trekt verdamping door lager gelegen vegetaties af).
+
+In het tweede deel van het script wordt het effect van de infiltratiemaatregelen en dedrainagemaatregelen in beeld gebracht.
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– studiegebied
+> |          \|—– data -\>
+> |          \|—– output -\> 
+> |    \|—– src -\> `x13_resultaten_berekenen_invest_swy.Rmd`
+
+## Deel 1 - Seasonal water yield
+
+### 1. Run model
+
+Het model wordt gerund voor de drie scenario's, met voor elk scenario een afzonderlijke run per maatregelenset (nieuwe natuur, infiltratiemaatregelen, KLE's en ontharding). Daarvoor moeten de juiste ecosysteemkaarten ingeladen worden en geven we de resultaten een aparte naam via het suffix-argument in de functie:
+
++--------------------------+----------------+---------------+----------------------------------+
+| Scenario                 | maatregelenset | suffix        | ecosysteemkaart                  |
++==========================+================+===============+==================================+
+| huidige toestand         | /              | 0             | ecosysteem_2022.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+| scenario 1               | nieuwe natuur  | sc1_nat       | tussenstap2_sc1.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | infiltratie    | sc1_inf       | tussenstap4_sc1.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | KLE            | sc1_kle       | tussenstap5_sc1.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | ontharding     | sc1_onth      | scen1_ecosysteem_finaal.tif      |
++--------------------------+----------------+---------------+----------------------------------+
+| scenario 2               | nieuwe natuur  | sc2_nat       | tussenstap2_sc2.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | infiltratie    | sc2_inf       | tussenstap4_sc2.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | KLE            | sc2_kle       | tussenstap5_sc2.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | ontharding     | sc2_onth      | scen2_ecosysteem_finaal.tif      |
++--------------------------+----------------+---------------+----------------------------------+
+| scenario 3 (gras of bos) | nieuwe natuur  | sc3_gras_nat  | tussenstap2_sc3.tif              |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | infiltratie    | sc3_gras_inf  | tussenstap4_sc3_gras.tif         |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | KLE            | sc3_gras_kle  | tussenstap5_sc3_gras.tif         |
++--------------------------+----------------+---------------+----------------------------------+
+|                          | ontharding     | sc3_gras_onth | scen3_gras_ecosysteem_finaal.tif |
++--------------------------+----------------+---------------+----------------------------------+
+
+#### 1. Hulpfunctie voor de selectie van de ecosysteemkaart
+
+```{r hulpfunctie}
+
+get_kaart_naam <- function(scen, maatr = NULL) {
+  
+  scen_str <- as.character(scen)
+  
+  # 1. Bij scenario "0" altijd direct de basiskaart teruggeven
+  if (scen_str == "0") {
+    return("ecosysteem_2022.tif")
+  }
+  
+  # 2. Opzoektabel voor alle overige combinaties
+  lookup_tbl <- tibble::tribble(
+    ~scen,    ~maatr, ~kaart,
+    "1",      "nat",  "tussenstap2_sc1.tif",
+    "1",      "inf",  "tussenstap4_sc1.tif",
+    "1",      "kle",  "tussenstap5_sc1.tif",
+    "1",      "ont",  "scen1_ecosysteem_finaal.tif",
+    "2",      "nat",  "tussenstap2_sc2.tif",
+    "2",      "inf",  "tussenstap4_sc2.tif",
+    "2",      "kle",  "tussenstap5_sc2.tif",
+    "2",      "ont",  "scen2_ecosysteem_finaal.tif",
+    "3_gras", "nat",  "tussenstap2_sc3.tif",
+    "3_gras", "inf",  "tussenstap4_sc3_gras.tif",
+    "3_gras", "kle",  "tussenstap5_sc3_gras.tif",
+    "3_gras", "ont",  "scen3_gras_ecosysteem_finaal.tif",
+    "3_bos",  "nat",  "tussenstap2_sc3.tif",
+    "3_bos",  "inf",  "tussenstap4_sc3_bos.tif",
+    "3_bos",  "kle",  "tussenstap5_sc3_bos.tif",
+    "3_bos",  "ont",  "scen3_bos_ecosysteem_finaal.tif"
+  )
+  
+  # Zoek de juiste kaart op
+  res <- lookup_tbl %>% 
+    filter(scen == scen_str & maatr == !!maatr) %>% 
+    pull(kaart)
+  
+  # Foutmelding indien de combinatie niet bestaat
+  if (length(res) == 0) {
+    stop("Geen kaart gevonden voor combinatie scen = '", scen, "' en maatr = '", maatr, "'")
+  }
+  
+  return(res)
+}
+```
+
+#### 2. Modelrun
+
+```{r swy}
+
+# Kies het studiegebied
+
+studiegebied <- "test"
+
+# Kies het scenario (0, 1, 2, 3_gras, 3_bos)
+scen <- "0"
+  
+# Kies de maatregel (nat, inf, kle, onth)
+maatr <- "inf"
+
+
+#//////////////////////////////////////////////////////////////
+# Automatisch
+#//////////////////////////////////////////////////////////////
+
+kaart <- get_kaart_naam(scen = scen, maatr = maatr)
+
+
+# Suffix voor naamgeving resultaten (-> B_suffix, L_suffix, ...)
+
+suffix <- if_else(scen == "0", "", str_c("sc", scen, "_", maatr))
+
+
+#//////////////////////////////////////////////////////////////
+# Voer de functie uit om L, B, aet, B_sum en QF te berekenen
+#//////////////////////////////////////////////////////////////
+
+# De resultaten worden weggeschreven naar de folder "C:/GIS/NARA2026/invest/R/outputs/studiegebied"
+
+run_invest_swy(studiegebied = studiegebied, kaart = kaart, suffix = suffix)
+
+```
+
+### 2. Modeloutputs in environment laden
+
+```{r modeloutputs}
+
+# aet <- rast(str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied, "/aet_", suffix, ".tif"))
+
+# baseflow <- rast(str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied, "/B_", suffix, ".tif"))
+
+# bsum <- rast(str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied, "/B_sum_", suffix, ".tif"))
+
+# recharge <- rast(str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied, "/L_", suffix, ".tif"))
+
+quickflow <- rast(str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied, "/QF_", suffix, ".tif"))
+
+```
+
+## Deel 2 - Infiltratie & dedrainage
+
+Na plaatsing van dedrainage- en infiltratiemaatregelen bevat de ecosysteemkaart (tussenstap4_sc1/2/3) codes voor **infiltratie** (210), **dedrainage** (220) en de **combinatie** van beide maatregelen (230).
+
+We maken eerst aparte rasterlagen voor infiltratie en dedrainage en berekenen vervolgens het effect van beide maatregelen afzonderlijk.
+
+```{r infiltratie_dedrainage_cellen}
+
+# Kies het scenario (opgelet: moet hetzelfde scenario zijn als in Investmodel)
+tussenstap4 <- if_else(grepl("tussenstap4", kaart), kaart, "alleen voor tussenstap4")
+
+cellen_infilt <- ifel(tussenstap4 %in% c(210, 230), 1, NA) # Cellen die afstromen naar infiltratiepoelen
+
+# cellen_dedrain <- ifel(tussenstap4 %in% c(220, 230), 1, NA)
+
+```
+
+### 1. Infiltratie
+
+```{r infiltratie}
+
+# Volume (m³) afstroming per cel per jaar: qf staat in mm -> omzetten naar m & vermenigvuldigen met opp. cel (100 m²)
+qf_afstroom <- cellen_infilt * (quickflow/1000) * 100 # mm/cel
+
+# Extra infiltratie in m³: vermenigvuldig afstroming met opvangefficiëntie (0.7)
+extra_infiltratie <- round(0.7 * pull(global(qf_afstroom, fun = "sum", na.rm = TRUE)), 0)
+
+# Infiltratie gebied zonder maatregelen
+infiltratie_gebied <- round(pull(global(recharge, fun = "sum", na.rm = TRUE))/1000 * 100, 0)
+
+# Totale infiltratie met maatregelen
+infiltratie_totaal <- infiltratie_gebied + extra_infiltratie
+
+# Kaart totale infiltratie
+infiltratie_totaal_r <- ifel(!is.na(cellen_infilt), recharge + 0.7 * quickflow, recharge)
+
+
+# Optioneel: extra infiltratie als % van iniltratieverliezen tegen 2050
+# totale_infiltratie_gebied_2020 <- round(pull(global(L_gebied_2020, fun = "sum", na.rm = TRUE))/1000 * 100, 0) # Zie berekening_infiltratie.R
+
+# totale_infiltratie_gebied_2050 <- round(pull(global(L_gebied_2050, fun = "sum", na.rm = TRUE))/1000 * 100, 0) # Zie berekening_infiltratie.R
+# 
+# infiltratieverlies_gebied <- (totale_infiltratie_gebied_2020 - totale_infiltratie_gebied_2050)
+# 
+# extra_infilt_pct <- 100 * extra_infiltratie / infiltratieverlies_gebied
+
+```
+
+### 2. Dedrainage
+
+Het effect van dedrainage wordt berekend in het script van de plaatsing van dedrainagemaatregelen (`08b_landbouw_drainage.Rmd`).
+
+## Grafieken
+
+Compilatie van de scenario's en maatregelen.
+
+```{r grafieken}
+
+
+# ==============================================================================
+# 1. RASTERS INLEZEN EN SOM BEREKENEN
+# ==============================================================================
+pad_folder <- str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied)
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE)
+
+df_raw <- map_df(tif_bestanden, function(f) {
+  r <- rast(f)
+  naam <- tools::file_path_sans_ext(basename(f))
+  som_waarde <- global(r, "sum", na.rm = TRUE)[[1]]
+  tibble(bestand = naam, som = som_waarde)
+})
+
+# ==============================================================================
+# 2. BESTANDSNAAM SPLITSEN NAAR DATAFRAME & VOLGORDES VASTLEGGEN
+# ==============================================================================
+maatregelen <- c("nat", "inf", "kle", "onth")
+scenarios   <- c("sc1", "sc2", "sc3_gras", "sc3_bos")
+
+df_clean <- df_raw %>%
+  mutate(
+    # Bepaal maatregel
+    maatregel = map_chr(bestand, ~ {
+      m <- maatregelen[str_detect(.x, paste0("_", maatregelen, "$"))]
+      if (length(m) > 0) m else "referentie"
+    }),
+    # Bepaal scenario
+    scenario = map_chr(bestand, ~ {
+      s <- scenarios[str_detect(.x, paste0("_", scenarios, "(_|$)"))]
+      if (length(s) > 0) s else "referentie"
+    }),
+    # Bepaal variabele (stript scenario en maatregel uit de naam)
+    variabele = str_remove(bestand, paste0("_(", paste(scenarios, collapse="|"), ").*")),
+    variabele = str_remove(variabele, paste0("_(", paste(maatregelen, collapse="|"), ")$"))
+  ) %>%
+  select(variabele, scenario, maatregel, som)
+
+# Volgordes vastleggen via factors
+scenario_niveaus  <- c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos")
+maatregel_niveaus <- c("referentie", "nat", "inf", "kle", "onth")
+
+df_clean <- df_clean %>%
+  mutate(
+    scenario  = factor(scenario, levels = scenario_niveaus),
+    maatregel = factor(maatregel, levels = maatregel_niveaus)
+  )
+
+
+# ==============================================================================
+# 3. TYPE 1 GRAFIEKEN: ABSOLUTE SOMMEN PER VARIABELE
+# ==============================================================================
+variabelen <- unique(df_clean$variabele)
+
+for (v in variabelen) {
+  df_var <- df_clean %>% filter(variabele == v)
+  
+  p1 <- ggplot(df_var, aes(x = scenario, y = som, fill = maatregel)) +
+    geom_col(position = position_dodge(preserve = "single"), color = "black", width = 0.7) +
+    labs(
+      title = paste("Absolute waarden -", v),
+      x = "Scenario",
+      y = "Som van rasterwaarden",
+      fill = "Maatregel"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid.major.x = element_blank(),
+      plot.title = element_text(face = "bold", size = 14)
+    )
+  
+  print(p1)
+  # ggsave(paste0("grafiek_absoluut_", v, ".png"), p1, width = 8, height = 5)
+}
+
+# ==============================================================================
+# 4. TYPE 2 GRAFIEKEN: STAPSGEWIJZE VERSCHILLEN
+# ==============================================================================
+# Bereken de stapsgewijze verschillen binnen elk scenario
+df_diff <- df_clean %>%
+  filter(scenario != "referentie") %>%
+  left_join(
+    df_clean %>% filter(scenario == "referentie") %>% select(variabele, som_ref = som),
+    by = "variabele"
+  ) %>%
+  group_by(variabele, scenario) %>%
+  mutate(
+    val_nat  = som[maatregel == "nat"],
+    val_inf  = som[maatregel == "inf"],
+    val_kle  = som[maatregel == "kle"],
+    val_onth = som[maatregel == "onth"],
+    verschil = case_when(
+      maatregel == "nat"  ~ val_nat - som_ref,
+      maatregel == "inf"  ~ val_inf - val_nat,
+      maatregel == "kle"  ~ val_kle - val_inf,
+      maatregel == "onth" ~ val_onth - val_kle,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    scenario = factor(scenario, levels = c("sc1", "sc2", "sc3_gras", "sc3_bos")),
+    maatregel = factor(maatregel, levels = c("nat", "inf", "kle", "onth"))
+  )
+
+for (v in variabelen) {
+  df_diff_var <- df_diff %>% filter(variabele == v)
+  
+  p2 <- ggplot(df_diff_var, aes(x = scenario, y = verschil, fill = maatregel)) +
+    geom_col(position = position_dodge(preserve = "single"), color = "black", width = 0.7) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+    labs(
+      title = paste("Stapsgewijze verschillen -", v),
+      subtitle = "nat - ref | inf - nat | kle - inf | onth - kle",
+      x = "Scenario",
+      y = "Verschil in rasterwaarden",
+      fill = "Maatregel"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid.major.x = element_blank(),
+      plot.title = element_text(face = "bold", size = 14)
+    )
+  
+  print(p2)
+  # ggsave(paste0("grafiek_verschil_", v, ".png"), p2, width = 8, height = 5)
+}
+```
