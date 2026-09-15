@@ -1,0 +1,286 @@
+---
+title: "ESD_erosie"
+author: "NARA"
+date: "2026-09-08"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r packages, include = FALSE}
+library(tidyverse)
+library(here)
+library(terra)
+library(sf)
+library(tidyterra)
+library(tools)
+library(readxl)
+library(igraph)
+library(viridis)
+library(mapview)
+library(leaflet) # Nodig voor colorFactor
+
+```
+## Inleiding
+
+Het onderstaande script berekent het vermeden erosierisico in elk scenario. Het resultaat is een kaart met het "vermeden bodemverlies" in ton droge stof (DS) per cel (100m²) per jaar. We brengen enkel het bodemverlies door watererosie in rekening. 
+
+Voor de berekening maken we gebruik van de RUSLE (Revised Universal Soil Loss Equation, Renard et al. 2011): 
+
+A = R*K*LS*P*C
+
+Met: 
+A = gemiddelde bodemverlies (ton DS/ha.j)
+R = regenerosiviteitsfactor (MJ.mm/ha.h.j)
+K = bodemerosiegevoeligheidsfactor (ton DS.h/MJ.mm)
+LS = topografische factor voor hellingslengte en hellingsgraad (dimensieloos)
+P = erosiebeheersingsfactor (dimensieloos)
+C = gewas- en bedrijfvoeringsfactor (dimensieloos). 
+
+De methodologie wordt meer in detail beschreven in bijlage 2 van Nelissen et al. 2016. 
+
+We berekenen telkens het verschil tussen het (risico op) bodemverlies in een scenario en het (risico op) bodemverlies in de huidige situatie (de referentietoestand in 2022). 
+R, K en LS blijven constant met R*K*LS uitgedrukt in ton DS/ha.jaar. 
+
+Voor P hanteren we op alle paarse (zeer sterk erosiegevoelige) en rode (sterk erosiegevoelige) akkerbouwpercelen een gewogen gemiddelde erosiebeheersingsfactor van respectievelijk 0,32 en 0,40.
+Daarbij houden we rekening met de huidige erosierandvoorwaarden en de toepassing van beheermaatregelen als groenbedekkers en niet-kerende bodembewerking op dergelijke percelen. 
+Om de erosiebescherming door kleine landschapselementen op akkers in rekening te brengen steunen we op onderstaande formule. 
+Ze beschrijft de erosiereductie op een perceel in functie van de breedte van de KLE (een grasstrook, uitgedrukt in m) (Nelissen et al. 2016): 
+
+ln(TSSin/TSSuit) = 2,66 * log(breedte grasstrook)
+
+Met TSSn/TSSuit = de verhouding van het sedimentgehalte (total suspended solids) in het inspoelende ten opzichte van het uitspoelende water. 
+We gaan ervan uit dat 1% KLE’s in een hectare overeenkomt met een strook van 1 m breedte, 10% = 10m breedte. 
+We berekenen de P-factoren per 100m²-cel in plaats van per ha-cel, om een waarde tussen 0 en 1 te bekomen vermenigvuldigen we het % KLE (de breedte in cm) per 100m²-cel dus met 100.
+
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `09_KLEs.Rmd`
+> |    \|—– herk_mombeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- erosie.shp -\> polygonenkaart met de erosiegevoeligheidszones (groen, geel, oranje, rood, paars) 
+- ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA)
+
+```{r bestanden_folders}
+
+studiegebied <- "herk_mombeek"
+
+# Kies de bestanden die je nodig hebt
+# ecosysteem_2022.tif is steeds nodig als referentieraster
+
+targets <- c("afstroomgebied_fin.tif", "ecosysteem_2022.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp", "gewascode.tif", "kle_fractie_tot_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "tussenstap4_sc1.tif", "tussenstap4_sc2.tif", "tussenstap4_sc3_bos.tif", "tussenstap4_sc3_gras.tif", "tussenstap4_sc3_75.tif")
+
+# In welke folders zitten de data?
+
+search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"), str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten"), 
+  "C:/R/NARA2026/scenarios/data")
+
+# Waar slaan we het resultaat op?
+
+result_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten")
+
+```
+
+### 1.2. Data inladen
+
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+
+```{r data_inladen}
+
+# 1. Inladen bestanden
+
+all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
+
+# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
+files_to_load <- all_available_files[basename(all_available_files) %in% targets]
+
+# functie om de bestanden in te laden (tifs, shapes en xlsx)
+load_file <- function(path) {
+  ext <- tolower(file_ext(path))
+  obj <- switch(ext,
+    "shp"  = st_read(path, quiet = TRUE),
+    "tif"  = rast(path),
+    "xlsx" = read_excel(path),
+    stop(paste("Bestandstype niet ondersteund:", ext))
+  )
+  return(obj)
+}
+
+data_list <- lapply(files_to_load, load_file)
+
+names(data_list) <- file_path_sans_ext(basename(files_to_load))
+
+
+# 2. CRS en extent gelijkstellen
+
+ref_raster <- data_list$ecosysteem_2022
+
+# Functie om rasters te harmoniseren
+harmoniseer_raster <- function(r, ref, is_categorisch = NULL) {
+  # Controleer of het object een raster is
+  if (!inherits(r, "SpatRaster")) {
+    return(r)
+  }
+ 
+  # Bepaal of het raster categorisch is
+  if (!is.null(is_categorisch)) {
+    is_cat <- is_categorisch
+  } else {
+    # Automatische detectie: check factor, bool, int of gehele getallen in double
+    is_cat <- is.factor(r) || is.bool(r) || is.int(r)
+   
+    if (!is_cat) {
+      vals <- values(r, mat = FALSE)
+      vals <- vals[!is.na(vals)] # Filter NA's vooraf weg
+     
+      # Als alle niet-NA waarden gehele getallen zijn, behandel als categorisch
+      if (length(vals) > 0 && all(vals == round(vals))) {
+        is_cat <- TRUE
+      }
+    }
+  }
+ 
+  # 'near' voor categorische data (codes), 'bilinear' voor continue data
+  method_type <- if(is_cat) "near" else "bilinear"
+ 
+  # CRS, extent en resolutie van ref_raster
+  r_gelijkaardig <- project(r, ref, method = method_type)
+ 
+  # Bijknippen met ref_raster
+  r_geclipt <- mask(r_gelijkaardig, ref)
+ 
+  return(r_geclipt)
+}
+# Pas functie toe op de hele lijst
+data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
+
+
+# 3. Zet bestanden in je Global Environment
+list2env(data_list_ok, envir = .GlobalEnv)
+
+```
+
+# 2. Erosierisico (bodemverlies) startkaart bepalen
+
+Daarvoor:
+1) Berekenen we de gewas- en beheerfactoren (C- en P-factoren) per ecosysteemtype.
+2) Brengen we het resultaat samen in 1 C*P-kaart.
+3) Die kaart vermenigvuldigen met de fysische geschiktheid voor erosie (R*K*LS uit RUSLE).
+
+```{r rusle startkaart}
+ecosysteem <- ecosysteem_2022
+kle_fractie <- kle_fractie_tot_start
+
+# 1. Maskers maken van akker/niet-akker
+
+landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230)
+
+niet_akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 0, 1)
+akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 1, 0)
+
+#landbouw_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330)
+#landbouw_codes_gras <- c(300, 301)
+#landbouw_masker <- ifel(ecosysteem %in% landbouw_codes, 1, 0)
+#niet_landbouw_masker <- ifel(ecosysteem %in% landbouw_codes, 0, 1)
+#gras_masker <- ifel(ecosysteem %in% landbouw_codes_gras, 1, 0)
+
+# 2. C-factor op akkers bepalen
+tbl_gewas    <- deel_3_reclass_gewascode_erosie
+reclass_gewas <- tbl_gewas %>% select(gewascode, c_factor) %>% as.matrix()
+gewas_erosie <- classify(x = gewascode, rcl = reclass_gewas, others = 0)
+
+# maximumwaarde c-factor op percelen met een zeer hoge en hoge erosiegevoeligheid (rode en paarse percelen) is 0,5
+erosie <- vect(erosie)
+erosie_rast <- rasterize(erosie, field = "klasse_va", ecosysteem)
+akker_erosie_masker <- ifel(erosie_rast == "zeer hoog" | erosie_rast == "hoog" | erosie_rast == "hoog /C", 1, 0)
+akker_erosie_masker_01 <- ifel(is.na(akker_erosie_masker), 0, akker_erosie_masker) # geen NA's voor vermenigvuldiging later
+akker_erosie_hoog <- akker_erosie_masker_01*gewas_erosie*akker_masker
+akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie*akker_masker)
+
+# 3. P-factor op akkers met KLE's
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+              ifel(kle_fractie > 0.20, 0.03, 1))
+# houtachtige KLE in grasland geven we dezelfde erosiegevoeligheid als struiken C-factor = 0,01 = de C-factor van gras --> hoeven we dus niet speciaal in rekening te brengen
+# gras_kle_c <- gras_masker*(ecosysteem_erosie*(1 - kle_start) + 0.01*kle_start)
+
+# grasstroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
+akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
+
+# 4. Aanvullende P-factor op akkers met hoge en zeer hoge erosiegevoeligheid
+akker_erosie_p <- ifel(erosie_rast == "zeer hoog", 0.3155,
+                       ifel(erosie_rast == "hoog" | erosie_rast == "hoog /C", 0.4018, 1))
+akker_erosie_p_01 <- ifel(is.na(akker_erosie_p), 1, akker_erosie_p)*akker_masker
+akker_erosie_cp <- akker_kle_cp*akker_erosie_p_01
+
+# 5. C-factor voor andere ecosystemen dan akker bepalen
+tbl_ecosysteem    <- deel_3_reclass_ecosysteem_erosie
+reclass_ecosysteem <- tbl_ecosysteem %>% select(ecosysteemcode, c_factor) %>% as.matrix()
+ecosysteem_erosie <- classify(x = ecosysteem, rcl = reclass_ecosysteem, others = 0)
+ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
+
+# 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
+cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+start_erosie <- fysges_ton_ha/100*cp_factor_totaal
+
+mapview(start_erosie)
+```
+
+# 3. Scenario 1: vermeden (risico op) bodemverlies
+```{r rusle scen1}
+ecosysteem <- tussenstap4_sc1
+kle_fractie <- kle_fractie_gecorrigeerd_sc1
+
+# 1. Maskers maken van akker/niet-akker
+
+landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230)
+
+niet_akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 0, 1)
+akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 1, 0)
+
+# 2. C-factor op akkers bepalen
+
+# maximumwaarde c-factor op percelen met een zeer hoge en hoge erosiegevoeligheid (rode en paarse percelen) is 0,5
+
+akker_erosie_hoog <- akker_erosie_masker_01*gewas_erosie*akker_masker
+akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie*akker_masker)
+
+# 3. P-factor op akkers met KLE's
+
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+              ifel(kle_fractie > 0.20, 0.03, 1))
+
+# grasstroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
+akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
+
+# 4. Aanvullende P-factor op akkers met hoge en zeer hoge erosiegevoeligheid
+
+akker_erosie_p_01 <- ifel(is.na(akker_erosie_p), 1, akker_erosie_p)*akker_masker
+akker_erosie_cp <- akker_kle_cp*akker_erosie_p_01
+
+# 5. C-factor voor andere ecosystemen dan akker bepalen
+
+ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
+
+# 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
+
+cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+scen1_erosie <- fysges_ton_ha/100*cp_factor_totaal
+
+mapview(scen1_erosie)
+
+# 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
+
+scen1_erosie_vermeden <- start_erosie - scen1_erosie
+```
+
