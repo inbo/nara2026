@@ -184,7 +184,7 @@ kle_fractie <- kle_fractie_tot_start
 
 # 1. Maskers maken van akker/niet-akker
 
-landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230)
+landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335)
 
 niet_akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 0, 1)
 akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 1, 0)
@@ -243,7 +243,7 @@ kle_fractie <- kle_fractie_gecorrigeerd_sc1
 
 # 1. Maskers maken van akker/niet-akker
 
-landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230)
+landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335)
 
 niet_akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 0, 1)
 akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 1, 0)
