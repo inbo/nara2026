@@ -74,12 +74,12 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("afstroomgebied_fin.tif", "ecosysteem_2022.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp", "gewascode.tif", "kle_fractie_tot_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "tussenstap4_sc1.tif", "tussenstap4_sc2.tif", "tussenstap4_sc3_bos.tif", "tussenstap4_sc3_gras.tif", "tussenstap4_sc3_75.tif")
+targets <- c("afstroomgebied_fin.tif", "ecosysteem_2022.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp", "gewascode.tif", "kle_fractie_gecorrigeerd_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif")
 
 # In welke folders zitten de data?
 
@@ -180,9 +180,10 @@ Daarvoor:
 
 ```{r rusle startkaart}
 ecosysteem <- ecosysteem_2022
-kle_fractie <- kle_fractie_tot_start
+kle_fractie <- kle_fractie_gecorrigeerd_start
 
 # 1. Maskers maken van akker/niet-akker
+# opgelet: KLE's aan de rand van akkers en weilanden zijn in de ecosysteemkaart vaak als bos (400 of 404) gecatalogeerd. Cellen met KLE's buiten de officiële landbouwcellen, tellen we wel mee als "landbouwgebied" en rekenen we mee als "KLE's op akker".
 
 landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335)
 
@@ -238,7 +239,7 @@ mapview(start_erosie)
 
 # 3. Scenario 1: vermeden (risico op) bodemverlies
 ```{r rusle scen1}
-ecosysteem <- tussenstap4_sc1
+ecosysteem <- scen_1_ecosysteem_finaal
 kle_fractie <- kle_fractie_gecorrigeerd_sc1
 
 # 1. Maskers maken van akker/niet-akker
@@ -282,5 +283,6 @@ mapview(scen1_erosie)
 # 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
 
 scen1_erosie_vermeden <- start_erosie - scen1_erosie
+writeRaster(scen1_erosie_vermeden, file.path(result_path, "scen1_erosie_vermeden.tif"), overwrite = TRUE)
 ```
 
