@@ -185,16 +185,14 @@ kle_fractie <- kle_fractie_gecorrigeerd_start
 # 1. Maskers maken van akker/niet-akker
 # opgelet: KLE's aan de rand van akkers en weilanden zijn in de ecosysteemkaart vaak als bos (400 of 404) gecatalogeerd. Cellen met KLE's buiten de officiële landbouwcellen, tellen we wel mee als "landbouwgebied" en rekenen we mee als "KLE's op akker".
 
+landbouw_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335, 3005, 3015, 3025, 3035)
 landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335)
 
-niet_akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 0, 1)
-akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker, 1, 0)
+niet_landbouw_masker <- ifel(ecosysteem %in% landbouw_codes, 0, 1)
+kle_buiten_landbouw <- ifel(ecosysteem %in% niet_landbouw_masker & kle_fractie > 0, 1, 0)
 
-#landbouw_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330)
-#landbouw_codes_gras <- c(300, 301)
-#landbouw_masker <- ifel(ecosysteem %in% landbouw_codes, 1, 0)
-#niet_landbouw_masker <- ifel(ecosysteem %in% landbouw_codes, 0, 1)
-#gras_masker <- ifel(ecosysteem %in% landbouw_codes_gras, 1, 0)
+akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker| kle_buiten_landbouw > 0, 1, 0)
+niet_akker_masker <- ifel(akker_masker == 1, 0, 1)
 
 # 2. C-factor op akkers bepalen
 tbl_gewas    <- deel_3_reclass_gewascode_erosie
