@@ -72,7 +72,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -103,10 +103,10 @@ files_to_load <- all_available_files[basename(all_available_files) %in% targets]
 load_file <- function(path) {
   ext <- tolower(file_ext(path))
   obj <- switch(ext,
-    "shp"  = st_read(path, quiet = TRUE),
-    "tif"  = rast(path),
-    "xlsx" = read_excel(path),
-    stop(paste("Bestandstype niet ondersteund:", ext))
+                "shp"  = st_read(path, quiet = TRUE),
+                "tif"  = rast(path),
+                "xlsx" = read_excel(path),
+                stop(paste("Bestandstype niet ondersteund:", ext))
   )
   return(obj)
 }
@@ -117,21 +117,42 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$ecosysteem
+ref_raster <- as.int(data_list$ecosysteem_2022)
 
 # Functie om rasters te harmoniseren
-harmoniseer_raster <- function(r, ref) {
+harmoniseer_raster <- function(r, ref, is_categorisch = NULL) {
   # Controleer of het object een raster is
   if (!inherits(r, "SpatRaster")) {
     return(r) 
   }
+  
+  # Bepaal of het raster categorisch is
+  if (!is.null(is_categorisch)) {
+    is_cat <- is_categorisch
+  } else {
+    # Automatische detectie: check factor, bool, int of gehele getallen in double
+    is_cat <- is.factor(r) || is.bool(r) || is.int(r)
+    
+    if (!is_cat) {
+      vals <- values(r, mat = FALSE)
+      vals <- vals[!is.na(vals)] # Filter NA's vooraf weg
+      
+      # Als alle niet-NA waarden gehele getallen zijn, behandel als categorisch
+      if (length(vals) > 0 && all(vals == round(vals))) {
+        is_cat <- TRUE
+      }
+    }
+  }
+  
   # 'near' voor categorische data (codes), 'bilinear' voor continue data
-  is_cat <- is.factor(r) || is.bool(r)
   method_type <- if(is_cat) "near" else "bilinear"
+  
   # CRS, extent en resolutie van ref_raster
   r_gelijkaardig <- project(r, ref, method = method_type)
+  
   # Bijknippen met ref_raster
   r_geclipt <- mask(r_gelijkaardig, ref)
+  
   return(r_geclipt)
 }
 
@@ -161,7 +182,19 @@ glg_r          <- glg
 glg_r[is.na(glg_r)] <- 0 # water is NA in raster -> gelijkstellen aan 0 (= maaiveld)
 ```
 
-## Vernatting percelen
+**Scenario kiezen**
+
+```{r scenario_kiezen}
+
+naam <- "sc3_veenherstel"
+
+scenario <- get(naam)
+
+bestandsnaam <- str_c("vernattingscontour_", str_extract(naam, "sc\\d+"), ".tif")
+
+```
+
+## 1. Vernatting percelen
 
 De signaalkaart bestaat uit honderden polygonen waarvan de gewenste stijghoogte om het natuurdoel te realiseren vaak verschilt voor naburige polygonen. Dat leidt vaak tot onlogische streefpeilen op het terrein. Door technische ingrepen zoals drainagegrachten of stuwen kunnen percelen wel hydrologisch van elkaar geïsoleerd worden, maar in de praktijk worden herstelmaatregelen meestal uitgevoerd voor grotere zones waarin de hoogste grondwaterpeilen bepalend zijn.
 
@@ -180,57 +213,9 @@ Door te werken met klassen ipv de exacte stijghoogte of hoogteligging verliezen 
     - droge percelen (d) -\> 1.2 m
   - Op basis van de huidige glg per polygoon wordt vervolgens het verschil met het gewenste peilniveau berekend.
 
-### Optie 1 - op basis van de signaalkaart (beperkt tot SBZ-H)
+### Stap 1 - Signaalkaart maken
 
-```{r percelen_signaalkaart, echo=FALSE}
-
-rivier_buffers <- st_buffer(rivieren, dist = 1)
-rivier_buffer <- st_union(rivier_buffers)
-
-percelen <- signaalkaart %>% st_transform(st_crs(ecosysteem_2022)) %>% 
-  st_make_valid() %>%
-  st_cast("POLYGON") %>%
-  st_difference(rivier_buffer) %>%
-  st_collection_extract("POLYGON") %>%
-  mutate(FID = row_number())
-
-# Stap 1: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
-# meest voorkomende hoogteklasse per perceel
-dtm_klass <- floor(dtm_r / 0.5) * 0.5 # dtm reclassen in stappen van 0.5 m
-percelen$h_klasse <- exact_extract(dtm_klass, percelen, 'mode')
-
-percelen_final <- percelen %>%
-  filter(klasse != "d") %>% # geen peilverhoging voor droge percelen
-  group_by(klasse, h_klasse) %>%
-  summarize(geometry = st_union(geometry), .groups = "drop") %>%
-  st_make_valid() %>%
-  st_collection_extract("POLYGON") %>%
-  st_cast("POLYGON") %>%
-  mutate(id = row_number())
-
-# Peilwijziging berekenen
-
-# Stap 2: Gewenste stijghoogte berekenen via de glg-laag
-percelen_final <- percelen_final %>%
-  dplyr::filter(as.numeric(st_area(.)) > 0) %>% # verwijder lege polygons
-  mutate(streefpeil = recode_values(klasse,
-                                 "zn" ~ 0.125,
-                                 "n"  ~ 0.375,
-                                 "v"  ~ 0.85,
-                                 "d"  ~ 1.2
-  ))
-
-ext_waarden <- exact_extract(glg_r, percelen_final, 'median')
-
-percelen_final$huidige_glg <- exact_extract(glg_r, percelen_final, 'median')
-percelen_final <- percelen_final %>%
-  mutate(peilwijziging = pmax(0, huidige_glg - streefpeil))
-
-```
-
-### Optie 2 - op basis van de toekomstkaart
-
-#### Stap 0 - Signaalkaart maken
+Op basis van de toekomstkaart
 
 ```{r percelen_glg}
 
@@ -278,9 +263,9 @@ percelen_glg <- merge(percelen, percelen_scores, by.x = "ID_perceel", by.y = "ID
 
 ```
 
-#### Stap 1 - Rastercellen toevoegen
+### Stap 2 - Rastercellen veenherstel toevoegen
 
-We voegen de zones van veenherstel toe (`scx_veenherstel` -\> zie script `04_IHD`): 1 = ondiep veen (natte condities (n)) ; 2 = oppervlakkig veen (zeer natte condities (zn))
+We voegen de zones van veenherstel toe (`scx_veenherstel` -\> zie script `04_IHD`): 1 = ondiep veen (natte condities (n)) ; 2 = oppervlakkig veen (zeer natte condities (zn)). De kaart van veenherstel wordt ingeladen onder '`Datalagen klaarmaken`'.
 
 ```{r toevoegen_nieuwe_rastercellen}
 
@@ -290,7 +275,7 @@ We voegen de zones van veenherstel toe (`scx_veenherstel` -\> zie script `04_IHD
 
 # kaart veenherstel scenario's
 # veen <- st_intersection(veen1970_poly, gebied)
-r_veen <- sc1_veenherstel
+r_veen <- scenario
 # r_veen_buf <- buffer(r_veen, 200) %>% ifel(1, NA)
 
 # Vectoriseren van veenkaart
@@ -355,23 +340,23 @@ percelen_glg_veen <- percelen_glg_veen %>%
 
 ```
 
-#### Stap 2 - Percelen samenvoegen
+### Stap 3 - Percelen samenvoegen
 
 ```{r Stap2}
 
 # Stap 2: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
 
 # 1. Percelen voorbereiden
-percelen_glg_veen <- percelen_glg_veen %>%
+percelen_glg_veen2 <- percelen_glg_veen %>%
   st_make_valid() %>%
   filter(!st_is_empty(.)) %>%
   st_collection_extract("POLYGON") %>%
   st_cast("MULTIPOLYGON")
 
-v_percelen <- vect(percelen_glg_veen)
+v_percelen <- vect(percelen_glg_veen2)
 
 # 2. Rivieren voorbereiden
-rivieren <- st_transform(rivieren, st_crs(percelen_glg_veen))
+rivieren <- st_transform(rivieren, st_crs(percelen_glg_veen2))
 
 v_rivier <- vect(rivieren)
 
@@ -403,13 +388,15 @@ dtm_klass <- floor(dtm_r / 0.5) * 0.5 # dtm reclassen in stappen van 0.5 m
 percelen_cut$h_klasse <- exact_extract(dtm_klass, percelen_cut, 'mode')
 
 percelen_final <- percelen_cut %>%
-  filter(klasse != "d") %>% # geen peilverhoging voor droge percelen
+  filter(klasse != "d") %>%   # Geen peilverhoging voor droge percelen
   st_make_valid() %>%
-  st_buffer(dist = 0) %>%
+  filter(!st_is_empty(.)) %>% # Verwijder lege geometrieën
   group_by(klasse, h_klasse) %>%
   summarize(geometry = st_union(geometry), .groups = "drop") %>%
-  st_collection_extract("POLYGON") %>%
-  st_cast("POLYGON") %>%
+  st_make_valid() %>%
+  filter(!st_is_empty(.)) %>% # Verwijder opnieuw lege objecten
+  st_cast("MULTIPOLYGON") %>% # Zet GEOMETRYCOLLECTION om naar MULTIPOLYGON
+  st_cast("POLYGON") %>%    # Splits op naar losse polygonen
   mutate(id = row_number())
 
 # Peilwijziging berekenen
@@ -433,7 +420,7 @@ percelen_final <- percelen_final %>%
 
 ```
 
-## Contouren
+## 2. Contouren
 
 Formule:
 
@@ -763,8 +750,57 @@ vernattingscontour <- classify(glg_zone, rcl_matrix, right = TRUE)
 # mapview(contour, col.regions = "turquoise", na.color = "transparent") + mapview(contour_landb, col.regions = "blue",na.color = "transparent") + mapview(percelen_select_opp, zcol = "klasse")
 # mapview(vernattingscontour, maxpixels = 2000000, maxBytes = 15 * 1024 * 1024) + mapview(percelen_glg_veen, zcol = "klasse")
 
-# PAS NAAM BESTAND AAN (sc1, sc2, sc3)
-writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/vernattingscontour_sc1.tif"), overwrite = TRUE)
 
+
+
+writeRaster(vernattingscontour, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/", bestandsnaam), overwrite = TRUE)
+
+```
+
+## x. Vernatting op basis van de signaalkaart (beperkt tot SBZ-H)
+
+```{r percelen_signaalkaart, echo=FALSE}
+
+rivier_buffers <- st_buffer(rivieren, dist = 1)
+rivier_buffer <- st_union(rivier_buffers)
+
+percelen <- signaalkaart %>% st_transform(st_crs(ecosysteem_2022)) %>% 
+  st_make_valid() %>%
+  st_cast("POLYGON") %>%
+  st_difference(rivier_buffer) %>%
+  st_collection_extract("POLYGON") %>%
+  mutate(FID = row_number())
+
+# Stap 1: Percelen samenvoegen (dissolve) op basis van peilklasse en dtm
+# meest voorkomende hoogteklasse per perceel
+dtm_klass <- floor(dtm_r / 0.5) * 0.5 # dtm reclassen in stappen van 0.5 m
+percelen$h_klasse <- exact_extract(dtm_klass, percelen, 'mode')
+
+percelen_final <- percelen %>%
+  filter(klasse != "d") %>% # geen peilverhoging voor droge percelen
+  group_by(klasse, h_klasse) %>%
+  summarize(geometry = st_union(geometry), .groups = "drop") %>%
+  st_make_valid() %>%
+  st_collection_extract("POLYGON") %>%
+  st_cast("POLYGON") %>%
+  mutate(id = row_number())
+
+# Peilwijziging berekenen
+
+# Stap 2: Gewenste stijghoogte berekenen via de glg-laag
+percelen_final <- percelen_final %>%
+  dplyr::filter(as.numeric(st_area(.)) > 0) %>% # verwijder lege polygons
+  mutate(streefpeil = recode_values(klasse,
+                                 "zn" ~ 0.125,
+                                 "n"  ~ 0.375,
+                                 "v"  ~ 0.85,
+                                 "d"  ~ 1.2
+  ))
+
+ext_waarden <- exact_extract(glg_r, percelen_final, 'median')
+
+percelen_final$huidige_glg <- exact_extract(glg_r, percelen_final, 'median')
+percelen_final <- percelen_final %>%
+  mutate(peilwijziging = pmax(0, huidige_glg - streefpeil))
 
 ```
