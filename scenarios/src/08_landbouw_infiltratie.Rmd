@@ -56,7 +56,7 @@ Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappe
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
@@ -383,12 +383,12 @@ ecosysteem_infilt <- deepcopy(tussenstap3_sc1)
 
 ecosysteem_infilt[top_cellen] <- code_afstroom
 
-# sc1_infilt_cellen <- ifel(ecosysteem_infilt == 210, 1, NA)
+sc1_infilt_cellen <- ifel(ecosysteem_infilt == 210, 1, NA)
 
 
 writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_infilt.tif"), overwrite = TRUE)
 
-
+writeRaster(sc1_infilt_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_infilt_cellen.tif"), overwrite = TRUE)
 
 
 
@@ -546,7 +546,7 @@ sc2_infilt_cellen <- ifel(ecosysteem_infilt == 210, 1, NA)
 
 writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_infilt.tif"), overwrite = TRUE)
 
-
+writeRaster(sc2_infilt_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_infilt_cellen.tif"), overwrite = TRUE)
 
 #//////////////////////////////////////////////////////////
 # 2. Oppervlakte infiltratiepoelen
@@ -719,11 +719,12 @@ ecosysteem_infilt <- deepcopy(tussenstap3_sc3_75)
 
 ecosysteem_infilt[top_cellen] <- code_afstroom
 
-sc3_infilt_cellen_75 <- ifel(ecosysteem_infilt == 210, 1, NA)
+sc3_75_infilt_cellen <- ifel(ecosysteem_infilt == 210, 1, NA)
 
 
 writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_infilt_75.tif"), overwrite = TRUE)
 
+writeRaster(sc3_75_infilt_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_75_infilt_cellen.tif"), overwrite = TRUE)
 ```
 
 #### 2) 25% van geschikte cellen
@@ -773,7 +774,7 @@ akkers_niet_voeding <- landb_akkers %>%
 r_akkers_niet_voeding <- mask(rasterize(akkers_niet_voeding, ecosysteem_2022, field = 1), ecosysteem_2022, updatevalue = NA)
 
 
-# Berekening doeloppervlakte afstroomzone (75% van geschikte oppervlakte)
+# Berekening doeloppervlakte afstroomzone (25% van geschikte oppervlakte)
 
 sc3_doel_25 <- sc1_doel
 
@@ -882,6 +883,14 @@ if (nog_nodig > 0) {
 # 5. De originele ecosysteemkaart aanpassen
 top_cellen <- df$cell[df$patch %in% geselecteerde_patches]
 
+ecosysteem_infilt <- deepcopy(tussenstap3_sc3_25_gras)
+
+ecosysteem_infilt[top_cellen] <- code_afstroom
+
+sc3_25_infilt_cellen <- ifel(ecosysteem_infilt == 210, 1, NA)
+
+writeRaster(sc3_25_infilt_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_25_infilt_cellen.tif"), overwrite = TRUE)
+
 #///////////////////////////////////////////////////////////
 # grasscenario -> 210 wordt semi-natuurlijk grasland (302)
 #///////////////////////////////////////////////////////////
@@ -892,9 +901,9 @@ ecosysteem_infilt[top_cellen] <- 302
 
 writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_infilt_25_gras.tif"), overwrite = TRUE)
 
-ecosysteem_infilt <- deepcopy(tussenstap3_sc3_25_gras)
-ecosysteem_infilt[top_cellen] <- code_afstroom
-sc3_infilt_cellen_25_gras <- ifel(ecosysteem_infilt == 210, 1, NA)
+# ecosysteem_infilt <- deepcopy(tussenstap3_sc3_25_gras)
+# ecosysteem_infilt[top_cellen] <- code_afstroom
+# sc3_infilt_cellen_25_gras <- ifel(ecosysteem_infilt == 210, 1, NA)
 
 
 #///////////////////////////////////////////////////////////
@@ -907,9 +916,9 @@ ecosysteem_infilt[top_cellen] <- 401
 
 writeRaster(ecosysteem_infilt, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_infilt_25_bos.tif"), overwrite = TRUE)
 
-ecosysteem_infilt <- deepcopy(tussenstap3_sc3_25_bos)
-ecosysteem_infilt[top_cellen] <- code_afstroom
-sc3_infilt_cellen_25_bos <- ifel(ecosysteem_infilt == 210, 1, NA)
+# ecosysteem_infilt <- deepcopy(tussenstap3_sc3_25_bos)
+# ecosysteem_infilt[top_cellen] <- code_afstroom
+# sc3_infilt_cellen_25_bos <- ifel(ecosysteem_infilt == 210, 1, NA)
 ```
 
 ## 3. Impact van maatregelen

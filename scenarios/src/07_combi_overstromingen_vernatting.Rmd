@@ -205,7 +205,7 @@ De combineerbaarheid van de natuurdoelen met overstromingen wordt bepaald op bas
 - wd20 = tolerantie voor een **winter**overstroming met waterdiepte minder dan **20 cm**, op basis van het **meest tolerante** vegetatietype
 - minzd50 = tolerantie voor een **zomer**overstroming met waterdiepte meer dan **50 cm**, op basis van het **minst tolerante** vegetatietype
 
-In deze analyse gebruiken we de scores voor de **minst tolerante types bij een winsteroveroverstroming**. Dat komt overeen met een *worst case* scenario bij een zware winteroverstroming. Zomeroverstromingen laten we buiten beschouwing omdat die eerder zeldzaam zijn (cf. waterbom).
+In deze analyse gebruiken we de scores voor de **minst tolerante types bij een winteroveroverstroming** (voor de **frequentie** nemen we de scores voor een regelmatige overstroming (1 x per 2-10 jaar) en voor de **duur** nemen we minder dan 14 dagen). Dat komt overeen met een *worst case* scenario bij een zware winteroverstroming. Zomeroverstromingen laten we buiten beschouwing omdat die eerder zeldzaam zijn (cf. waterbom).
 
 Stappen:
 

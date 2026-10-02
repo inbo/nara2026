@@ -12,7 +12,6 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
     if (!requireNamespace(pkg, quietly = TRUE)) {
       ontbrekende_packages <- c(ontbrekende_packages, pkg)
     } else {
-      # Laad het package als het nog niet geactiveerd is in de zoekpaden
       if (!paste0("package:", pkg) %in% search()) {
         suppressPackageStartupMessages(library(pkg, character.only = TRUE))
       }
@@ -63,7 +62,7 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   # ==============================================================================
   
   # 1. Paden opbouwen
-  scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data")
+  scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
   gis_data_dir  <- "C:/GIS/NARA2026/invest/data"
   
   path_lulc     <- file.path(scenarios_dir, kaart)
@@ -119,12 +118,6 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   
   r_soil_clean <- classify(r_soil_sub, matrix(c(-Inf, 0.5, NA, 4.5, Inf, NA), ncol = 3, byrow = TRUE))
   r_soil_clean <- resample(r_soil_clean, r_lulc, method = "near")
-  
-  # Facultatief: ontbrekende HSG-cellen opvullen met waarde 2 of 3
-  # r_fill <- r_lulc
-  # values(r_fill) <- ifelse(is.na(values(r_lulc)), NA, 2)
-  # 
-  # r_soil_clean <- cover(r_soil_clean, r_fill)
   r_soil_clean <- mask(r_soil_clean, r_lulc)
   
   writeRaster(r_soil_clean, path_soil_out, datatype = "INT1U", overwrite = TRUE)
@@ -162,7 +155,7 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
     flow_dir_algorithm    = "MFD"
   )
   
-  # Activeer logging (om voortgang van modelrun te volgen)
+  # Activeer logging
   logging$basicConfig(
     level = logging$INFO,
     format = "%(asctime)s [%(levelname)s] %(message)s",
@@ -175,23 +168,22 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   invest_swy$execute(args)
   message("Modelrun succesvol afgerond")
   
-  
   # ==============================================================================
-  # Ouputs opkuisen en afstemmen op ecosysteemkaart
+  # OUTPUTS OPKUISEN, AFSTEMMEN EN WEGSCHRIJVEN NAAR SCENARIO-SUBFOLDER
   # ==============================================================================
-  # InVEST voegt automatisch een '_' toe als suffix niet leeg is en niet met '_' begint
   clean_suffix <- if (nchar(suffix) > 0 && !startsWith(suffix, "_")) paste0("_", suffix) else suffix
   
-  # 8. Opkuisen outputfolder
-  message("Bestanden opkuisen: overbodige bestanden en de intermediate folder worden verwijderd...")
+  # Bepaal de naam en het pad van de doelmap (bv. "sc1_nat" of "referentie" indien suffix leeg is)
+  folder_naam <- if (nchar(suffix) > 0) gsub("^_", "", clean_suffix) else "referentie"
+  target_dir  <- file.path(workspace_path, folder_naam)
+  if (!dir.exists(target_dir)) dir.create(target_dir, recursive = TRUE)
+  
+  # 8. Verplaats 'aet' uit intermediate_outputs naar de hoofd-workspace
+  message("Bestanden voorbereiden voor opslag in subfolder '", folder_naam, "'...")
   
   if (dir.exists(intermediate_path)) {
-    # Dynamisch patroon voor 'aet' met suffix
     aet_patroon <- paste0("^aet", clean_suffix, "\\.(tif|tif\\.aux\\.xml|tfw|prj)$")
-    
-    aet_bestanden <- list.files(intermediate_path, 
-                                pattern = aet_patroon, 
-                                full.names = TRUE)
+    aet_bestanden <- list.files(intermediate_path, pattern = aet_patroon, full.names = TRUE)
     
     if (length(aet_bestanden) > 0) {
       file.rename(from = aet_bestanden, 
@@ -199,19 +191,9 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
     }
   }
   
-  # Dynamisch patroon voor alle te behouden bestanden
-  te_behouden_patroon <- paste0("^(QF|B|B_sum|L|aet)", clean_suffix, "\\.(tif|tif\\.aux\\.xml|tfw|prj)$")
+  # 9. Finale outputs maskeren en direct wegschrijven naar de doel-subfolder
+  message("Outputs maskeren met ecosysteemkaart en opslaan in: ", target_dir)
   
-  alle_items <- list.files(workspace_path, full.names = TRUE, include.dirs = TRUE)
-  mag_blijven <- grepl(te_behouden_patroon, basename(alle_items))
-  items_om_te_verwijderen <- alle_items[!mag_blijven]
-  
-  unlink(items_om_te_verwijderen, recursive = TRUE, force = TRUE)
-  
-  # 9. Finale outputs maskeren met de ecosysteemkaart
-  message("Outputs afsnijden op basis van NoData-waarden van de ecosysteemkaart...")
-  
-  # Dynamisch patroon voor enkel de .tif rasters
   tif_patroon <- paste0("^(QF|B|B_sum|L|aet)", clean_suffix, "\\.tif$")
   tif_outputs <- list.files(workspace_path, pattern = tif_patroon, full.names = TRUE)
   
@@ -224,8 +206,20 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
     r_lulc_aligned <- resample(r_lulc_aligned, r_out, method = "near")
     r_out_masked   <- mask(r_out, r_lulc_aligned)
     
-    writeRaster(r_out_masked, f, overwrite = TRUE)
+    # Sla op in de specifieke subfolder
+    doel_bestand <- file.path(target_dir, basename(f))
+    writeRaster(r_out_masked, doel_bestand, overwrite = TRUE)
   }
   
-  message("Proces afgerond. Enkel de gemaskerde bestanden blijven over in ", workspace_path)
+  # 10. Veilig opruimen van losse bestanden in workspace_path (zonder subfolders te wissen)
+  if (dir.exists(intermediate_path)) {
+    unlink(intermediate_path, recursive = TRUE, force = TRUE)
+  }
+  
+  # Selecteer enkel losse bestanden in workspace_path om te wissen (bestaande run-folders blijven gespaard)
+  losse_bestanden <- list.files(workspace_path, full.names = TRUE, include.dirs = FALSE)
+  losse_bestanden <- losse_bestanden[!dir.exists(losse_bestanden)]
+  unlink(losse_bestanden, force = TRUE)
+  
+  message("Proces afgerond. Enkel de gemaskerde bestanden zijn veilig opgeslagen in: ", target_dir)
 }

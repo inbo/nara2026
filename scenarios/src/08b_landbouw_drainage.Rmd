@@ -40,6 +40,7 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 Deze datasets zijn specifiek voor dit script:
 
 - ecosysteem_2022.tif -\> ecosysteemkaart 2022 zonder buffer
+- ecosysteem_2022_nat.tif -\> ecosysteemkaart 2022 met aanduiding natte natuur
 - gebied.shp -\> polygoon van het gebied
 - tempnat.tif -\> tijdelijk natte gebieden watersysteemkaart UA
 - permnat.tif -\> tijdelijk natte gebieden watersysteemkaart UA
@@ -62,12 +63,12 @@ Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappe
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "gebied.shp", "tempnat.tif", "permnat.tif", "verplichting_peilgestuurd.shp", "pgd_potent.tif", "droogteintensiteit.tif", "lbgp_2022.shp", "voedingsgebied_combi.tif", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "toekomstlaag.shp", "bwk_eenh1.tif", "textuur.tif", "aet_vl_2022.tif", "tussenstap2_sc1.tif", "tussenstap2_sc2.tif", "tussenstap2_sc3.tif")
+targets <- c("ecosysteem_2022.tif", "ecosysteem_2022_nat.tif", "gebied.shp", "tempnat.tif", "permnat.tif", "verplichting_peilgestuurd.shp", "pgd_potent.tif", "droogteintensiteit.tif", "lbgp_2022.shp", "voedingsgebied_combi.tif", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "toekomstlaag.shp", "bwk_eenh1.tif", "textuur.tif", "aet_vl_2022.tif", "tussenstap2_sc1.tif", "tussenstap2_sc2.tif", "tussenstap2_sc3.tif")
 
 # In welke folders zitten de data?
 
@@ -194,7 +195,7 @@ potentie_dedrain <- ifel(!is.na(nat_buffer) & !is.na(pgd_potentie) & pgd_potenti
 potentie_dedrain_full <- ifel(is.na(nat_buffer) & pgd_potentie > 0, 0, pgd_potentie)
 
 # Grachten dempen of verondiepen -> niet in ruimtebeslag (niet combineerbaar met bebouwing) en niet in estuaria of water
-geschikt_ecos <- ifel(ecosysteem_2022 >= 200 & ecosysteem_2022 < 800, 1, NA)
+geschikt_ecos <- ifel((ecosysteem_2022_nat >= 200 & ecosysteem_2022_nat < 800) | ecosysteem_2022_nat > 2000, 1, NA)
 
 potentie_dedrain <- ifel(!is.na(geschikt_ecos) & !is.na(potentie_dedrain), potentie_dedrain, NA)
 
@@ -252,7 +253,7 @@ bos_drain <- ifel(ecosysteem_2022 %in% c(400, 401, 403, 404) & bwk_eenh1 %in% l_
 
 #### c) Bergingscoëfficiënten en evapotranspiratie
 
-De bergingscoëfficiënten worden berekend op basis van de bodetextuur.
+De bergingscoëfficiënten worden berekend op basis van de bodemtextuur.
 
 ```{r bergingscoëfficiënten}
 
@@ -342,7 +343,7 @@ sc1_doel <- round(0.25 * f[f$value == 1, "count"], 0)
 
 De doeloppervlakte (`sc1_doel`) wordt gealloceerd volgens de geschiktheid van de cellen (hoogste geschiktheid eerst). Alleen landbouwcellen komen in aanmerking.
 
-De geselecteerde cellen krijgen code 220 in de nieuwe kaart (`ecosysteem_aangepast`).
+De geselecteerde cellen krijgen code 220 in de nieuwe kaart.
 
 ```{r allocatie_sc1}
 
@@ -440,6 +441,7 @@ ecosysteem_dedrain[top_cellen] <- code_dedrain
 
 sc1_dedrain_cellen <- ifel(ecosysteem_dedrain == 220, 1, NA)
 
+writeRaster(sc1_dedrain_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_dedrain_cellen.tif"), overwrite = TRUE)
 
 writeRaster(ecosysteem_dedrain, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_dedrain.tif"), overwrite = TRUE)
 
@@ -459,7 +461,7 @@ Andere bossen en semi-natuurlijke graslanden laten we buiten beschouwing omdat e
 
 Cellen met nieuwe natte natuur of binnen de vernattingscontouren worden eerst opgevuld (score 100), vervolgens de geschikte cellen in het voedingsgebied (score 10) en tenslotte de rest van de geschikte cellen (2-4).
 
-Bij nieuwe natte natuur voor de **realisatie van natuurstreefbeelden** (toekomstlaag) varieert de nieuwe grondwaterstand ifv de huidige grondwaterstand en de afstand tot de te vernatten natuur. De kaart `vernattingscontour_sc2/sc3` deelt die vernattingszone op in klassen van 0-0.25 m (klasse 1), 0.25-0.5m (klasse 2), 0.5-0.75m (klasse 3) en 1m (klasse 4) onder het maaiveld. Bij nieuwe natte natuur voor **beekherstel, veenherstel of bever** ligt de grondwatertafel tussen 0 m (codes 701, 702 en 420 = klasse 1) en 0.5 m (codes 320 en 410 = klasse 2) onder het maaiveld.
+Bij nieuwe natte natuur voor de **realisatie van natuurstreefbeelden** (toekomstlaag) varieert de nieuwe grondwaterstand ifv de huidige grondwaterstand en de afstand tot de te vernatten natuur. De kaart `vernattingscontour_sc2/sc3` deelt die vernattingszone op in klassen van 0-0.25 m (klasse 1), 0.25-0.5m (klasse 2), 0.5-0.75m (klasse 3) en \>0.75m (klasse 4) onder het maaiveld. Bij nieuwe natte natuur voor **beekherstel, veenherstel of bever** ligt de grondwatertafel tussen 0 m (codes 701, 702 en 420 = klasse 1) en 0.5 m (codes 320 en 410 = klasse 2) onder het maaiveld.
 
 Niet elk ecosysteem/landgebruik vereist dezelfde grondwaterstand. Binnen de vernattingszones voor nieuwe natuur differentiëren we de ecosystemen die in aanmerking komen voor dedrainagemaatregelen dan ook in functiie van hun gewenste grondwaterstand. We steunen hiervoor op de benadering uit de '[*studienota groenblauwe netwerken en strategisch plan waterbevoorrading*](https://www.minaraad.be/themas/hinder/studienota-groenblauwe-netwerken-en-strategisch-plan-waterbevoorrading)' (Vrebos & Staes, 2021). De studienota maakt een onderscheid tussen de gangbare drainagediepte (glg_max) en de drainagediepte waarbij het huidige bodemgebruik nog mogelijk blijft (glg_min). We gaan ervan uit dat drainage nodig is om het huidige bodemgebruik te behouden wanneer de gangbare drainagediepte lager ligt dan de grondwaterstand na hydrologisch herstel. Ter hoogte van die cellen moet de drainage dan ook afgebouwd worden om de nieuwe natte natuur te realiseren. Die cellen brengen we in rekening voor dedrainagemaatregelen.
 
@@ -493,13 +495,14 @@ vernatting_2050_toekomst <- vernattingscontour_sc2
 
 # 2. Vernatting door beekherstel, veenherstel en beverdammen
 
-# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
-natte_natuur <- (tussenstap2_sc2 != ecosysteem_2022) * tussenstap2_sc2
+# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied
+# ecosysteem_2022_nat = ecosysteemkaart 2022 met aanduiding natte natuur (zie script compilatie)
+natte_natuur <- (tussenstap2_sc2 != ecosysteem_2022_nat) * tussenstap2_sc2
 natte_natuur <- ifel(natte_natuur %in% c(320, 410, 420, 701, 702), natte_natuur, NA)
 
 vernatting_2050_rest <- ifel(natte_natuur %in% c(320, 410), 2, ifel(natte_natuur %in% c(420, 701, 702), 1, NA))
 
-# 3. Combinatie -> vernatting door beek- en veenherstel of beverdammen krijgt voorrang op toekomstlaag 
+# 3. Combinatie -> natste natuur (oa vernatting door beek- en veenherstel of beverdammen) krijgt voorrang 
 
 vernatting_2050_sc2 <- min(c(vernatting_2050_rest, vernatting_2050_toekomst), na.rm = TRUE)
 
@@ -633,25 +636,25 @@ writeRaster(sc2_dedrain_cellen, filename = str_c("C:/R/NARA2026/nara2026-git/sce
 
                      
 # Grondwaterstand vernatte cellen = subset van de cellen met dedrainagemaatregelen -> alleen de cellen met dedrainagemaatregelen waar mogelijk een impact is op het bodemgebruik. Op de rest van de cellen blijft het bodemgebruikt behouden (cf sc1).
-sc2_glg <- sc2_dedrain_cellen * vernatting_2050_sc2
+# sc2_glg <- sc2_dedrain_cellen * vernatting_2050_sc2
       
 # Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd). De kolommen die gebruikt worden verschillen (bij IHD-script zijn de 4 klassen een combinatie van grondwaterstand en overstromingen, hier verwijzen de klassen alleen naar de glg)
 # reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder het nieuwe glg-niveau
 
-lookup <- deel_3_reclass_lu |>
-  select(code, "glg1", "glg2", "glg3", "glg4")
-
-eco_1 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg1"]])
-eco_2 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg2"]])
-eco_3 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg3"]])
-eco_4 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg4"]])
+# lookup <- deel_3_reclass_lu |>
+#   select(code, "glg1", "glg2", "glg3", "glg4")
+# 
+# eco_1 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg1"]])
+# eco_2 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg2"]])
+# eco_3 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg3"]])
+# eco_4 <- subst(tussenstap2_sc2, from = lookup$code, to = lookup[["glg4"]])
 
 # Combineer alles = ecosysteemcellen met vernatting door dedrainage  
-sc2_ecosysteem_dedrain <- ifel(sc2_glg == 1, eco_1,
-                       ifel(sc2_glg == 2, eco_2,
-                            ifel(sc2_glg == 3, eco_3,
-                                 ifel(sc2_glg == 4, eco_4, 
-                                      tussenstap2_sc2))))
+# sc2_ecosysteem_dedrain <- ifel(sc2_glg == 1, eco_1,
+#                        ifel(sc2_glg == 2, eco_2,
+#                             ifel(sc2_glg == 3, eco_3,
+#                                  ifel(sc2_glg == 4, eco_4, 
+#                                       tussenstap2_sc2))))
 
 # Niet vernatte cellen -> overnemen van ecosysteemkaart
 # sc2_ecosysteem_dedrain <- cover(sc2_ecosysteem_dedrain, tussenstap2_sc2)
@@ -693,8 +696,8 @@ vernatting_2050_toekomst <- vernattingscontour_sc3
 
 # 2. Vernatting door beekherstel, veenherstel en beverdammen
 
-# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied 
-natte_natuur <- (tussenstap2_sc3 != ecosysteem_2022) * tussenstap2_sc3
+# Nieuwe natte natuur onder scenario 2: 320 = nat grasland; 410 = valleibos; 420 = moerasbos, 701 = wetland/riet; 702 = veengebied
+natte_natuur <- (tussenstap2_sc3 != ecosysteem_2022_nat) * tussenstap2_sc3
 natte_natuur <- ifel(natte_natuur %in% c(320, 410, 420, 701, 702), natte_natuur, NA)
 
 vernatting_2050_rest <- ifel(natte_natuur %in% c(320, 410), 2, ifel(natte_natuur %in% c(420, 701, 702), 1, NA))
@@ -840,26 +843,26 @@ writeRaster(sc3_dedrain_cellen_75, filename = str_c("C:/R/NARA2026/nara2026-git/
 
 
 # Grondwaterstand vernatte cellen
-sc3_glg_75 <- sc3_dedrain_cellen_75 * vernatting_2050_sc3
+# sc3_glg_75 <- sc3_dedrain_cellen_75 * vernatting_2050_sc3
 
 # Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd)
 # reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder de 4 hydrologische klassen
-lookup <- deel_3_reclass_lu |>
-  select(code, "glg1", "glg2", "glg3", "glg4")
+# lookup <- deel_3_reclass_lu |>
+#   select(code, "glg1", "glg2", "glg3", "glg4")
+# 
+# eco_1 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg1"]])
+# eco_2 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg2"]])
+# eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
+# eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
+# 
+# # Combineer alles
+# sc3_ecosysteem_dedrain_75 <- ifel(sc3_glg_75 == 1, eco_1,
+#                                ifel(sc3_glg_75 == 2, eco_2,
+#                                     ifel(sc3_glg_75 == 3, eco_3,
+#                                          ifel(sc3_glg_75 == 4, eco_4, 
+#                                               tussenstap2_sc3))))
 
-eco_1 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg1"]])
-eco_2 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg2"]])
-eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
-eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
-
-# Combineer alles
-sc3_ecosysteem_dedrain_75 <- ifel(sc3_glg_75 == 1, eco_1,
-                               ifel(sc3_glg_75 == 2, eco_2,
-                                    ifel(sc3_glg_75 == 3, eco_3,
-                                         ifel(sc3_glg_75 == 4, eco_4, 
-                                              tussenstap2_sc3))))
-
-sc3_ecosysteem_dedrain_75 <- cover(sc3_ecosysteem_dedrain_75, tussenstap2_sc3)
+# sc3_ecosysteem_dedrain_75 <- cover(sc3_ecosysteem_dedrain_75, tussenstap2_sc3)
 
 # writeRaster(sc3_ecosysteem_dedrain_75, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain_75.tif"), overwrite = TRUE)
 
@@ -967,28 +970,29 @@ writeRaster(sc3_dedrain_cellen_25, filename = str_c("C:/R/NARA2026/nara2026-git/
 
 
 # Grondwaterstand vernatte cellen
-sc3_glg_25 <- sc3_dedrain_cellen_25 * vernatting_2050_sc3
+# sc3_glg_25 <- sc3_dedrain_cellen_25 * vernatting_2050_sc3
 
 # Voor het aanpassen van de ecosysteemklassen gebruiken we dezelfde methode als voor de compilatie van de natuurkaart (04_IHD.Rmd)
 # reclasstabel inladen -> geeft voor elke ecosysteemcode aan in welke code die moet veranderen onder de 4 hydrologische klassen
-lookup <- deel_3_reclass_lu |>
-  select(code, "glg1", "glg2", "glg3", "glg4")
+# lookup <- deel_3_reclass_lu |>
+#   select(code, "glg1", "glg2", "glg3", "glg4")
+# 
+# eco_1 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg1"]])
+# eco_2 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg2"]])
+# eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
+# eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
+# 
+# # Combineer alles
+# sc3_ecosysteem_dedrain_25 <- ifel(sc3_glg_25 == 1, eco_1,
+#                                ifel(sc3_glg_25 == 2, eco_2,
+#                                     ifel(sc3_glg_25 == 3, eco_3,
+#                                          ifel(sc3_glg_25 == 4, eco_4,
+#                                               tussenstap2_sc3))))
 
-eco_1 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg1"]])
-eco_2 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg2"]])
-eco_3 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg3"]])
-eco_4 <- subst(tussenstap2_sc3, from = lookup$code, to = lookup[["glg4"]])
-
-# Combineer alles
-sc3_ecosysteem_dedrain_25 <- ifel(sc3_glg_25 == 1, eco_1,
-                               ifel(sc3_glg_25 == 2, eco_2,
-                                    ifel(sc3_glg_25 == 3, eco_3,
-                                         ifel(sc3_glg_25 == 4, eco_4,
-                                              tussenstap2_sc3))))
-
-sc3_ecosysteem_dedrain_25 <- cover(sc3_ecosysteem_dedrain_25, tussenstap2_sc3)
+# sc3_ecosysteem_dedrain_25 <- cover(sc3_ecosysteem_dedrain_25, tussenstap2_sc3)
 
 # writeRaster(sc3_ecosysteem_dedrain_25, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_dedrain_25.tif"), overwrite = TRUE)
+
 
 ```
 
@@ -1006,12 +1010,24 @@ Het totaal extra volume dat beschikbaar is voor het basisdebiet is de grondwater
 
 ```{r impact_drainage}
 
+# Ecosysteemkaart_2022_upd = ecosysteemkaart 2022 met aanpassingen voor natte natuur en kle (zit in ouptputfolder -> zie script 'compilatie'). De ecosysteemkaart_2022 in de data-folder heeft deze aanpassingen niet.
+ecosysteem_2022_nat <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_nat.tif"))
+
+sc1_dedrain_cellen <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_dedrain_cellen.tif"))
+
+sc2_dedrain_cellen <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_dedrain_cellen.tif"))
+
+sc3_dedrain_cellen_25 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen_25.tif"))
+
+sc3_dedrain_cellen_75 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_dedrain_cellen_75.tif"))
+
+
 #/////////////////////////////////////////
 # Scenario 1: behoud van bodemgebruik maar verhoging drainagediepte (afhankelijk van bodembedekking)
 #/////////////////////////////////////////
 
 # Ecosysteemcellen met maatregelen voor verminderde dedrainage
-dedrain_eco <- sc1_dedrain_cellen * ecosysteem_2022
+dedrain_eco <- sc1_dedrain_cellen * ecosysteem_2022_nat
 
 # Grondwaterstijging
 lookup <- deel_3_reclass_lu |>
@@ -1044,7 +1060,7 @@ cat("Totale volumetoename sc1:", round(sc1_volume_totaal/1000000, 2), "miljoen m
 # Scenario 2: nieuwe natte natuur + verhogen drainagedrempel thv landbouw
 #/////////////////////////////////////////
 
-dedrain_eco_sc2 <- sc2_dedrain_cellen * ecosysteem_2022
+dedrain_eco_sc2 <- sc2_dedrain_cellen * ecosysteem_2022_nat
 
 # Grondwaterstijging
 lookup <- deel_3_reclass_lu |>
@@ -1080,36 +1096,70 @@ cat("Totale volumetoename sc2:", round(sc2_volume_totaal/1000000, 2), "miljoen m
 # Scenario 3: nieuwe natte natuur + verhogen drainagedrempel thv landbouw
 #/////////////////////////////////////////
 
-dedrain_eco_sc3 <- sc3_dedrain_cellen * ecosysteem_2022
+# a) 25% omzetten naar natuur
+
+dedrain_eco_sc3_25 <- sc3_dedrain_cellen_25 * ecosysteem_2022_nat
 
 # Grondwaterstijging
 lookup <- deel_3_reclass_lu |>
   select(code, "glg_max", "glg_min")
 
-glg_max <- subst(dedrain_eco_sc3, from = lookup$code, to = lookup[["glg_max"]])
-glg_min <- subst(dedrain_eco_sc3, from = lookup$code, to = lookup[["glg_min"]])
+glg_max_25 <- subst(dedrain_eco_sc3_25, from = lookup$code, to = lookup[["glg_max"]])
+glg_min_25 <- subst(dedrain_eco_sc3_25, from = lookup$code, to = lookup[["glg_min"]])
 
 vernatting_2050_glg <- ifel(vernatting_2050_sc3 == 1, 0,
                             ifel(vernatting_2050_sc3 == 2, 25,
                                  ifel(vernatting_2050_sc3 == 3, 50, 75)))
 
-glg_nieuw <- sc3_dedrain_cellen * vernatting_2050_glg
+glg_nieuw <- sc3_dedrain_cellen_25 * vernatting_2050_glg
 
-delta_h_sc3 <- ifel(!is.na(sc3_dedrain_cellen) & is.na(glg_nieuw), glg_max - glg_min,
-                    ifel(!is.na(glg_nieuw), glg_max - glg_nieuw, NA))
+delta_h_sc3_25 <- ifel(!is.na(sc3_dedrain_cellen_25) & is.na(glg_nieuw), glg_max_25 - glg_min_25,
+                    ifel(!is.na(glg_nieuw), glg_max_25 - glg_nieuw, NA))
 
-sc3_delta_totaal <- pull(global(delta_h_sc3, "sum", na.rm = TRUE))
+sc3_25_delta_totaal <- pull(global(delta_h_sc3_25, "sum", na.rm = TRUE))
 
 
 # Extra volume water in cel
-sc3_volume_r <- (delta_h_sc3 / 100 * 100) * sy_r # m³
+sc3_25_volume_r <- (delta_h_sc3_25 / 100 * 100) * sy_r # m³
 
-sc3_volume_totaal <- pull(global(sc3_volume_r, "sum", na.rm = TRUE)) # m³
+sc3_25_volume_totaal <- pull(global(sc3_25_volume_r, "sum", na.rm = TRUE)) # m³
 
 
-cat("Totale peilstijging sc3:", round(sc3_delta_totaal/1000, 0), "km")
-cat("Totale volumetoename sc3:", round(sc3_volume_totaal/1000000, 2), "miljoen m³")
+cat("Totale peilstijging sc3:", round(sc3_25_delta_totaal/1000, 0), "km")
+cat("Totale volumetoename sc3:", round(sc3_25_volume_totaal/1000000, 2), "miljoen m³")
 
+
+# b) 75% dedrainage opp. behoud landbouw
+
+dedrain_eco_sc3_75 <- sc3_dedrain_cellen_75 * ecosysteem_2022_nat
+
+# Grondwaterstijging
+lookup <- deel_3_reclass_lu |>
+  select(code, "glg_max", "glg_min")
+
+glg_max_75 <- subst(dedrain_eco_sc3_75, from = lookup$code, to = lookup[["glg_max"]])
+glg_min_75 <- subst(dedrain_eco_sc3_75, from = lookup$code, to = lookup[["glg_min"]])
+
+vernatting_2050_glg <- ifel(vernatting_2050_sc3 == 1, 0,
+                            ifel(vernatting_2050_sc3 == 2, 25,
+                                 ifel(vernatting_2050_sc3 == 3, 50, 75)))
+
+glg_nieuw <- sc3_dedrain_cellen_75 * vernatting_2050_glg
+
+delta_h_sc3_75 <- ifel(!is.na(sc3_dedrain_cellen_75) & is.na(glg_nieuw), glg_max_75 - glg_min_75,
+                       ifel(!is.na(glg_nieuw), glg_max_75 - glg_nieuw, NA))
+
+sc3_75_delta_totaal <- pull(global(delta_h_sc3_75, "sum", na.rm = TRUE))
+
+
+# Extra volume water in cel
+sc3_75_volume_r <- (delta_h_sc3_75 / 100 * 100) * sy_r # m³
+
+sc3_75_volume_totaal <- pull(global(sc3_75_volume_r, "sum", na.rm = TRUE)) # m³
+
+
+cat("Totale peilstijging sc3:", round(sc3_75_delta_totaal/1000, 0), "km")
+cat("Totale volumetoename sc3:", round(sc3_75_volume_totaal/1000000, 2), "miljoen m³")
 
 
 #//////////////////////
@@ -1118,9 +1168,11 @@ cat("Totale volumetoename sc3:", round(sc3_volume_totaal/1000000, 2), "miljoen m
 
 sc1 <- round(sc1_volume_totaal/1000000, 2)
 sc2 <- round(sc2_volume_totaal/1000000, 2)
-sc3 <- round(sc3_volume_totaal/1000000, 2)
+sc3_25 <- round(sc3_25_volume_totaal/1000000, 2)
+sc3_75 <- round(sc3_75_volume_totaal/1000000, 2)
+
   
-data <- data.frame(sc = c("sc1", "sc2", "sc3"), waarde = c(sc1, sc2, sc3))
+data <- data.frame(sc = c("sc1", "sc2", "sc3_25", "sc3_75"), waarde = c(sc1, sc2, sc3_25, sc3_75))
 
 ggplot(data, aes(x = sc, y = waarde, fill = sc)) +
   geom_col() +
@@ -1128,7 +1180,8 @@ ggplot(data, aes(x = sc, y = waarde, fill = sc)) +
     values = c(
       "sc1" = "yellow2",
       "sc2" = "seagreen",
-      "sc3" = "aquamarine3"
+      "sc3_25" = "aquamarine3",
+      "sc3_75" = "aquamarine"
     )
   ) +
   labs(

@@ -13,15 +13,11 @@ library(sf)
 library(terra)
 library(dplyr)
 library(tidyverse)
-library(here)
 library(readxl)
 library(viridis)
 library(mapview)
 library(tools)     # Handig voor file_ext()
-library(beepr)
-library(leaflet) # Nodig voor colorFactor
 library(exactextractr)
-library(qgisprocess)
 
 ```
 
@@ -45,6 +41,7 @@ De volgende datasets worden gebruikt:
 - gebied.shp -\> polygoon gebied
 - ecosysteem_2022.tif -\> ecosysteemkaart 2022 zonder buffer
 - toekomstlaag.tif -\> natuurdoelen
+- bwk_habitat.shp -\> habitatkaart
 - deel_3_reclass_natdoel.xlsx -\> tabel voor reclass natuurdoelen toekomstlaag naar ecosysteemcodes (kolommen 'habitat' -\> 'eco')
 - deel_3_reclass_lu.xlsx -\> tabel voor reclass bodemgebruik onder invloed van wijziging grondwaterstand
 - natuur_ecosysteem_sc1/2/3.tif -\> ecosysteemkaart met resultaat script plaatsing **natuurdoelen** (`04_IHD.Rmd`)
@@ -57,11 +54,11 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "toekomstlaag.shp", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "sc1_ecosysteem_infilt.tif", "sc2_ecosysteem_infilt.tif", "sc3_ecosysteem_infilt.tif", "sc1_ecosysteem_dedrain.tif", "sc2_dedrain_cellen.tif", "sc3_dedrain_cellen.tif", "sc1_bosuitbreiding.tif", "sc2_bosuitbreiding.tif", "sc3_bosuitbreiding.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif", "sc1_ecosysteem_ontharding.tif", "sc2_ecosysteem_ontharding.tif", "sc3_ecosysteem_ontharding.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3.tif")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "toekomstlaag.shp", "bwk_habitat.shp", "deel_3_reclass_natdoel.xlsx", "deel_3_reclass_lu.xlsx", "natuur_ecosysteem_sc1.tif", "natuur_ecosysteem_sc2.tif", "natuur_ecosysteem_sc3.tif", "sc1_ecosysteem_infilt.tif", "sc2_ecosysteem_infilt.tif", "sc3_ecosysteem_infilt.tif", "sc1_ecosysteem_dedrain.tif", "sc2_dedrain_cellen.tif", "sc3_dedrain_cellen.tif", "sc1_bosuitbreiding.tif", "sc2_bosuitbreiding.tif", "sc3_bosuitbreiding.tif", "vernattingscontour_sc2.tif", "vernattingscontour_sc3.tif")
 
 # In welke folders zitten de data?
 
@@ -128,7 +125,68 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 list2env(data_list, envir = .GlobalEnv)
 ```
 
-## 1. Toekomstlaag
+## 1. Extra lagen
+
+### 1.1. Ecosysteem 2022
+
+De originele ecosysteemkaart maakt geen **onderscheid tussen natte en droge natuurtype**: alle graslanden met botanische waarde zitten samen onder code 302 en alle loofbossen zitten samen onder code 400 en 401. Dat heeft geen effect op de plaatsing van maatregelen (uitzondering: zie dedrainagemaatregelen), maar de natte natuurtypes in de startkaart moeten wel geïdentificeerd worden om de effecten van de scenario's correct te kunnen vergelijken met de uitgangssituatie (ecosysteem_2022).
+
+Ook de **aanwezigheid van KLE's** moet aangebracht worden in de startkaart om de effecten van de scenario's onderling te kunnen vergelijken.
+
+Het onderstaande script verrijkt de ecosysteemkaart 2022 met de natte grasland- (320) en bostypes (410 en 420) op basis van de BWK-habitatkaart en met de huidige KLE's en schrijft het resultaat weg naar de outputfolder van het studiegebied:
+
+- `ecosysteem_2022_nat.tif` -\> ecosysteemkaart met aanduiding natte natuur
+- `ecosysteem_2022_upd.tif` -\> ecosysteemkaart met natte natuur en KLE
+
+```{r ecosysteem_2022}
+
+rcl_hab <- deel_3_reclass_natdoel # reclass tabel habitat -> eco (= alleen de hoofdklassen van de originele ecosysteemkaart = zonder natte types 320, 410 en 420)
+
+#//////////////////////////////////////////////////////////////
+# 1. Bestaande natte graslanden en bossen aanduiden
+#//////////////////////////////////////////////////////////////
+
+# Habitatkaart verrasteren en bijsnijden
+habitat <- bwk_habitat |>
+  select(HAB1) |> 
+  left_join(rcl_hab, by = c("HAB1" = "habitat"))
+
+# Moerasbossen (elzenbroekbos) verrasteren en bijsnijden
+moerasbos <- rasterize(habitat |> filter(HAB1 %in% c("91E0_vn", "91E0_vm", "91E0_vo", "91E0_eutr", "91E0_meso", "91E0_oli")), ecosysteem_2022, field = 1)
+moerasbos <- mask(moerasbos, ecosysteem_2022)
+
+# Gwates verrasteren en bijsnijden
+gwates <- rasterize(habitat, ecosysteem_2022, field = "gwates")
+gwates <- mask(gwates, ecosysteem_2022)
+
+ecosysteem_2022_nat <- ifel(ecosysteem_2022 == 302 & !is.na(gwates), 320, ifel(ecosysteem_2022 %in% c(400, 401, 410) & !is.na(moerasbos), 420, ifel(ecosysteem_2022 %in% c(400, 401) & !is.na(gwates), 410, ecosysteem_2022)))
+
+writeRaster(ecosysteem_2022_nat, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_nat.tif"), overwrite = TRUE)
+
+
+#///////////////////////////////////////
+# 2. KLE's toevoegen
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+ecosysteem_2022_upd <- ifel(ecosysteem_2022_nat %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(ecosysteem_2022_nat %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, ecosysteem_2022_nat))
+
+writeRaster(ecosysteem_2022_upd, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"), overwrite = TRUE)
+
+```
+
+### 1.2. Toekomstlaag
 
 Het script verrastert de percelen van de toekomstlaag en past ze in in de ecosysteemkaart.
 
@@ -149,7 +207,7 @@ De BWK-codes waarop de ecosysteemkaart gebaseerd zijn komen niet steeds één-op
 # Toekomstlaag bijsnijden en verrasteren op basis van HAB1
 percelen <- st_intersection(toekomstlaag, gebied)
 
-rcl_hab <- deel_3_reclass_natdoel # reclass tabel habitat -> eco
+rcl_hab <- deel_3_reclass_natdoel # reclass tabel habitat -> zet natuurstreefbeelden om naar de originele ecosysteemklassen (eco = alleen de hoofdklassen van de originele ecosysteemkaart = zonder natte types 320, 410 en 420)
 
 percelen_hab1 <- percelen |>
   left_join(rcl_hab, by = c("HAB1" = "habitat"))
@@ -160,26 +218,28 @@ toekomst_eco <- rasterize(percelen_hab1, ecosysteem_2022, field = "eco")
 
 # Definieer de uitzonderingen
 uitzonderingen <- 
-  ecosysteem_2022 %in% c(101, 102, 801, 802) | # geen verandering op bebouwing, infrastructuur of rivieren
+  ecosysteem_2022_nat %in% c(101, 102, 801, 802) | # geen verandering op bebouwing, infrastructuur of rivieren
   is.na(toekomst_eco) |
   toekomst_eco == 0 | # code 0 in toekomstlaag = geen habitat
-  (ecosysteem_2022 %in% c(701, 901) & toekomst_eco == 902) |
-  (ecosysteem_2022 %in% c(501, 602) & toekomst_eco %in% c(302, 501, 902, 702)) |
-  (ecosysteem_2022 == 702 & toekomst_eco %in% c(501, 902))
+  (ecosysteem_2022_nat %in% c(701, 901) & toekomst_eco == 902) | # wetland en poelen behouden
+  (ecosysteem_2022_nat %in% c(501, 602) & toekomst_eco %in% c(302, 501, 902, 702)) | # heide en stuifduinen behouden (zitten vaak in een complex binnen 1 perceel)
+  (ecosysteem_2022_nat == 702 & toekomst_eco %in% c(501, 902)) |
+  (ecosysteem_2022_nat %in% c(701, 702, 420)) # geen extra verlies moeras/wetland door natuurdoelen (soms zegt toekomstlaag 91E0 thv huidig moerasbos -> doelt waarschijnlijk op behoud subtypes 91E0)
 
-ecosysteem_2050 <- ifel(uitzonderingen, ecosysteem_2022, toekomst_eco)
+ecosysteem_2050 <- ifel(uitzonderingen, ecosysteem_2022_nat, toekomst_eco)
 
-# Aanpassen codes grasland (302) en bos (402) voor aanwezigheid GWATES -> codes worden 320 (natte graslanden) en 410 (valleibos)
+# Codes voor grasland (302) en bos (402) omzetten naar natte codes op basis van aanwezigheid GWATES/moerasbos -> codes worden 320 (natte graslanden) en 410 (valleibos) of 420 (moerasbos)
 # gwates in de toekomstlaag
 gwates_2050 <- rasterize(percelen_hab1, ecosysteem_2022, field = "gwates")
 
-ecosysteem_2050_gwates <- ifel(!is.na(gwates_2050) & !is.na(ecosysteem_2050), ecosysteem_2050, NA)
+# Moerasbos in toekomstlaag
+moerasbos_2050 <- rasterize(percelen_hab1 |> filter(HAB1 %in% c("91E0_vn", "91E0_vm", "91E0_vo", "91E0_eutr", "91E0_meso", "91E0_oli")), ecosysteem_2022, field = 1)
 
-ecosysteem_2050_nat <- ifel(!is.na(ecosysteem_2050_gwates) & ecosysteem_2050_gwates == 302, 320, ifel(!is.na(ecosysteem_2050_gwates) & ecosysteem_2050_gwates == 401, 410, ecosysteem_2050))
+ecosysteem_2050_nat <- ifel(!is.na(gwates_2050) & ecosysteem_2050 == 302, 320, ifel(!is.na(moerasbos_2050) & ecosysteem_2050 == 401, 420, ifel(!is.na(gwates_2050) & ecosysteem_2050 == 401, 410, ecosysteem_2050)))
 
 writeRaster(ecosysteem_2050_nat, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2050_nat.tif"), overwrite = TRUE)
 
-ecosysteem_2050_nat <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2050_nat.tif"))
+# ecosysteem_2050_nat <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2050_nat.tif"))
 
 ```
 
@@ -195,6 +255,8 @@ Mogelijke vernattingscontouren van terrestrische natuurdoelen die buiten de peri
 
 #### 1. Natuur plaatsen
 
+**a) Natte natuur inpassen**
+
 ```{r scenario1}
 
 #//////////////////////////////////////////////////////////////
@@ -205,7 +267,7 @@ Mogelijke vernattingscontouren van terrestrische natuurdoelen die buiten de peri
 
 # ecosysteem_2050_nat -> ecosysteemkaart met natuurdoelen volgens toekomstlaag
 
-# natuur_ecosysteem_sc1 -> veranderingen tgv realisatie aquatische natuur met codes 320, 410, 420, 701 en 702
+# natuur_ecosysteem_sc1 -> veranderingen tgv realisatie aquatische natuur met codes 320, 410, 420, 701 en 702. Opgelet: de kaart 'vernatting' geeft niet zozeer de finale toestand, wel de zone waar er 'iets' gebeurt tijdens de plaatsing van natte natuur (script 04_IHD).
 
 vernatting <- ifel(ecosysteem_2022 != natuur_ecosysteem_sc1, natuur_ecosysteem_sc1, NA)
 
@@ -225,8 +287,9 @@ lookup_table <- combi %>%
     # Bepaal of het type in 2050 een bos of open natuur is
     is_bos = e %in% c(103, 400, 401, 402, 403, 404, 410, 420),
     resultaat = case_when(
-      # Regel 1: Codes > 700 in toekomstlaag primeren altijd (moeras, wetland, water, slikken/schorren)
+      # Regel 1: Codes > 700 en moerasbos (420) in toekomstlaag primeren altijd (moeras, wetland, water, slikken/schorren)
       e > 700 ~ e,
+      e == 420 ~ e,
       # Regel 2: Codes < 302 en code 400 in toekomstlaag -> vernatting primeert altijd
       e < 302 | e == 400 ~ v,
       # Regel 3: Codes 320, 501 en 602 in toekomstlaag primeren op 320 en 410 in vernatting
@@ -240,6 +303,7 @@ lookup_table <- combi %>%
       # Regel 5: NATTE vernatting (320, 410)
       # Combinatie met bos uit toekomstlaag -> 410 (nat bos)
       # Combinatie met open type uit toekomstlaag -> 320 (nat open)
+      v %in% c(320, 410) & e == 420 ~ 420,
       v %in% c(320, 410) & is_bos  ~ 410,
       v %in% c(320, 410) & !is_bos ~ 320,
       # Fallback (indien niet gevangen door bovenstaande regels)
@@ -255,20 +319,20 @@ m_reclass <- lookup_table %>%
 
 # 5. Voer de berekening uit op de rasters
 r_key <- vernatting * 10000 + ecosysteem_2050_nat
-tussenstap1_sc1 <- classify(r_key, m_reclass)
+tussenstap1_sc1a <- classify(r_key, m_reclass)
 
-tussenstap1_sc1 <- cover(tussenstap1_sc1, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
+tussenstap1_sc1a <- cover(tussenstap1_sc1a, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
 
 
 # # Overzichtstabel veranderingen (niet-natuur codes: "vernatting" primeert op "ecosysteem_2050_nat" voor landbouw en stedelijk, "ecosysteem_2050_nat" primeert op "vernatting" voor water, slikken en schorren)
 # library(kableExtra)
 # 
 # tabel_gekleurd <- lookup_table %>%
-#   filter(e %in% c(201, 302, 320, 401, 410, 501, 602, 701, 801)) %>%
+#   filter(e %in% c(201, 302, 320, 401, 410, 420, 501, 602, 701, 702, 801)) %>%
 #   mutate(
 #     # Check of de code is gewijzigd ten opzichte van ecosysteem_2050_nat
 #     is_gewijzigd = resultaat != e,
-#     
+# 
 #     # Geef gewijzigde codes een opvallende achtergrondkleur (bijv. zacht rood)
 #     cel_waarde = ifelse(
 #       is_gewijzigd,
@@ -286,24 +350,72 @@ tussenstap1_sc1 <- cover(tussenstap1_sc1, ecosysteem_2050_nat) # NA's vervangen 
 # tabel_gekleurd %>%
 #   kbl(escape = FALSE, align = "c") %>%
 #   kable_styling(bootstrap_options = c("bordered", "hover"), full_width = FALSE) %>%
-#   add_header_above(c(" " = 1, "ecosysteem_2050_nat" = 9))
+#   add_header_above(c(" " = 1, "ecosysteem_2050_nat" = 11))
 
+
+#//////////////////////////////////////////////////////////////
+# 1b. Verfijnen originele ecosysteemkaart -> bestaande natte graslanden en bossen aanduiden
+#//////////////////////////////////////////////////////////////
+
+# Habitatkaart verrasteren en bijsnijden
+habitat <- bwk_habitat |>
+  select(HAB1) |> 
+  left_join(rcl_hab, by = c("HAB1" = "habitat"))
+
+# Moerasbossen (elzenbroekbos) verrasteren en bijsnijden
+moerasbos <- rasterize(habitat |> filter(HAB1 %in% c("91E0_vn", "91E0_vm", "91E0_vo", "91E0_eutr", "91E0_meso", "91E0_oli")), ecosysteem_2022, field = 1)
+moerasbos <- mask(moerasbos, ecosysteem_2022)
+
+# Gwates verrasteren en bijsnijden
+gwates <- rasterize(habitat, ecosysteem_2022, field = "gwates")
+gwates <- mask(gwates, ecosysteem_2022)
+
+tussenstap1_sc1 <- ifel(tussenstap1_sc1a == 302 & !is.na(gwates), 320, ifel(tussenstap1_sc1a %in% c(400, 401, 410) & !is.na(moerasbos), 420, ifel(tussenstap1_sc1a %in% c(400, 401) & !is.na(gwates), 410, tussenstap1_sc1a)))
+
+```
+
+**b) Toevoegen bosuitbreiding en KLE's**
+
+```{r bosuitbreiding_sc1}
 
 #//////////////////////////////////////////////////////////////
 # 2. Extra boscellen toevoegen
 #//////////////////////////////////////////////////////////////
 
-# Als het bosuitbreidingsdoel uit AGNAS kleiner is dan de oppervlakte bos die er bijkomt volgens de toekomstlaag, dan zijn de bosuitbreidingsrasters (sc1/2/3_bosuitbreiding) leeg. O.a bij de Kleine Nete is dat het geval. 
+# Als het bosuitbreidingsdoel uit AGNAS kleiner is dan de oppervlakte bos die er bijkomt volgens de toekomstlaag, dan zijn de bosuitbreidingsrasters (sc1/2/3_bosuitbreiding) leeg. O.a bij de Kleine Nete is dat het geval -> tussenstap1 = tussenstap2
+
+tussenstap2_sc1 <- tussenstap1_sc1
 
 # Droge open ecosystemen worden droog loofbos (401), natte graslanden (320) worden valleibos (410) en zeer natte ecosystemen (701, 702) worden moerasbos (420)
 tussenstap2_sc1 <- ifel(tussenstap1_sc1 %in% c(104, 201, 202, 203, 204, 205, 300, 301, 302, 501, 602) & !is.na(sc1_bosuitbreiding), 402,
-             ifel(tussenstap1_sc1 %in% c(320) & !is.na(sc1_bosuitbreiding), 410,
-                  ifel(tussenstap1_sc1 %in% c(710, 720) & !is.na(sc1_bosuitbreiding), 420, tussenstap1_sc1)))
+                        ifel(tussenstap1_sc1 %in% c(320) & !is.na(sc1_bosuitbreiding), 410,
+                             ifel(tussenstap1_sc1 %in% c(710, 720) & !is.na(sc1_bosuitbreiding), 420, tussenstap1_sc1)))
 
 
 # Tussenstap 2 wordt gebruikt als input voor de plaatsing van dedrainagemaatregelen
 writeRaster(tussenstap2_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc1.tif"), overwrite = TRUE)
 
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap2_sc1_kle <- ifel(tussenstap2_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc1))
+
+# Deze kaart wordt enkel gebruikt bij de berekening van de waterdiensten (InVestmodellen)
+writeRaster(tussenstap2_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc1_kle.tif"), overwrite = TRUE)
 ```
 
 #### 2. Dedrainage invoegen
@@ -331,7 +443,7 @@ writeRaster(tussenstap3_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 
 #### 3. Infiltratie invoegen
 
-```{r infiltratie_kle}
+```{r infiltratie_sc1}
 
 #//////////////////////////////////////////////////////////////
 # 4. Infiltratiecellen en KLE toevoegen
@@ -348,8 +460,29 @@ sc1_ecosysteem_infilt <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", stu
 tussenstap4_sc1 <- ifel(tussenstap3_sc1 == 220 & sc1_ecosysteem_infilt == 210, 230, ifel(tussenstap3_sc1 != 220 & sc1_ecosysteem_infilt == 210, 210, tussenstap3_sc1))
 
 
-# Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's en de berekening van InVest
+# Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's
 writeRaster(tussenstap4_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc1.tif"), overwrite = TRUE)
+
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap4_sc1_kle <- ifel(tussenstap4_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc1))
+
+writeRaster(tussenstap4_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc1_kle.tif"), overwrite = TRUE)
 ```
 
 #### 4. KLE invoegen
@@ -361,6 +494,8 @@ writeRaster(tussenstap4_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 #//////////////////////////////////////////////////////////////
 
 tussenstap4_sc1 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc1.tif"))
+
+kle_fractie_gecorrigeerd_sc1 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/kle_fractie_gecorrigeerd_sc1.tif"))
 
 # 1.  KLE's inpassen op akkers en grasland
 # KLE-kaart opdelen in klassen
@@ -394,6 +529,7 @@ writeRaster(tussenstap5_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 
 tussenstap5_sc1 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc1.tif"))
 
+sc1_ecosysteem_ontharding <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_ontharding.tif"))
 
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
@@ -447,6 +583,7 @@ lookup_table <- combi %>%
     resultaat = case_when(
       # Regel 1: Codes > 700 in toekomstlaag primeren altijd (moeras, wetland, water, slikken/schorren)
       e > 700 ~ e,
+      e == 420 ~ e,
       # Regel 2: Codes < 302 en code 400 in toekomstlaag -> vernatting primeert altijd
       e < 302 | e == 400 ~ v,
       # Regel 3: Codes 320, 501 en 602 in toekomstlaag primeren op 320 en 410 in vernatting
@@ -460,6 +597,7 @@ lookup_table <- combi %>%
       # Regel 5: NATTE vernatting (320, 410)
       # Combinatie met bos uit toekomstlaag -> 410 (nat bos)
       # Combinatie met open type uit toekomstlaag -> 320 (nat open)
+      v %in% c(320, 410) & e == 420 ~ 420,
       v %in% c(320, 410) & is_bos  ~ 410,
       v %in% c(320, 410) & !is_bos ~ 320,
       # Fallback (indien niet gevangen door bovenstaande regels)
@@ -476,10 +614,29 @@ m_reclass <- lookup_table %>%
 # 5. Voer de berekening uit op de rasters
 r_key <- vernatting * 10000 + ecosysteem_2050_nat
 
-tussenstap1_sc2 <- classify(r_key, m_reclass)
+tussenstap1_sc2a <- classify(r_key, m_reclass)
 
-tussenstap1_sc2 <- cover(tussenstap1_sc2, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
+tussenstap1_sc2a <- cover(tussenstap1_sc2a, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
 
+
+#//////////////////////////////////////////////////////////////
+# 1b. Verfijnen originele ecosysteemkaart -> bestaande natte graslanden en bossen aanduiden
+#//////////////////////////////////////////////////////////////
+
+# Habitatkaart verrasteren en bijsnijden
+habitat <- bwk_habitat |>
+  select(HAB1) |> 
+  left_join(rcl_hab, by = c("HAB1" = "habitat"))
+
+# Moerasbossen (elzenbroekbos) verrasteren en bijsnijden
+moerasbos <- rasterize(habitat |> filter(HAB1 %in% c("91E0_vn", "91E0_vm", "91E0_vo", "91E0_eutr", "91E0_meso", "91E0_oli")), ecosysteem_2022, field = 1)
+moerasbos <- mask(moerasbos, ecosysteem_2022)
+
+# Gwates verrasteren en bijsnijden
+gwates <- rasterize(habitat, ecosysteem_2022, field = "gwates")
+gwates <- mask(gwates, ecosysteem_2022)
+
+tussenstap1_sc2 <- ifel(tussenstap1_sc2a == 302 & !is.na(gwates), 320, ifel(tussenstap1_sc2a %in% c(400, 401, 410) & !is.na(moerasbos), 420, ifel(tussenstap1_sc2a %in% c(400, 401) & !is.na(gwates), 410, tussenstap1_sc2a)))
 ```
 
 **b) Vernattingscontouren toevoegen en vegetatie aanpassen**
@@ -521,13 +678,17 @@ tussenstap1_sc2_2 <- cover(gekozen_eco, tussenstap1_sc2)
 
 ```
 
-**c) Toevoegen extra bos en maatregelen voor dedrainage en infiltratie**
+**c) Toevoegen extra bos en KLE's**
 
 ```{r tussenstap2_sc2}
 
 #//////////////////////////////////////////////////////////////
 # 2. Extra boscellen toevoegen
 #//////////////////////////////////////////////////////////////
+
+# Als het bosuitbreidingsdoel uit AGNAS kleiner is dan de oppervlakte bos die er bijkomt volgens de toekomstlaag, dan zijn de bosuitbreidingsrasters (sc1/2/3_bosuitbreiding) leeg. O.a bij de Kleine Nete is dat het geval -> tussenstap1 = tussenstap2
+
+tussenstap2_sc2 <- tussenstap1_sc2_2
 
 # Droge open ecosystemen worden droog loofbos (401), natte graslanden (320) worden valleibos (410) en zeer natte ecosystemen (701, 702) worden moerasbos (420)
 tussenstap2_sc2 <- ifel(tussenstap1_sc2_2 %in% c(104, 201, 202, 203, 204, 205, 300, 301, 302, 501, 602) & !is.na(sc2_bosuitbreiding), 402,
@@ -538,6 +699,26 @@ tussenstap2_sc2 <- ifel(tussenstap1_sc2_2 %in% c(104, 201, 202, 203, 204, 205, 3
 # Tussenstap 2 wordt gebruikt als input voor de plaatsing van dedrainagemaatregelen
 writeRaster(tussenstap2_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc2.tif"), overwrite = TRUE)
 
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap2_sc2_kle <- ifel(tussenstap2_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc2))
+
+writeRaster(tussenstap2_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc2_kle.tif"), overwrite = TRUE)
 ```
 
 #### 2. Dedrainage invoegen
@@ -586,6 +767,26 @@ tussenstap4_sc2 <- ifel(tussenstap3_sc2 == 220 & sc2_ecosysteem_infilt == 210, 2
 # Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's en de berekening van InVest
 writeRaster(tussenstap4_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc2.tif"), overwrite = TRUE)
 
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap4_sc2_kle <- ifel(tussenstap4_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc2))
+
+writeRaster(tussenstap4_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc2_kle.tif"), overwrite = TRUE)
 ```
 
 #### 4. KLE invoegen
@@ -597,6 +798,8 @@ writeRaster(tussenstap4_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 #//////////////////////////////////////////////////////////////
 
 tussenstap4_sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc2.tif"))
+
+kle_fractie_gecorrigeerd_sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/kle_fractie_gecorrigeerd_sc2.tif"))
 
 # 1.  KLE's inpassen op akkers en grasland
 # KLE-kaart opdelen in klassen
@@ -628,6 +831,8 @@ writeRaster(tussenstap5_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenar
 #//////////////////////////////////////////////////////////////
 
 tussenstap5_sc2 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc2.tif"))
+
+sc2_ecosysteem_ontharding <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_ontharding.tif"))
 
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
@@ -675,6 +880,7 @@ lookup_table <- combi %>%
     resultaat = case_when(
       # Regel 1: Codes > 700 in toekomstlaag primeren altijd (moeras, wetland, water, slikken/schorren)
       e > 700 ~ e,
+      e == 420 ~ e,
       # Regel 2: Codes < 302 en code 400 in toekomstlaag -> vernatting primeert altijd
       e < 302 | e == 400 ~ v,
       # Regel 3: Codes 320, 501 en 602 in toekomstlaag primeren op 320 en 410 in vernatting
@@ -688,6 +894,7 @@ lookup_table <- combi %>%
       # Regel 5: NATTE vernatting (320, 410)
       # Combinatie met bos uit toekomstlaag -> 410 (nat bos)
       # Combinatie met open type uit toekomstlaag -> 320 (nat open)
+      v %in% c(320, 410) & e == 420 ~ 420,
       v %in% c(320, 410) & is_bos  ~ 410,
       v %in% c(320, 410) & !is_bos ~ 320,
       # Fallback (indien niet gevangen door bovenstaande regels)
@@ -704,9 +911,31 @@ m_reclass <- lookup_table %>%
 # 5. Voer de berekening uit op de rasters
 r_key <- vernatting * 10000 + ecosysteem_2050_nat
 
-tussenstap1_sc3 <- classify(r_key, m_reclass)
+tussenstap1_sc3a <- classify(r_key, m_reclass)
 
-tussenstap1_sc3 <- cover(tussenstap1_sc3, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
+tussenstap1_sc3a <- cover(tussenstap1_sc3a, ecosysteem_2050_nat) # NA's vervangen door score toekomstlaag
+
+#//////////////////////////////////////////////////////////////
+# 1b. Verfijnen originele ecosysteemkaart -> bestaande natte graslanden en bossen aanduiden
+#//////////////////////////////////////////////////////////////
+
+# Habitatkaart verrasteren en bijsnijden
+habitat <- bwk_habitat |>
+  select(HAB1) |> 
+  left_join(rcl_hab, by = c("HAB1" = "habitat"))
+
+# Moerasbossen (elzenbroekbos) verrasteren en bijsnijden
+moerasbos <- rasterize(habitat |> filter(HAB1 %in% c("91E0_vn", "91E0_vm", "91E0_vo", "91E0_eutr", "91E0_meso", "91E0_oli")), ecosysteem_2022, field = 1)
+moerasbos <- mask(moerasbos, ecosysteem_2022)
+
+# Gwates verrasteren en bijsnijden
+gwates <- rasterize(habitat, ecosysteem_2022, field = "gwates")
+gwates <- mask(gwates, ecosysteem_2022)
+
+tussenstap1_sc3 <- ifel(tussenstap1_sc3a == 302 & !is.na(gwates), 320, ifel(tussenstap1_sc3a %in% c(400, 401, 410) & !is.na(moerasbos), 420, ifel(tussenstap1_sc3a %in% c(400, 401) & !is.na(gwates), 410, tussenstap1_sc3a)))
+
+
+
 
 ```
 
@@ -741,13 +970,17 @@ tussenstap1_sc3_2 <- cover(gekozen_eco, tussenstap1_sc3)
 
 ```
 
-**c) Toevoegen extra bos en maatregelen voor dedrainage en infiltratie**
+**c) Toevoegen extra bos en KLE's**
 
 ```{r tussenstap2_sc3}
 
 #//////////////////////////////////////////////////////////////
 # 2. Extra boscellen toevoegen
 #//////////////////////////////////////////////////////////////
+
+# Als het bosuitbreidingsdoel uit AGNAS kleiner is dan de oppervlakte bos die er bijkomt volgens de toekomstlaag, dan zijn de bosuitbreidingsrasters (sc1/2/3_bosuitbreiding) leeg. O.a bij de Kleine Nete is dat het geval -> tussenstap1 = tussenstap2
+
+tussenstap2_sc3 <- tussenstap1_sc3_2
 
 # Droge open ecosystemen worden droog loofbos (401), natte graslanden (320) worden valleibos (410) en zeer natte ecosystemen (701, 702) worden moerasbos (420)
 tussenstap2_sc3 <- ifel(tussenstap1_sc3_2 %in% c(104, 201, 202, 203, 204, 205, 300, 301, 302, 501, 602) & !is.na(sc3_bosuitbreiding), 402,
@@ -758,6 +991,27 @@ tussenstap2_sc3 <- ifel(tussenstap1_sc3_2 %in% c(104, 201, 202, 203, 204, 205, 3
 # Tussenstap 2 wordt gebruikt als input voor de plaatsing van dedrainagemaatregelen
 writeRaster(tussenstap2_sc3, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc3.tif"), overwrite = TRUE)
 
+
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap2_sc3_kle <- ifel(tussenstap2_sc3 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc3 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc3))
+
+writeRaster(tussenstap2_sc3_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc3_kle.tif"), overwrite = TRUE)
 ```
 
 #### 2. Dedrainage invoegen
@@ -829,6 +1083,26 @@ tussenstap4_sc3_75 <- ifel(tussenstap3_sc3_75 == 220 & sc3_ecosysteem_infilt_75 
 writeRaster(tussenstap4_sc3_75, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_75.tif"), overwrite = TRUE)
 
 
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap4_sc3_75_kle <- ifel(tussenstap4_sc3_75 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_75 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_75))
+
+writeRaster(tussenstap4_sc3_75_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_75_kle.tif"), overwrite = TRUE)
+
 
 #////////////////////
 # 25% scenario's
@@ -846,6 +1120,25 @@ tussenstap4_sc3_gras <- sc3_ecosysteem_infilt_25_gras
 # Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's en de berekening van InVest
 writeRaster(tussenstap4_sc3_gras, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_gras.tif"), overwrite = TRUE)
 
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap4_sc3_gras_kle <- ifel(tussenstap4_sc3_gras %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_gras %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_gras))
+
+writeRaster(tussenstap4_sc3_gras_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_gras_kle.tif"), overwrite = TRUE)
 
 
 # b) bos
@@ -860,6 +1153,27 @@ tussenstap4_sc3_bos <- sc3_ecosysteem_infilt_25_bos
 
 # Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's en de berekening van InVest
 writeRaster(tussenstap4_sc3_bos, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_bos.tif"), overwrite = TRUE)
+
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met KLE's
+tussenstap4_sc3_bos_kle <- ifel(tussenstap4_sc3_bos %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_bos %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_bos))
+
+writeRaster(tussenstap4_sc3_bos_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_bos_kle.tif"), overwrite = TRUE)
 ```
 
 #### 4. KLE invoegen
@@ -869,6 +1183,13 @@ writeRaster(tussenstap4_sc3_bos, filename = str_c("C:/R/NARA2026/nara2026-git/sc
 #//////////////////////////////////////////////////////////////
 # 5. Percentage KLE toevoegen
 #//////////////////////////////////////////////////////////////
+
+kle_fractie_gecorrigeerd_sc3_75 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/kle_fractie_gecorrigeerd_sc3_75.tif"))
+
+kle_fractie_gecorrigeerd_sc3_bos <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/kle_fractie_gecorrigeerd_sc3_bos.tif"))
+
+kle_fractie_gecorrigeerd_sc3_gras <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/kle_fractie_gecorrigeerd_sc3_gras.tif"))
+
 
 #////////////////////
 # 75% scenario
@@ -904,7 +1225,7 @@ writeRaster(tussenstap5_sc3_75, filename = str_c("C:/R/NARA2026/nara2026-git/sce
 tussenstap4_sc3_gras <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_gras.tif"))
 
 
-kle_recl_sc3_25_gras <- classify(kle_fractie_gecorrigeerd_sc3_25_gras, rcl_matrix, right = TRUE)
+kle_recl_sc3_25_gras <- classify(kle_fractie_gecorrigeerd_sc3_gras, rcl_matrix, right = TRUE)
 
 # 2. Ecosysteemkaart updaten met KLE's
 tussenstap5_sc3_gras <- ifel(tussenstap4_sc3_gras %in% c(201, 202, 204, 205, 210, 220) & !is.na(kle_recl_sc3_25_gras), 2000 + kle_recl_sc3_25_gras, ifel(tussenstap4_sc3_gras %in% c(300, 301, 330) & !is.na(kle_recl_sc3_25_gras), 3000 + kle_recl_sc3_25_gras, tussenstap4_sc3_gras))
@@ -917,7 +1238,7 @@ writeRaster(tussenstap5_sc3_gras, filename = str_c("C:/R/NARA2026/nara2026-git/s
 tussenstap4_sc3_bos <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_bos.tif"))
 
 
-kle_recl_sc3_25_bos <- classify(kle_fractie_gecorrigeerd_sc3_25_bos, rcl_matrix, right = TRUE)
+kle_recl_sc3_25_bos <- classify(kle_fractie_gecorrigeerd_sc3_bos, rcl_matrix, right = TRUE)
 
 # 2. Ecosysteemkaart updaten met KLE's
 tussenstap5_sc3_bos <- ifel(tussenstap4_sc3_bos %in% c(201, 202, 204, 205, 210, 220) & !is.na(kle_recl_sc3_25_bos), 2000 + kle_recl_sc3_25_bos, ifel(tussenstap4_sc3_bos %in% c(300, 301, 330) & !is.na(kle_recl_sc3_25_bos), 3000 + kle_recl_sc3_25_bos, tussenstap4_sc3_bos))
@@ -936,6 +1257,13 @@ writeRaster(tussenstap5_sc3_bos, filename = str_c("C:/R/NARA2026/nara2026-git/sc
 # 6. Onthardingscellen toevoegen
 #//////////////////////////////////////////////////////////////
 
+sc3_75_ecosysteem_ontharding <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_75_ecosysteem_ontharding.tif"))
+
+sc3_gras_ecosysteem_ontharding <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_gras_ecosysteem_ontharding.tif"))
+
+sc3_bos_ecosysteem_ontharding <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_bos_ecosysteem_ontharding.tif"))
+
+
 #////////////////////
 # 75% scenario
 #////////////////////
@@ -944,7 +1272,7 @@ tussenstap5_sc3_75 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studie
 
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
-scen3_75_ecosysteem_finaal <- ifel(tussenstap5_sc3_75 %in% c(101, 102) & !sc3_ecosysteem_ontharding %in% c(101, 102), sc2_ecosysteem_ontharding, tussenstap5_sc3_75)
+scen3_75_ecosysteem_finaal <- ifel(tussenstap5_sc3_75 %in% c(101, 102) & !sc3_75_ecosysteem_ontharding %in% c(101, 102), sc3_75_ecosysteem_ontharding, tussenstap5_sc3_75)
 
 # De finale kaart wordt gebruikt als input voor een InVestberekening en de andere ESD
 writeRaster(scen3_75_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen3_75_ecosysteem_finaal.tif"), overwrite = TRUE)
@@ -959,7 +1287,7 @@ tussenstap5_sc3_gras <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", stud
 
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
-scen3_gras_ecosysteem_finaal <- ifel(tussenstap5_sc3_gras %in% c(101, 102) & !sc3_ecosysteem_ontharding %in% c(101, 102), sc2_ecosysteem_ontharding, tussenstap5_sc3_gras)
+scen3_gras_ecosysteem_finaal <- ifel(tussenstap5_sc3_gras %in% c(101, 102) & !sc3_gras_ecosysteem_ontharding %in% c(101, 102), sc3_gras_ecosysteem_ontharding, tussenstap5_sc3_gras)
 
 # De finale kaart wordt gebruikt als input voor een InVestberekening en de andere ESD
 writeRaster(scen3_gras_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen3_gras_ecosysteem_finaal.tif"), overwrite = TRUE)
@@ -971,7 +1299,7 @@ tussenstap5_sc3_bos <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
 
 # verhardingscellen (code 101 en 102) worden vervangen door de ontharde cellen
 
-scen3_bos_ecosysteem_finaal <- ifel(tussenstap5_sc3_bos %in% c(101, 102) & !sc3_ecosysteem_ontharding %in% c(101, 102), sc2_ecosysteem_ontharding, tussenstap5_sc3_bos)
+scen3_bos_ecosysteem_finaal <- ifel(tussenstap5_sc3_bos %in% c(101, 102) & !sc3_bos_ecosysteem_ontharding %in% c(101, 102), sc3_bos_ecosysteem_ontharding, tussenstap5_sc3_bos)
 
 # De finale kaart wordt gebruikt als input voor een InVestberekening en de andere ESD
 writeRaster(scen3_bos_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen3_bos_ecosysteem_finaal.tif"), overwrite = TRUE)
