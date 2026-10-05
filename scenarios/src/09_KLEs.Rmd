@@ -60,13 +60,14 @@ De volgende datasets worden gebruikt:
 - gebnit.shp -\> nitraatgebieden
 - habrl.shp -\> SBZ-gebieden
 - rbh.shp -\> ruimteboekhouding voor gebieden met groene gewestplanbestemming
-- gewascode.tif -\> kaart met de teeltcodes van landbouwpercelen
+- gewascode.tif -\> kaart met de teeltcodes van landbouwpercelen uit de EPR 2022
 - deel_3_reclass_gewascode_nit.xlsx -\> tabel die teeltcodes verbindt met nitraatgevoeligheid (1 = niet-nitraatgevoelig)
 - deel_3_reclass_gewascode_erosie.xlsx -\> tabel die teeltcodes verbindt met erosiegevoeligheid (C-factor > = 0,5 = erosiegevoelig)
 - KLE.shp -\> KLE-polygonen in landbouwgebied
 - hag.tif -\> kaart van herbevestigde agrarische gebieden, 1 = HAG
 - afstroomgebied_5m_crs.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied
 - geel_oranje.shp -\> polygonenkaart met de erosiegevoeligheidszones: enkel geel (erosiegevoeligheid: laag) en oranje (erosiegevoeligheid: medium) --> owv de grote oppervlakte geel, besluiten we enkel oranje gebieden prioritair in te vullen
+- lbgp_2023.shp -\> polygonenkaart met de landbouwgebruikspercelen in 2023. Sinds 2023 worden grasbufferstroken apart ingetekend in de perceelsregistratie, onder de variabele "ecoscheme", met codes die beginnen met "BU..." 
 
 ```{r bestanden_folders}
 
@@ -75,7 +76,7 @@ studiegebied <- "herk_mombeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif","tussenstap4_sc1.tif", "tussenstap4_sc2.tif", "tussenstap4_sc3_bos.tif", "tussenstap4_sc3_gras.tif", "tussenstap4_sc3_75.tif", "geel_oranje.shp", "gebied.shp", "oever_paars.shp", "oever_blauw_poly.shp", "oever_blauw_lijn.shp", "gebnit.shp", "habrl.shp", "hag.tif","KLE.shp", "rbh.shp", "deel_3_reclass_gewascode_nit.xlsx", "deel_3_reclass_gewascode_erosie.xlsx")
+targets <- c("ecosysteem_2022.tif","tussenstap4_sc1.tif", "tussenstap4_sc2.tif", "tussenstap4_sc3_bos.tif", "tussenstap4_sc3_gras.tif", "tussenstap4_sc3_75.tif", "geel_oranje.shp", "gebied.shp", "oever_paars.shp", "oever_blauw_poly.shp", "oever_blauw_lijn.shp", "gebnit.shp", "habrl.shp", "hag.tif","KLE.shp", "rbh.shp", "lbgp_2023.shp", "deel_3_reclass_gewascode_nit.xlsx", "deel_3_reclass_gewascode_erosie.xlsx")
 
 # In welke folders zitten de data?
 
@@ -307,8 +308,9 @@ verschil <- oever_rast - oever_rast_fin
 #mapview(gewas_nit, na.color = "transparent") + mapview(oever_rast_fin, col.region = rainbow, na.color = "transparent")
 
 # Uitgedrukt in aandeel KLE per cel
-oever_fractie_kle <- oever_rast_fin/10
+oever_fractie_kle <- ifel(is.na(oever_rast_fin), 0, oever_rast_fin/10)
 mapview(oever_fractie_kle, na.color = "transparent")
+writeRaster(oever_fractie_kle, file.path(result_path,"oever_fractie_kle.tif"), overwrite = TRUE)
 
 ```
 
@@ -327,42 +329,56 @@ Het doel voor het ganse landbouwgebied = 10% van alle landbouwcellen. Het tekort
 ```{r huidig aandeel KLE stap1}
 # --- HUIDIGE AANDEEL KLE BEPALEN - STAP1 ---
 
-# KLE klasse bosrand telt niet mee (grenzend aan natuur cf regels LUCAS), bosrand apart nodig voor vervolg
+# KLE klasse bosrand telt niet mee (grenzend aan natuur cf regels LUCAS), bosrand apart nodig voor vervolg. Grazige KLE halen we uit grasbufferstroken volgens de landbouwperceelsregistratie.
 KLE_sel <- KLE %>%
   filter(subklasse != "bosrand")
 bosrand <- KLE %>%
   filter(subklasse == "bosrand")
+grasbuffer_sel <- lbgp_2023 %>%
+  filter(grepl("^BU", ecoscheme_))# ecoscheme begint met BU (BUW, BUB, BUF, BUE...)
 
-# KLE en bosrand inladen als Spat_vect voor snelle verrastering
+# KLE, bosrand en grasbufferstroken inladen als Spat_vect voor snelle verrastering
 KLE_sel <- vect(KLE_sel)
-huidige_kle <- project(KLE_sel, crs(ecosysteem))
+huidige_kle_hout <- project(KLE_sel, crs(ecosysteem))
 
 bosrand <- vect(bosrand)
 bosrand <- project(bosrand, crs(ecosysteem))
 bosrand_10m <-  rasterize(bosrand, ecosysteem)
 
-# Bereken de fractie KLE per 10m cel
-kle_fractie_10m <- rasterize(huidige_kle, ecosysteem, cover = TRUE)
+grasbuffer_sel <- vect(grasbuffer_sel)
+huidige_kle_gras <- project(grasbuffer_sel, crs(ecosysteem))
+
+# Bereken de fractie KLE per 10m cel. Waar houtige en grazige KLE overlappen wordt de KLE fractie maximum 1.
+kle_fractie_hout_10m <- rasterize(huidige_kle_hout, ecosysteem, cover = TRUE, background = 0)
+kle_fractie_grasbuffer_10m <- rasterize(huidige_kle_gras, ecosysteem, cover = TRUE, background = 0)
+
+kle_fractie_10m_som <- kle_fractie_hout_10m + kle_fractie_grasbuffer_10m
+kle_fractie_10m <- ifel(kle_fractie_10m_som > 1, 1, kle_fractie_10m_som)
 
 # Oeverzones toevoegen, waar overlap tussen oeverzone en KLE: maximumwaarde van de cel behouden
-kle_fractie_10m_tot <- mosaic(kle_fractie_10m, oever_fractie_kle, fun = "max")
-kle_fractie_10m_tot_01 <- ifel(!is.na(kle_fractie_10m_tot), kle_fractie_10m_tot, 0)
-
-writeRaster(kle_fractie_10m_tot_01, file.path(result_path,"kle_fractie_10m_tot_01.tif"), overwrite = TRUE)
+kle_fractie_10m_tot <- max(kle_fractie_10m, oever_fractie_kle)
+writeRaster(kle_fractie_10m_tot, file.path(result_path,"kle_fractie_10m_tot.tif"), overwrite = TRUE)
 ```
 
 #### 3.1.2 stap 2: enkel KLE's in landbouwgebied tellen mee
 ```{r startkaart - huidig aandeel KLE stap 2}
-kle_fractie_10m_fin <- rast(file.path(result_path,"kle_fractie_10m_tot_01.tif"))
+kle_fractie_10m_tot <- rast(file.path(result_path,"kle_fractie_10m_tot.tif"))
 
 # --- HUIDIGE AANDEEL KLE BEPALEN voor startkaart - STAP2 ---
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
 # Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
-landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
-buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
+landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 302, 330) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 400, 404)
 
-landbouw_masker <- ifel(ecosysteem %in% landbouw_codes, 1, NA)
+landbouw_masker <- ifel(ecosysteem %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
+
+writeRaster(landbouw_masker, file.path(result_path, "landbouw_masker.tif"), overwrite = TRUE)
+# landbouw_masker2 <- ifel(ecosysteem %in% landbouw_codes, 1, NA)
+# testmasker <- ifel(is.na(landbouw_masker) & !is.na(landbouw_masker2), 1, 0)
+# testres <- testmasker*ecosysteem
+# unique(testres)
+
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -372,9 +388,29 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
+mapview(kle_fractie_10m_fin)
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start.tif"), overwrite = TRUE)
 
+```
+
+```{r aandeel gras vs houtige kle}
+kle_hout_en_grasbuffer <- ifel(kle_fractie_10m == kle_fractie_10m_fin, kle_fractie_10m_fin, 0)
+kle_hout <- ifel(kle_hout_en_grasbuffer > 0 & kle_fractie_10m_som > 1, 
+                 1 - kle_fractie_grasbuffer_10m, 
+                 ifel(kle_hout_en_grasbuffer > 0 & kle_fractie_10m_som <= 1, 
+                      kle_fractie_hout_10m, 
+                      0))
+kle_grasbuffer <- ifel(kle_hout_en_grasbuffer > 0, kle_fractie_grasbuffer_10m, 0)
+kle_oever <- ifel(oever_fractie_kle == kle_fractie_10m_fin, kle_fractie_10m_fin, 0)
+kle_gras <- kle_oever + kle_grasbuffer
+opp_kle_hout <- global(kle_hout, "sum", na.rm = TRUE)$sum * 100
+opp_kle_tot <- global(kle_fractie_10m_fin, "sum", na.rm = TRUE)$sum * 100
+opp_kle_gras <- global(kle_gras, "sum", na.rm = TRUE)$sum * 100
+opp_kle_hout
+opp_kle_gras
+opp_kle_tot
+opp_kle_hout/opp_kle_tot*100
 ```
 
 #### 3.1.3 Stap 3: resultaat op 100m en terug naar 10m resolutie
@@ -451,7 +487,7 @@ writeRaster(start_10m_landbouw, file.path(result_path, "kle_fractie_gecorrigeerd
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc1 %in% landbouw_codes, 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc1 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -461,7 +497,7 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc1.tif"), overwrite = TRUE)
 
 #mapview(kle_fractie_10m_fin)
@@ -775,7 +811,7 @@ mapview(prior_gebied) #+ mapview(geel_oranje_rast_fin, col = "blue")
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc2 %in% landbouw_codes, 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc2 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -785,7 +821,7 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc2.tif"), overwrite = TRUE)
 
 #mapview(kle_fractie_10m_fin)
@@ -1075,7 +1111,7 @@ cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc3_bos %in% landbouw_codes, 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc3_bos %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -1085,7 +1121,7 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc3_bos.tif"), overwrite = TRUE)
 
 #mapview(kle_fractie_10m_fin)
@@ -1358,7 +1394,7 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc3_gras %in% landbouw_codes, 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc3_gras %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -1368,7 +1404,7 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc3_gras.tif"), overwrite = TRUE)
 
 #mapview(kle_fractie_10m_fin)
@@ -1642,7 +1678,7 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc3_75 %in% landbouw_codes, 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc3_75 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -1652,7 +1688,7 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
  
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
-kle_fractie_10m_fin <- kle_fractie_10m_tot_01*landbouw_masker_corr
+kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start_sc3_75.tif"), overwrite = TRUE)
 
 #mapview(kle_fractie_10m_fin)
