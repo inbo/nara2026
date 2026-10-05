@@ -1,0 +1,902 @@
+---
+title: "x13_resultaten_berekenen_invest_swy"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(reticulate)
+library(furrr)
+library(scales)
+
+# Inladen functie voor Investmodel
+source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_seasonal_water_yield2.R")
+
+```
+
+Het script berekent de **infiltratie** (L, local recharge), **evapotranspiratie** (aet), **afstroming** (QF, quickflow), bijdrage aan het **basisdebiet** (B, baseflow) en de **cumulatieve bijdrage aan het basisdebiet** (B_sum) via het Investmodel [Seasonal Water Yield](https://storage.googleapis.com/releases.naturalcapitalproject.org/invest-userguide/latest/en/seasonal_water_yield.html). B geeft de bijdrage van elke cel aan het finale basisdebiet en B_sum geeft de hoeveel water die via een cel uiteindelijk in de rivier terechtkomt (trekt verdamping door lager gelegen vegetaties af).
+
+In het tweede deel van het script wordt het effect van de infiltratiemaatregelen en dedrainagemaatregelen in beeld gebracht.
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– studiegebied
+> |          \|—– data -\>
+> |          \|—– output -\>
+> |    \|—– src -\> `x13_resultaten_berekenen_invest_swy.Rmd`
+
+## Berekening Seasonal water yield
+
+Het model wordt gerund voor de drie scenario's, met voor elk scenario een afzonderlijke run per maatregelenset (nieuwe natuur, infiltratiemaatregelen, KLE's en ontharding). Daarvoor moeten de juiste ecosysteemkaarten ingeladen worden en geven we de resultaten een aparte naam via het suffix-argument in de functie.
+
+Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toestand zijn er al KLE's aanwezig. De huidige KLE's worden toegevoegd aan de startkaart (ecosysteem_2022) en tussenstap 2 en 4 -\> aangepaste kaarten zijn ecosysteem_2022_upd, tussenstap2_sc1_kle en tussenstap4_sc1_kle (zie script compilatie).
+
+| Scenario | maatregelenset | suffix | ecosysteemkaart |
+|------------------|------------------|------------------|-------------------|
+| huidige toestand | / | 0 | ecosysteem_2022_upd.tif |
+| scenario 1 | nieuwe natuur | sc1_nat | tussenstap2_sc1_kle.tif |
+|  | infiltratie | sc1_inf | tussenstap4_sc1_kle.tif |
+|  | KLE | sc1_kle | tussenstap5_sc1.tif |
+|  | ontharding | sc1_onth | scen1_ecosysteem_finaal.tif |
+| scenario 2 | nieuwe natuur | sc2_nat | tussenstap2_sc2_kle.tif |
+|  | infiltratie | sc2_inf | tussenstap4_sc2_kle.tif |
+|  | KLE | sc2_kle | tussenstap5_sc2.tif |
+|  | ontharding | sc2_onth | scen2_ecosysteem_finaal.tif |
+| scenario 3 (gras of bos) | nieuwe natuur | sc3_gras_nat | tussenstap2_sc3_kle.tif |
+|  | infiltratie | sc3_gras_inf | tussenstap4_sc3_gras_kle.tif |
+|  | KLE | sc3_gras_kle | tussenstap5_sc3_gras.tif |
+|  | ontharding | sc3_gras_onth | scen3_gras_ecosysteem_finaal.tif |
+
+```{r}
+
+# De resultaten worden weggeschreven naar de folder "C:/GIS/NARA2026/invest/R/outputs/studiegebied". Elke run heeft een eigen folder met als naam de suffix van de modelrun. 
+
+#/////////////////////////////////////////////////////////////
+# Stap 0: Kies het studiegebied en het aantal cores
+#/////////////////////////////////////////////////////////////
+
+studiegebied   <- "kleine_nete"
+aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
+
+plan(multisession, workers = aantal_workers)
+
+
+#/////////////////////////////////////////////////////////////
+# Stap 1: opbouw tabel met scenarionamen
+#/////////////////////////////////////////////////////////////
+
+get_kaart_naam <- function(scen, maatr = NULL) {
+  scen_str <- as.character(scen)
+  if (scen_str == "0") return("ecosysteem_2022_upd.tif")
+  
+  lookup_tbl <- tibble::tribble(
+    ~scen,    ~maatr, ~kaart,
+    "1",      "nat",  "tussenstap2_sc1_kle.tif",
+    "1",      "inf",  "tussenstap4_sc1_kle.tif",
+    "1",      "kle",  "tussenstap5_sc1.tif",
+    "1",      "ont",  "scen1_ecosysteem_finaal.tif",
+    "2",      "nat",  "tussenstap2_sc2_kle.tif",
+    "2",      "inf",  "tussenstap4_sc2_kle.tif",
+    "2",      "kle",  "tussenstap5_sc2.tif",
+    "2",      "ont",  "scen2_ecosysteem_finaal.tif",
+    "3_gras", "nat",  "tussenstap2_sc3_kle.tif",
+    "3_gras", "inf",  "tussenstap4_sc3_gras_kle.tif",
+    "3_gras", "kle",  "tussenstap5_sc3_gras.tif",
+    "3_gras", "ont",  "scen3_gras_ecosysteem_finaal.tif",
+    "3_bos",  "nat",  "tussenstap2_sc3_kle.tif",
+    "3_bos",  "inf",  "tussenstap4_sc3_bos_kle.tif",
+    "3_bos",  "kle",  "tussenstap5_sc3_bos.tif",
+    "3_bos",  "ont",  "scen3_bos_ecosysteem_finaal.tif",
+    "3_75",   "nat",  "tussenstap2_sc3_kle.tif",
+    "3_75",   "inf",  "tussenstap4_sc3_75_kle.tif",
+    "3_75",   "kle",  "tussenstap5_sc3_75.tif",
+    "3_75",   "ont",  "scen3_75_ecosysteem_finaal.tif",
+  )
+  
+  res <- lookup_tbl %>% filter(scen == scen_str & maatr == !!maatr) %>% pull(kaart)
+  if (length(res) == 0) stop("Geen kaart gevonden voor combinatie.")
+  return(res)
+}
+
+runs_tbl <- tibble::tribble(
+  ~scen,    ~maatr,
+  "0",      NA_character_,
+  "1",      "nat",
+  "1",      "inf",
+  "1",      "kle",
+  "1",      "ont",
+  "2",      "nat",
+  "2",      "inf",
+  "2",      "kle",
+  "2",      "ont",
+  "3_gras", "nat",
+  "3_gras", "inf",
+  "3_gras", "kle",
+  "3_gras", "ont",
+  "3_bos",  "nat",
+  "3_bos",  "inf",
+  "3_bos",  "kle",
+  "3_bos",  "ont",
+  "3_75",   "nat",
+  "3_75",   "inf",
+  "3_75",   "kle",
+  "3_75",   "ont",
+)
+
+scenarios_dir  <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+workspace_path <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+
+#/////////////////////////////////////////////////////////////
+# Stap 2: Run model voor verschillende scenario's
+#/////////////////////////////////////////////////////////////
+
+# future_pmap -> parallelle runs
+
+resultaten_tbl <- future_pmap_dfr(runs_tbl, function(scen, maatr) {
+  
+  kaart  <- get_kaart_naam(scen = scen, maatr = maatr)
+  suffix <- if_else(scen == "0", "", str_c("sc", scen, "_", maatr))
+  
+  folder_naam <- if (nchar(suffix) > 0) suffix else "referentie"
+  target_dir  <- file.path(workspace_path, folder_naam)
+  path_lulc   <- file.path(scenarios_dir, kaart)
+  
+  # Check 1: Bestaan de outputs al in de subfolder?
+  bestaande_tifs <- if (dir.exists(target_dir)) list.files(target_dir, pattern = "\\.tif$") else character(0)
+  if (length(bestaande_tifs) >= 5) {
+    return(tibble(scen = scen, maatr = coalesce(maatr, "-"), kaart = kaart, status = "Reeds verwerkt"))
+  }
+  
+  # Check 2: Is de ecosysteemkaart aanwezig?
+  if (!file.exists(path_lulc)) {
+    return(tibble(scen = scen, maatr = coalesce(maatr, "-"), kaart = kaart, status = "Kaart ontbreekt"))
+  }
+  
+  # Run InVEST
+  status_run <- tryCatch({
+    run_invest_swy(studiegebied = studiegebied, kaart = kaart, suffix = suffix)
+    "Succesvol uitgevoerd"
+  }, error = function(e) {
+    paste("Fout:", e$message)
+  })
+  
+  return(tibble(scen = scen, maatr = coalesce(maatr, "-"), kaart = kaart, status = status_run))
+}, .options = furrr_options(seed = TRUE))
+
+plan(sequential)
+
+
+# Rapport met overzicht resultaten
+
+cat("\n\n", str_dup("=", 65), "\n", sep = "")
+cat("  EINDRAPPORT BATCH-RUN | Studiegebied:", studiegebied, "\n")
+cat(str_dup("=", 65), "\n\n", sep = "")
+print(resultaten_tbl, n = Inf)
+```
+
+## Deel 1 - Volledig studiegebied
+
+Na plaatsing van dedrainage- en infiltratiemaatregelen bevat de ecosysteemkaart (tussenstap4_sc1/2/3) codes voor **infiltratie** (210), **dedrainage** (220) en de **combinatie** van beide maatregelen (230).
+
+We maken eerst aparte rasterlagen voor infiltratie en dedrainage en berekenen vervolgens het effect van beide maatregelen afzonderlijk.
+
+Het effect van dedrainage wordt berekend in het script van de plaatsing van dedrainagemaatregelen (`08b_landbouw_drainage.Rmd`).
+
+### 1. Berekening extra infiltratie en data compilatie
+
+```{r automatisch}
+
+# Paden instellen
+scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+pad_folder    <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+
+# ==============================================================================
+# 1. RASTERS INLEZEN EN BASIS-SOM BEREKENEN
+# ==============================================================================
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^(QF|B|L|aet)", basename(tif_bestanden)) & 
+                                 !grepl("^B_sum", basename(tif_bestanden))] # eventueel B_sum toch toevoegen
+
+df_raw <- map_df(tif_bestanden, function(f) {
+  r <- rast(f)
+  naam <- tools::file_path_sans_ext(basename(f))
+  som_waarde <- global(r, "sum", na.rm = TRUE)[[1]]
+  tibble(bestand = naam, som = som_waarde)
+})
+
+
+# ==============================================================================
+# 1b. EXTRA INFILTRATIE BEREKENEN PER SCENARIO
+# ==============================================================================
+# Scenario-codes zoals ze in get_kaart_naam staan ("1", "2", "3_gras", "3_bos")
+scenarios_lookup <- c("1", "2", "3_gras", "3_bos", "3_75")
+
+df_extra_inf <- map_df(scenarios_lookup, function(scen) {
+  # 1. Haal de tussenstap4-kaartnaam op
+  kaart_inf <- get_kaart_naam(scen, "inf")
+  path_lulc <- file.path(scenarios_dir, kaart_inf)
+  
+  # 2. Suffix-naam opbouwen voor de folder en het QF-raster (bv. "sc1_inf")
+  suffix_name <- paste0("sc", scen, "_inf")
+  path_qf     <- file.path(pad_folder, suffix_name, paste0("QF_", suffix_name, ".tif"))
+  
+  if (file.exists(path_lulc) && file.exists(path_qf)) {
+    r_lulc <- rast(path_lulc)
+    r_qf   <- rast(path_qf)
+    
+    # Stem LULC-raster en QF-raster exact op elkaar af
+    r_lulc_aligned <- resample(r_lulc, r_qf, method = "near")
+    
+    # Infiltratiecellen (210, 230) en afstroom selecteren
+    cellen_infilt <- ifel(r_lulc_aligned %in% c(210, 230), 1, NA)
+    qf_afstroom   <- cellen_infilt * r_qf
+    
+    # Extra infiltratie berekenen (70% efficiëntie)
+    extra_val <- round(0.7 * global(qf_afstroom, fun = "sum", na.rm = TRUE)[[1]], 0)
+    if (is.na(extra_val)) extra_val <- 0
+  } else {
+    extra_val <- 0
+  }
+  
+  # Geef het scenario het label "sc1", "sc2", etc. voor de latere dataframe-join
+  scen_label <- if (startsWith(scen, "sc")) scen else paste0("sc", scen)
+  
+  tibble(scenario = scen_label, extra_infiltratie = extra_val)
+})
+
+# ==============================================================================
+# 2. DATAFRAME STRUCTUREREN EN EXTRA INFILTRATIE VERWERKEN (B/B_sum & QF)
+# ==============================================================================
+maatregelen      <- c("nat", "inf", "kle", "onth", "ont")
+scenarios_labels <- c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")
+
+df_clean <- df_raw %>%
+  mutate(
+    bestand = str_replace(bestand, "_ont$", "_onth"),
+    
+    # Maatregel bepalen
+    maatregel = map_chr(bestand, ~ {
+      m <- maatregelen[str_detect(.x, paste0("_", maatregelen, "$"))]
+      if (length(m) > 0) m[1] else "referentie"
+    }),
+    maatregel = if_else(maatregel == "ont", "onth", maatregel),
+    
+    # Scenario bepalen
+    scenario = map_chr(bestand, ~ {
+      s <- scenarios_labels[str_detect(.x, paste0("_", scenarios_labels, "(_|$)"))]
+      if (length(s) > 0) s else "referentie"
+    }),
+    
+    # Variabele bepalen
+    variabele = str_remove(bestand, paste0("_(", paste(scenarios_labels, collapse="|"), ").*")),
+    variabele = str_remove(variabele, paste0("_(", paste(maatregelen, collapse="|"), ")$"))
+  ) %>%
+  # Koppel de berekende extra infiltratie per scenario
+  left_join(df_extra_inf, by = "scenario") %>%
+  mutate(
+    extra_infiltratie = coalesce(extra_infiltratie, 0),
+    # Aanpassing som: optellen bij L, aftrekken van QF
+    som = case_when(
+      variabele %in% c("L") & maatregel %in% c("inf", "kle", "onth") ~ som + extra_infiltratie,
+      variabele == "QF" & maatregel %in% c("inf", "kle", "onth") ~ som - extra_infiltratie,
+      TRUE                                                                    ~ som
+    )
+  ) %>%
+  select(variabele, scenario, maatregel, som)
+
+# Volgordes vastleggen via factors
+df_clean <- df_clean %>%
+  mutate(
+    scenario  = factor(scenario, levels = c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
+    maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth"))
+  )
+
+
+
+```
+
+### 2. Grafieken
+
+#### a) Staafdiagram
+
+```{r grafieken}
+
+# ==============================================================================
+# 3. TYPE 1 GRAFIEKEN: ABSOLUTE SOMMEN PER VARIABELE
+# ==============================================================================
+variabelen <- unique(df_clean$variabele)
+
+
+for (v in variabelen) {
+  df_var <- df_clean %>% filter(variabele == v)
+  
+  p1 <- ggplot(df_var, aes(x = scenario, y = som, fill = maatregel)) +
+    geom_col(position = position_dodge(preserve = "single"), color = "black", width = 0.7) +
+    labs(
+      title = paste("Absolute waarden -", v),
+      x = "Scenario",
+      y = "Som van rasterwaarden",
+      fill = "Maatregel"
+    ) +
+    coord_cartesian(ylim = c(1000000000, NA)) +
+    theme_minimal() +
+    theme(
+      panel.grid.major.x = element_blank(),
+      plot.title = element_text(face = "bold", size = 14)
+    )
+  
+  print(p1)
+  ggsave(paste0("grafiek_absoluut_", v, ".png"), p1, width = 8, height = 5)
+}
+
+# ==============================================================================
+# 4. TYPE 2 GRAFIEKEN: STAPSGEWIJZE VERSCHILLEN
+# ==============================================================================
+
+# 4a. Referentiewaarden isoleren per variabele
+df_ref <- df_clean %>%
+  filter(scenario == "referentie") %>%
+  select(variabele, referentie = som)
+
+# 4b. Data van scenario's omzetten naar breed formaat en referentie koppelen
+df_wide <- df_clean %>%
+  filter(scenario != "referentie") %>%
+  pivot_wider(
+    names_from = maatregel,
+    values_from = som
+  ) %>%
+  left_join(df_ref, by = "variabele")
+
+# Garandeer dat alle verwachte maatregelkolommen bestaan (ook bij ontbrekende data)
+for (col in c("nat", "inf", "kle", "onth")) {
+  if (!col %in% names(df_wide)) df_wide[[col]] <- NA_real_
+}
+
+# 4c. Bereken de stapsgewijze verschillen
+df_diff <- df_wide %>%
+  mutate(
+    diff_nat  = nat - referentie,
+    diff_inf  = inf - nat,
+    diff_kle  = kle - inf,
+    diff_onth = onth - kle
+  ) %>%
+  select(variabele, scenario, nat = diff_nat, inf = diff_inf, kle = diff_kle, onth = diff_onth) %>%
+  
+  # 4d. Omzetten naar lang formaat voor ggplot
+  pivot_longer(
+    cols = c("nat", "inf", "kle", "onth"),
+    names_to = "maatregel",
+    values_to = "verschil"
+  ) %>%
+  mutate(
+    scenario  = factor(scenario, levels = c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
+    maatregel = factor(maatregel, levels = c("nat", "inf", "kle", "onth"))
+  )
+
+# 4e. Grafieken genereren
+for (v in variabelen) {
+  df_diff_var <- df_diff %>% filter(variabele == v & !is.na(verschil))
+  
+  p2 <- ggplot(df_diff_var, aes(x = scenario, y = verschil, fill = maatregel)) +
+    geom_col(position = position_dodge(preserve = "single"), color = "black", width = 0.7) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+    labs(
+      title = paste("Stapsgewijze verschillen -", v),
+      subtitle = "nat - ref | inf - nat | kle - inf | onth - kle",
+      x = "Scenario",
+      y = "Verschil in rasterwaarden",
+      fill = "Maatregel"
+    ) +
+    theme_minimal() +
+    theme(
+      panel.grid.major.x = element_blank(),
+      plot.title = element_text(face = "bold", size = 14)
+    )
+  
+  print(p2)
+  ggsave(paste0("grafiek_verschil_", v, ".png"), p2, width = 8, height = 5)
+}
+
+```
+
+#### b) Lijnen
+
+```{r}
+
+var <- "B"
+  
+# ------------------------------------------------------------
+# 1. data selecteren
+# ------------------------------------------------------------
+
+p_data <- df_clean %>%
+  filter(variabele == var) %>%
+  mutate(
+    maatregel = factor(
+      maatregel,
+      levels = c("referentie", "nat", "inf", "kle", "onth")
+    )
+  ) %>%
+  arrange(scenario, maatregel)
+
+
+# ------------------------------------------------------------
+# 2. Referentiewaarde apart nemen
+# ------------------------------------------------------------
+
+ref_data <- p_data %>%
+  filter(
+    scenario == "referentie",
+    maatregel == "referentie"
+  ) %>%
+  select(maatregel, som)
+
+
+# ------------------------------------------------------------
+# 3. Scenario's selecteren
+#    (alles behalve de referentie)
+# ------------------------------------------------------------
+
+scenario_data <- p_data %>%
+  filter(scenario != "referentie")
+
+
+# ------------------------------------------------------------
+# 4. Referentiewaarde toevoegen aan elk scenario
+# ------------------------------------------------------------
+
+ref_per_scenario <- scenario_data %>%
+  distinct(scenario) %>%
+  crossing(ref_data)
+
+
+# ------------------------------------------------------------
+# 5. Alles samenvoegen
+# ------------------------------------------------------------
+
+p_plot <- bind_rows(
+  ref_per_scenario,
+  scenario_data
+) %>%
+  arrange(scenario, maatregel)
+
+
+# ------------------------------------------------------------
+# 6. Verschil met vorige maatregel berekenen
+# ------------------------------------------------------------
+
+p_plot <- p_plot %>%
+  group_by(scenario) %>%
+  arrange(maatregel, .by_group = TRUE) %>%
+  mutate(
+    verschil = som - lag(som),
+    
+    verschil_label = case_when(
+      is.na(verschil) ~ "",
+      verschil >= 0 ~ paste0(
+        "+",
+        number(
+          verschil / 1e6,
+          accuracy = 0.01,
+          decimal.mark = ","
+        ),
+        " mln"
+      ),
+      TRUE ~ paste0(
+        number(
+          verschil / 1e6,
+          accuracy = 0.01,
+          decimal.mark = ","
+        ),
+        " mln"
+      )
+    )
+  ) %>%
+  ungroup()
+
+
+# percentuele weergave tov referentie
+p_plot_pct <- p_plot %>%
+  group_by(scenario) %>%
+  mutate(
+    referentie_som = som[maatregel == "referentie"],
+    relatieve_waarde = som / referentie_som
+  ) %>%
+  ungroup()
+
+
+#///////////////////////////////////////////////////////
+# Grafiek
+#///////////////////////////////////////////////////////
+
+ggplot(
+  p_plot_pct,
+  aes(
+    x = maatregel,
+    y = relatieve_waarde,
+    group = scenario,
+    colour = scenario
+  )
+) +
+  
+  # van referentie naar nat
+  geom_line(
+    linewidth = 1
+  ) +
+  
+  # Punten van de scenario's
+  geom_point(
+    data = p_plot_pct %>%
+      filter(maatregel != "referentie"),
+    size = 3
+  ) +
+  
+  # Referentiescenario: één gemeenschappelijk punt
+  geom_point(
+    data = p_plot_pct %>%
+      filter(maatregel == "referentie") %>%
+      distinct(maatregel, relatieve_waarde),
+    aes(
+      x = maatregel,
+      y = relatieve_waarde
+    ),
+    inherit.aes = FALSE,
+    colour = "firebrick2",
+    size = 4
+  ) +
+  labs(
+    y = paste0(var, "% tov referentie"),
+    colour = "Scenario"
+  ) +
+  scale_colour_manual(
+    values = c(
+      "sc1" = "yellow2",
+      "sc2" = "dodgerblue",
+      "sc3_gras" = "yellowgreen",
+      "sc3_bos" = "darkgreen",
+      "sc3_75" = "dodgerblue4"
+    )
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid.minor = element_blank()) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18)) +
+  theme(axis.text = element_text(size = 18),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 18))
+```
+
+## Deel 2 - Voedingsgebieden en afstroomgebieden
+
+### 1. Berekening extra infiltratie en data compilatie
+
+-\> Rasters bijsnijden met de voedingsgebieden/afstroomgebieden
+
+```{r}
+
+# Paden instellen
+scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+pad_folder    <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+# voedingsgebieden
+pad_voedingsgebied <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data/voedingsgebied_combi.tif")
+
+r_voeding          <- rast(pad_voedingsgebied)
+
+# afstroomgebieden
+pad_afstroomgebied <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data/afstroomgebied_5m_crs.tif")
+ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_2022.tif"))
+
+r_afstroom_5m          <- rast(pad_afstroomgebied)
+r_afstroom <- resample(r_afstroom_5m, ecosysteem_2022, method = 'near')
+
+r_voeding <- r_afstroom
+
+
+r_voeding <- ifel(!is.na(r_voeding), 1, NA)
+
+
+# ==============================================================================
+# 1. RASTERS INLEZEN EN BASIS-SOM BEREKENEN BINNEN VOEDINGSGEBIED
+# ==============================================================================
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^(QF|B|L|aet)", basename(tif_bestanden)) & 
+                                 !grepl("^B_sum", basename(tif_bestanden))] # eventueel B_sum toch toevoegen
+
+df_raw <- map_df(tif_bestanden, function(f) {
+  r <- rast(f)
+  
+  # 1. Knip het raster eerst grofweg bij op de 'extent' van het voedingsgebied (voor snelheid)
+  r_crop <- crop(r, ext(r_voeding))
+  
+  # 2. Lijn het voedingsgebied exact uit op de grid-eigenschappen van het bijgeknipte raster
+  r_voeding_aligned <- resample(r_voeding, r_crop, method = "near")
+  
+  # 3. Nu maskeren (dit werkt nu gegarandeerd omdat de extents 100% matchen)
+  r_mask <- mask(r_crop, r_voeding_aligned)
+  
+  naam <- tools::file_path_sans_ext(basename(f))
+  som_waarde <- global(r_mask, "sum", na.rm = TRUE)[[1]]
+  
+  tibble(bestand = naam, som = som_waarde)
+})
+
+
+# ==============================================================================
+# 1b. EXTRA INFILTRATIE BEREKENEN PER SCENARIO BINNEN VOEDINGSGEBIED
+# ==============================================================================
+scenarios_lookup <- c("1", "2", "3_gras", "3_bos", "3_75")
+
+df_extra_inf <- map_df(scenarios_lookup, function(scen) {
+  kaart_inf <- get_kaart_naam(scen, "inf")
+  path_lulc <- file.path(scenarios_dir, kaart_inf)
+  
+  suffix_name <- paste0("sc", scen, "_inf")
+  path_qf     <- file.path(pad_folder, suffix_name, paste0("QF_", suffix_name, ".tif"))
+  
+  if (file.exists(path_lulc) && file.exists(path_qf)) {
+    r_lulc <- rast(path_lulc)
+    r_qf   <- rast(path_qf)
+    
+    # Zelfde strategie: uitlijnen van het voedingsgebied op het QF-raster
+    r_qf_crop <- crop(r_qf, ext(r_voeding))
+    r_voeding_aligned_qf <- resample(r_voeding, r_qf_crop, method = "near")
+    r_qf_mask <- mask(r_qf_crop, r_voeding_aligned_qf)
+    
+    # Stem LULC-raster en gemaskeerd QF-raster exact op elkaar af
+    r_lulc_aligned <- resample(r_lulc, r_qf_mask, method = "near")
+    
+    # Infiltratiecellen (210, 230) en afstroom selecteren
+    cellen_infilt <- ifel(r_lulc_aligned %in% c(210, 230), 1, NA)
+    qf_afstroom   <- cellen_infilt * r_qf_mask
+    
+    # Extra infiltratie berekenen (70% efficiëntie)
+    extra_val <- round(0.7 * global(qf_afstroom, fun = "sum", na.rm = TRUE)[[1]], 0)
+    if (is.na(extra_val)) extra_val <- 0
+  } else {
+    extra_val <- 0
+  }
+  
+  scen_label <- if (startsWith(scen, "sc")) scen else paste0("sc", scen)
+  
+  tibble(scenario = scen_label, extra_infiltratie = extra_val)
+})
+
+# ==============================================================================
+# 2. DATAFRAME STRUCTUREREN EN EXTRA INFILTRATIE VERWERKEN (B/B_sum & QF)
+# ==============================================================================
+maatregelen      <- c("nat", "inf", "kle", "onth", "ont")
+scenarios_labels <- c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")
+
+df_clean <- df_raw %>%
+  mutate(
+    bestand = str_replace(bestand, "_ont$", "_onth"),
+    
+    # Maatregel bepalen
+    maatregel = map_chr(bestand, ~ {
+      m <- maatregelen[str_detect(.x, paste0("_", maatregelen, "$"))]
+      if (length(m) > 0) m[1] else "referentie"
+    }),
+    maatregel = if_else(maatregel == "ont", "onth", maatregel),
+    
+    # Scenario bepalen
+    scenario = map_chr(bestand, ~ {
+      s <- scenarios_labels[str_detect(.x, paste0("_", scenarios_labels, "(_|$)"))]
+      if (length(s) > 0) s else "referentie"
+    }),
+    
+    # Variabele bepalen
+    variabele = str_remove(bestand, paste0("_(", paste(scenarios_labels, collapse="|"), ").*")),
+    variabele = str_remove(variabele, paste0("_(", paste(maatregelen, collapse="|"), ")$"))
+  ) %>%
+  # Koppel de berekende extra infiltratie per scenario
+  left_join(df_extra_inf, by = "scenario") %>%
+  mutate(
+    extra_infiltratie = coalesce(extra_infiltratie, 0),
+    
+    # Aanpassing som: optellen bij L, aftrekken van QF
+    som = case_when(
+      variabele %in% c("L") & maatregel %in% c("inf", "kle", "onth") ~ som + extra_infiltratie,
+      variabele == "QF" & maatregel %in% c("inf", "kle", "onth") ~ som - extra_infiltratie,
+      TRUE                                                                    ~ som
+    )
+  ) %>%
+  select(variabele, scenario, maatregel, som)
+
+# Volgordes vastleggen via factors
+df_clean <- df_clean %>%
+  mutate(
+    scenario  = factor(scenario, levels = c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
+    maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth"))
+  )
+```
+
+### 2. Grafieken
+
+#### a) Lijnen
+
+```{r}
+
+var <- "L"
+  
+# ------------------------------------------------------------
+# 1. data selecteren
+# ------------------------------------------------------------
+
+p_data <- df_clean %>%
+  filter(variabele == var) %>%
+  mutate(
+    maatregel = factor(
+      maatregel,
+      levels = c("referentie", "nat", "inf", "kle", "onth")
+    )
+  ) %>%
+  arrange(scenario, maatregel)
+
+
+# ------------------------------------------------------------
+# 2. Referentiewaarde apart nemen
+# ------------------------------------------------------------
+
+ref_data <- p_data %>%
+  filter(
+    scenario == "referentie",
+    maatregel == "referentie"
+  ) %>%
+  select(maatregel, som)
+
+
+# ------------------------------------------------------------
+# 3. Scenario's selecteren
+#    (alles behalve de referentie)
+# ------------------------------------------------------------
+
+scenario_data <- p_data %>%
+  filter(scenario != "referentie")
+
+
+# ------------------------------------------------------------
+# 4. Referentiewaarde toevoegen aan elk scenario
+# ------------------------------------------------------------
+
+ref_per_scenario <- scenario_data %>%
+  distinct(scenario) %>%
+  crossing(ref_data)
+
+
+# ------------------------------------------------------------
+# 5. Alles samenvoegen
+# ------------------------------------------------------------
+
+p_plot <- bind_rows(
+  ref_per_scenario,
+  scenario_data
+) %>%
+  arrange(scenario, maatregel)
+
+
+# ------------------------------------------------------------
+# 6. Verschil met vorige maatregel berekenen
+# ------------------------------------------------------------
+
+p_plot <- p_plot %>%
+  group_by(scenario) %>%
+  arrange(maatregel, .by_group = TRUE) %>%
+  mutate(
+    verschil = som - lag(som),
+    
+    verschil_label = case_when(
+      is.na(verschil) ~ "",
+      verschil >= 0 ~ paste0(
+        "+",
+        number(
+          verschil / 1e6,
+          accuracy = 0.01,
+          decimal.mark = ","
+        ),
+        " mln"
+      ),
+      TRUE ~ paste0(
+        number(
+          verschil / 1e6,
+          accuracy = 0.01,
+          decimal.mark = ","
+        ),
+        " mln"
+      )
+    )
+  ) %>%
+  ungroup()
+
+
+# percentuele weergave tov referentie
+p_plot_pct <- p_plot %>%
+  group_by(scenario) %>%
+  mutate(
+    referentie_som = som[maatregel == "referentie"],
+    relatieve_waarde = som / referentie_som
+  ) %>%
+  ungroup()
+
+
+#///////////////////////////////////////////////////////
+# Grafiek
+#///////////////////////////////////////////////////////
+
+ggplot(
+  p_plot_pct,
+  aes(
+    x = maatregel,
+    y = relatieve_waarde,
+    group = scenario,
+    colour = scenario
+  )
+) +
+  
+  # van referentie naar nat
+  geom_line(
+    linewidth = 1
+  ) +
+  
+  # Punten van de scenario's
+  geom_point(
+    data = p_plot_pct %>%
+      filter(maatregel != "referentie"),
+    size = 3
+  ) +
+  
+  # Referentiescenario: één gemeenschappelijk punt
+  geom_point(
+    data = p_plot_pct %>%
+      filter(maatregel == "referentie") %>%
+      distinct(maatregel, relatieve_waarde),
+    aes(
+      x = maatregel,
+      y = relatieve_waarde
+    ),
+    inherit.aes = FALSE,
+    colour = "firebrick2",
+    size = 4
+  ) +
+  labs(
+    y = paste0(var, "% tov referentie"),
+    colour = "Scenario"
+  ) +
+  scale_colour_manual(
+    values = c(
+      "sc1" = "yellow2",
+      "sc2" = "dodgerblue",
+      "sc3_gras" = "yellowgreen",
+      "sc3_bos" = "darkgreen",
+      "sc3_75" = "dodgerblue4"
+    )
+  ) +
+  scale_y_continuous(labels=scales::percent) +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid.minor = element_blank()) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18)) +
+  theme(axis.text = element_text(size = 18),
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 18))
+```

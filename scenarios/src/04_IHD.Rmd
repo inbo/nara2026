@@ -66,7 +66,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -75,8 +75,7 @@ targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.
 
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"),
-  "C:/R/NARA2026/nara2026-git/scenarios/data"
+search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data"), "C:/R/NARA2026/nara2026-git/scenarios/data", str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output")
 )
 
 ```
@@ -98,10 +97,10 @@ files_to_load <- all_available_files[basename(all_available_files) %in% targets]
 load_file <- function(path) {
   ext <- tolower(file_ext(path))
   obj <- switch(ext,
-    "shp"  = st_read(path, quiet = TRUE),
-    "tif"  = rast(path),
-    "xlsx" = read_excel(path),
-    stop(paste("Bestandstype niet ondersteund:", ext))
+                "shp"  = st_read(path, quiet = TRUE),
+                "tif"  = rast(path),
+                "xlsx" = read_excel(path),
+                stop(paste("Bestandstype niet ondersteund:", ext))
   )
   return(obj)
 }
@@ -112,21 +111,42 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$ecosysteem_2022
+ref_raster <- as.int(data_list$ecosysteem_2022)
 
 # Functie om rasters te harmoniseren
-harmoniseer_raster <- function(r, ref) {
+harmoniseer_raster <- function(r, ref, is_categorisch = NULL) {
   # Controleer of het object een raster is
   if (!inherits(r, "SpatRaster")) {
     return(r) 
   }
+  
+  # Bepaal of het raster categorisch is
+  if (!is.null(is_categorisch)) {
+    is_cat <- is_categorisch
+  } else {
+    # Automatische detectie: check factor, bool, int of gehele getallen in double
+    is_cat <- is.factor(r) || is.bool(r) || is.int(r)
+    
+    if (!is_cat) {
+      vals <- values(r, mat = FALSE)
+      vals <- vals[!is.na(vals)] # Filter NA's vooraf weg
+      
+      # Als alle niet-NA waarden gehele getallen zijn, behandel als categorisch
+      if (length(vals) > 0 && all(vals == round(vals))) {
+        is_cat <- TRUE
+      }
+    }
+  }
+  
   # 'near' voor categorische data (codes), 'bilinear' voor continue data
-  is_cat <- is.factor(r) || is.bool(r)
   method_type <- if(is_cat) "near" else "bilinear"
+  
   # CRS, extent en resolutie van ref_raster
   r_gelijkaardig <- project(r, ref, method = method_type)
+  
   # Bijknippen met ref_raster
   r_geclipt <- mask(r_gelijkaardig, ref)
+  
   return(r_geclipt)
 }
 
@@ -138,7 +158,7 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 list2env(data_list_ok, envir = .GlobalEnv)
 ```
 
-## 2. Principes
+## 2. Uitleg
 
 - De doelen van de **Natuurherstelverordening** worden maximaal gerealiseerd. In deze analyse houden we rekening met (1) herstel van land-, kust- en zoetwater**ecosystemen** (art. 4), (2) herstel van de natuurlijke verbindingen van **rivieren** en de natuurlijke functies van de bijbehorende overstromingsgebieden (art. 9) en (3) herstel van ontwaterde **veengebieden** (art. 11 §4). Daarnaast zijn in Vlaanderen nog een aantal andere vegetaties beschermd waarvoor herstelmaatregelen genomen worden. De volgende doelen worden in rekening gebracht:
   - Natuurdoelen voor **terrestrische vegetaties** (bron: toekomstkaart)
@@ -1096,15 +1116,23 @@ De oppervlaktedoelstelling per deelgebied voor habitattype 3260 wordt als volgt 
 
 - De doelstelling op Vlaams niveau verdelen we over de deelgebieden op basis van het proportioneel aandeel van de **zoekzone voor het habitattype** in de habitatrichtlijngebieden waarvoor het habitattype is aangemeld. De onderstaande tabel geeft de SBZ waarvoor 3260 is aangemeld en de doelstelling. Alleen voor BE2500004 is er volgens het S-IHD-besluit geen toename nodig.
 
-  |  |  |  |  |  |  |
-  |----|----|----|----|----|----|
-  | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** | **SBZ** | **doelstelling** |
-  | BE2100016 | toename | BE2100424 | toename | BE2200039 | toename |
-  | BE2100017 | toename | BE2200029 | toename | BE2200043 | toename |
-  | BE2100020 | toename | BE2200030 | toename | BE2300007 | toename |
-  | BE2100024 | toename | BE2200032 | toename | BE2500004 | behoud |
-  | BE2100026 | toename | BE2200033 | toename |  |  |
-  | BE2100040 | toename | BE2200034 | toename |  |  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  |           |                  |           |                  |           |                  |
+  +===========+==================+===========+==================+===========+==================+
+  | **SBZ**   | **doelstelling** | **SBZ**   | **doelstelling** | **SBZ**   | **doelstelling** |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100016 | toename          | BE2100424 | toename          | BE2200039 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100017 | toename          | BE2200029 | toename          | BE2200043 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100020 | toename          | BE2200030 | toename          | BE2300007 | toename          |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100024 | toename          | BE2200032 | toename          | BE2500004 | behoud           |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100026 | toename          | BE2200033 | toename          |           |                  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
+  | BE2100040 | toename          | BE2200034 | toename          |           |                  |
+  +-----------+------------------+-----------+------------------+-----------+------------------+
 
 - Om de oppervlaktedoelstelling per deelgebied om te zetten naar het aantal riviercellen dat 3260 moet worden, volgen we deze redenering:
 
@@ -1438,8 +1466,11 @@ sc2_patches <- patches(sc2_mask, directions = 8)
 # patches < 10 cellen verwijderen (~ 100 m)
 f <- freq(sc2_patches)
 sc2_patches_clean <- sc2_patches
-sc2_patches_clean[sc2_patches_clean %in% f$value[f$count <= 10]] <- NA
+# sc2_patches_clean[sc2_patches_clean %in% f$value[f$count <= 10]] <- NA
 
+if (length(f$value[f$count <= 10]) > 0) {
+  sc2_patches_clean[sc2_patches_clean %in% te_verwijderen] <- NA
+}
 
 
 #///////////////////////////////////////////////////////////////////////////////
@@ -1470,7 +1501,11 @@ lg_niet <- ifel(!is.na(leefgebied_r) & is.na(r_ffr), 1, NA)
 lg_patches <- patches(lg_niet, directions = 8)
 f2 <- freq(lg_patches)
 lg_niet_clean <- lg_patches
-lg_niet_clean[lg_niet_clean %in% f2$value[f2$count <= 5]] <- NA
+# lg_niet_clean[lg_niet_clean %in% f2$value[f2$count <= 5]] <- NA
+
+if (length(f2$value[f2$count <= 5]) > 0) {
+  lg_niet_clean[lg_niet_clean %in% f2$value[f2$count <= 5]] <- NA
+}
 
 # Stap 3 - distance-analyse voor selectie t100-cellen
 # Het begaanbare grid is de overstroombare vallei (t100, diepte)
@@ -1778,6 +1813,7 @@ ffr_final_clean <- ffr_patches
 ffr_final_clean[ffr_final_clean %in% f$value[f$count <= 5]] <- NA
 
 
+
 #///////////////////////////////////////////////////////////////////////////////
 # STAP 4 - Van oevercellen naar overstroombare en vernatte vallei
 #///////////////////////////////////////////////////////////////////////////////
@@ -1931,8 +1967,6 @@ vha_lu <- r_vha * lu_focal
 # -> Telt niet mee in scenario 2
 
 # 3. Geschiktheid ifv beleid
-r_hag
-r_natuur
 
 # Terrestrische geschiktheden projecteren op vha
 # de beleidskaarten liggen vaak iets verder -> 7x7 venster

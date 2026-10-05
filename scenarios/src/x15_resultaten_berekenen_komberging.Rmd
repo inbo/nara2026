@@ -1,0 +1,136 @@
+---
+title: "x15_resultaten_berekenen_komberging"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(reticulate)
+library(furrr)
+library(scales)
+library(exactextractr)
+
+```
+
+Het script berekent het volume **komberging** per scenario. De komberging wordt bepaald door de combineerbaarheid van de ecosystemen en de waterdiepte bij overstromingen met een terugkeerperiode van 100 jaar (100).
+
+In het tweede deel maken we een inschatting van het effect van een **verminderde afstroming** (QF uit het InVestmodel Seasonal Water Yield) op het overstromingsrisico.
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– studiegebied
+> |          \|—– data -\>
+> |          \|—– output -\>
+> |    \|—– src -\> `x15_resultaten_berekenen_komberging.Rmd`
+
+## Deel 1 - Komberging
+
+### Data compileren
+
+```{r komberging}
+
+# ------------------------------------------------------------
+# 1. Parameters definiëren en kaarten inladen
+# ------------------------------------------------------------
+
+studiegebied <- "kleine_nete"
+waterdiepte <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/overstromingsdiepte_t100_flu_plu.tif"))
+
+scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+
+tif_bestanden <- list.files(scenarios_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^(scen1_ecosysteem_finaal|scen2_ecosysteem_finaal|scen3_75_ecosysteem_finaal|scen3_bos_ecosysteem_finaal|scen3_gras_ecosysteem_finaal|ecosysteem_2022_upd)", basename(tif_bestanden))]
+
+# ------------------------------------------------------------
+# 2. Lege tabel voor de resultaten
+# ------------------------------------------------------------
+
+resultaat <- tibble(scenario = character(), volume_natuur = numeric(), volume_nat = numeric())
+
+# ------------------------------------------------------------
+# 3. Loop door de kaarten
+# ------------------------------------------------------------
+
+for (kaart in tif_bestanden) {
+  
+  bestandsnaam <- basename(kaart)
+  
+  if (bestandsnaam == "ecosysteem_2022.tif") {scenario <- "referentie"} 
+  else {scenario <- sub("_ecosysteem_finaal\\.tif$", "", bestandsnaam)}
+  
+  ecosysteem <- rast(kaart)
+  
+  # Kaart maken van de combineerbaarheid met overstromingen
+
+  # Natuurklassen (zonder rivieren)
+  eco_combi <- ifel(
+    ecosysteem %in% c(
+      302, 320, 400, 401, 402, 403, 404,
+      410, 420, 501, 602, 701, 702, 901, 902), 1, NA)
+  
+  # Natte natuurklassen (zonder rivieren)
+  eco_nat <- ifel(
+    ecosysteem %in% c(
+      320, 410, 420, 701, 702, 901, 902), 1, NA)
+  
+  # watervolume per cel
+  berging_natuur <- waterdiepte * eco_combi * 100
+  berging_natte_natuur <- waterdiepte * eco_nat * 100
+  
+  # Totaal bergingsvolume in miljoen m³
+  volume_natuur <- round(pull(global(berging_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
+  volume_nat <- round(pull(global(berging_natte_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
+  
+  # Resultaat toevoegen aan dataframe
+  resultaat <- bind_rows(resultaat, tibble(scenario = scenario, volume_natuur = volume_natuur, volume_nat = volume_nat))
+}
+
+```
+
+### Grafiek
+
+```{r grafiek_komberging}
+
+df_grafiek <- resultaat |> 
+  pivot_longer(
+  cols = c("volume_natuur", "volume_nat"),
+  names_to = "variabele",
+  values_to = "volume") |> 
+  mutate(
+    scenario  = factor(scenario, levels = c("referentie", "scen1", "scen2", "scen3_gras", "scen3_bos", "scen3_75")),
+    variabele = factor(variabele, levels = c("volume_natuur", "volume_nat"))
+  )
+
+ggplot(df_grafiek, aes(x = scenario, y = volume, fill = variabele)) +
+  geom_col(position = position_dodge(preserve = "single"), color = "black", width = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+  labs(
+    x = "Scenario",
+    y = "Kombergingsvolume (m³)",
+    fill = "variabele"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    plot.title = element_text(face = "bold", size = 14)
+  )
+
+
+```
+
+## 

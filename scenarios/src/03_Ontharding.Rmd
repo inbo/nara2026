@@ -64,6 +64,7 @@ De volgende datasets worden gebruikt:
 - serres_infrastruct.shp -\> serres en overkappingen uit de landbouwgebruikspercelen (voor correctie jaarbak)
 - lbgp_2022/2016.shp -\> landbouwgebruikspercelen (versie gebruikt voor aanmaak ecosysteemkaart)
 - ontwinopp_weglengte.shp -\> opportuniteitenkaart onthardingswinst te veel weg in de lengte
+- tussenstap5_sc1/sc2/sc3_gras/sc3_bos.tif -\> ecosysteemkaart na plaatsing van KLE
 
 ```{r bestanden_folders}
 
@@ -71,7 +72,7 @@ studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 
-targets <- c("gebied.shp", "ecosysteem_2022.tif", "ecosysteem_2016.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp", "rbr_h_ontwikkelbaar.shp", "rbr_h_vrijwaren.shp", "voedingsgebied_combi.tif", "serres_infrastruct.shp", "lbgp_2022.shp", "lbgp_2016.shp", "ontwinopp_weglengte.shp")
+targets <- c("gebied.shp", "ecosysteem_2022.tif", "ecosysteem_2016.tif", "stat_sectors.shp", "bevolking_stat.xlsx", "residentieel.tif", "wegen.tif", "kernen.tif", "lu_niv2.tif", "publiek_owner.tif", "riolering.shp", "BASISKAART_reduct.shp", "rbh.shp", "jaarbak_2015.tif", "jaarbak_2022.tif", "hoogrisico_prioritair.shp", "kans_onthwin_hydro_1m.tif", "opp_onthwin_overstr.shp", "rbr_h_ontwikkelbaar.shp", "rbr_h_vrijwaren.shp", "voedingsgebied_combi.tif", "serres_infrastruct.shp", "lbgp_2022.shp", "lbgp_2016.shp", "ontwinopp_weglengte.shp", "tussenstap5_sc1.tif", "tussenstap5_sc2.tif", "tussenstap5_sc3_gras.tif", "tussenstap5_sc3_bos.tif", "tussenstap5_sc3_75.tif")
 
 # In welke folders zitten de data?
 
@@ -156,7 +157,11 @@ Binnen die percelen gaan we uit van een verhardingsgraad van 50% (code 101). De 
 
 # Het onderstaande script plaatst dat nieuwe ruimtebeslag op de ecosysteemkaart
 
-r_eco <- ecosysteem_2022
+#//////////////////////////////////////////
+# Scenario 1
+#//////////////////////////////////////////
+
+r_eco <- tussenstap5_sc1
 v_poly <- vect(rbr_h_ontwikkelbaar)
 
 
@@ -222,11 +227,306 @@ sampled_cells <- dt_geschikt[, {
 }, by = poly_id]
 
 # 6. Update het raster en opslaan
-ecosysteem_2040verhard <- r_eco
-ecosysteem_2040verhard[sampled_cells$cell] <- sampled_cells$new_code
+ecosysteem_2040verhard_sc1 <- r_eco
+ecosysteem_2040verhard_sc1[sampled_cells$cell] <- sampled_cells$new_code
 
 
-# writeRaster(ecosysteem_2040verhard, "C:/GIS/NARA2026/3_Scenarios/ecosysteem_2022_extraverhard.tif", overwrite = TRUE)
+
+#//////////////////////////////////////////
+# Scenario 2
+#//////////////////////////////////////////
+
+r_eco <- tussenstap5_sc2
+v_poly <- vect(rbr_h_ontwikkelbaar)
+
+
+# 1. Polygonen dissolven en opsplitsen
+v_poly_diss <- terra::aggregate(v_poly)
+v_poly_diss <- disagg(v_poly_diss)
+v_poly_diss$poly_id <- seq_len(nrow(v_poly_diss))
+
+# 2. Verrasteren
+r_poly <- rasterize(v_poly_diss, r_eco, field = "poly_id")
+
+# 3. Omzetten naar data.table voor selectie van cellen
+dt <- data.table(
+  cell = 1:ncell(r_eco),
+  eco = values(r_eco, mat = FALSE),
+  poly_id = values(r_poly, mat = FALSE)
+)
+
+dt_sub <- dt[!is.na(poly_id)]
+
+# 4. Doelaantallen berekenen op basis van het aantal cellen per polygoon
+dt_sub[, `:=`(
+  t_101 = floor(.N * 0.50), # 50% verhard
+  t_103 = floor(.N * 0.25), # 25% hoog groen
+  t_104 = floor(.N * 0.25) # 25% laag groen
+), by = poly_id]
+
+# Filter op geschikte cellen (bestaande 101 en 102 worden niet overschreven)
+dt_geschikt <- dt_sub[!eco %in% c(101, 102)]
+
+# 5. Random toewijzing per polygoon
+sampled_cells <- dt_geschikt[, {
+  n_avail <- .N
+  target_101 <- t_101[1]
+  target_103 <- t_103[1]
+  target_104 <- t_104[1]
+  
+  # Willekeurige volgorde van beschikbare cellen
+  idx <- sample.int(n_avail)
+  
+  # Aantallen bepalen binnen de beschikbare ruimte
+  s101 <- min(n_avail, target_101)
+  s103 <- min(max(0, n_avail - s101), target_103)
+  s104 <- min(max(0, n_avail - s101 - s103), target_104)
+  
+  res_idx <- integer(0)
+  new_code <- numeric(0)
+  
+  if (s101 > 0) {
+    res_idx <- c(res_idx, idx[1:s101])
+    new_code <- c(new_code, rep(101, s101))
+  }
+  if (s103 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + 1):(s101 + s103)])
+    new_code <- c(new_code, rep(103, s103))
+  }
+  if (s104 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + s103 + 1):(s101 + s103 + s104)])
+    new_code <- c(new_code, rep(104, s104))
+  }
+  
+  .(cell = cell[res_idx], new_code = new_code)
+}, by = poly_id]
+
+# 6. Update het raster en opslaan
+ecosysteem_2040verhard_sc2 <- r_eco
+ecosysteem_2040verhard_sc2[sampled_cells$cell] <- sampled_cells$new_code
+
+
+
+#//////////////////////////////////////////
+# Scenario 3 - gras
+#//////////////////////////////////////////
+
+r_eco <- tussenstap5_sc3_gras
+v_poly <- vect(rbr_h_ontwikkelbaar)
+
+
+# 1. Polygonen dissolven en opsplitsen
+v_poly_diss <- terra::aggregate(v_poly)
+v_poly_diss <- disagg(v_poly_diss)
+v_poly_diss$poly_id <- seq_len(nrow(v_poly_diss))
+
+# 2. Verrasteren
+r_poly <- rasterize(v_poly_diss, r_eco, field = "poly_id")
+
+# 3. Omzetten naar data.table voor selectie van cellen
+dt <- data.table(
+  cell = 1:ncell(r_eco),
+  eco = values(r_eco, mat = FALSE),
+  poly_id = values(r_poly, mat = FALSE)
+)
+
+dt_sub <- dt[!is.na(poly_id)]
+
+# 4. Doelaantallen berekenen op basis van het aantal cellen per polygoon
+dt_sub[, `:=`(
+  t_101 = floor(.N * 0.50), # 50% verhard
+  t_103 = floor(.N * 0.25), # 25% hoog groen
+  t_104 = floor(.N * 0.25) # 25% laag groen
+), by = poly_id]
+
+# Filter op geschikte cellen (bestaande 101 en 102 worden niet overschreven)
+dt_geschikt <- dt_sub[!eco %in% c(101, 102)]
+
+# 5. Random toewijzing per polygoon
+sampled_cells <- dt_geschikt[, {
+  n_avail <- .N
+  target_101 <- t_101[1]
+  target_103 <- t_103[1]
+  target_104 <- t_104[1]
+  
+  # Willekeurige volgorde van beschikbare cellen
+  idx <- sample.int(n_avail)
+  
+  # Aantallen bepalen binnen de beschikbare ruimte
+  s101 <- min(n_avail, target_101)
+  s103 <- min(max(0, n_avail - s101), target_103)
+  s104 <- min(max(0, n_avail - s101 - s103), target_104)
+  
+  res_idx <- integer(0)
+  new_code <- numeric(0)
+  
+  if (s101 > 0) {
+    res_idx <- c(res_idx, idx[1:s101])
+    new_code <- c(new_code, rep(101, s101))
+  }
+  if (s103 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + 1):(s101 + s103)])
+    new_code <- c(new_code, rep(103, s103))
+  }
+  if (s104 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + s103 + 1):(s101 + s103 + s104)])
+    new_code <- c(new_code, rep(104, s104))
+  }
+  
+  .(cell = cell[res_idx], new_code = new_code)
+}, by = poly_id]
+
+# 6. Update het raster en opslaan
+ecosysteem_2040verhard_sc3_gras <- r_eco
+ecosysteem_2040verhard_sc3_gras[sampled_cells$cell] <- sampled_cells$new_code
+
+
+#//////////////////////////////////////////
+# Scenario 3 - bos
+#//////////////////////////////////////////
+
+r_eco <- tussenstap5_sc3_bos
+v_poly <- vect(rbr_h_ontwikkelbaar)
+
+
+# 1. Polygonen dissolven en opsplitsen
+v_poly_diss <- terra::aggregate(v_poly)
+v_poly_diss <- disagg(v_poly_diss)
+v_poly_diss$poly_id <- seq_len(nrow(v_poly_diss))
+
+# 2. Verrasteren
+r_poly <- rasterize(v_poly_diss, r_eco, field = "poly_id")
+
+# 3. Omzetten naar data.table voor selectie van cellen
+dt <- data.table(
+  cell = 1:ncell(r_eco),
+  eco = values(r_eco, mat = FALSE),
+  poly_id = values(r_poly, mat = FALSE)
+)
+
+dt_sub <- dt[!is.na(poly_id)]
+
+# 4. Doelaantallen berekenen op basis van het aantal cellen per polygoon
+dt_sub[, `:=`(
+  t_101 = floor(.N * 0.50), # 50% verhard
+  t_103 = floor(.N * 0.25), # 25% hoog groen
+  t_104 = floor(.N * 0.25) # 25% laag groen
+), by = poly_id]
+
+# Filter op geschikte cellen (bestaande 101 en 102 worden niet overschreven)
+dt_geschikt <- dt_sub[!eco %in% c(101, 102)]
+
+# 5. Random toewijzing per polygoon
+sampled_cells <- dt_geschikt[, {
+  n_avail <- .N
+  target_101 <- t_101[1]
+  target_103 <- t_103[1]
+  target_104 <- t_104[1]
+  
+  # Willekeurige volgorde van beschikbare cellen
+  idx <- sample.int(n_avail)
+  
+  # Aantallen bepalen binnen de beschikbare ruimte
+  s101 <- min(n_avail, target_101)
+  s103 <- min(max(0, n_avail - s101), target_103)
+  s104 <- min(max(0, n_avail - s101 - s103), target_104)
+  
+  res_idx <- integer(0)
+  new_code <- numeric(0)
+  
+  if (s101 > 0) {
+    res_idx <- c(res_idx, idx[1:s101])
+    new_code <- c(new_code, rep(101, s101))
+  }
+  if (s103 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + 1):(s101 + s103)])
+    new_code <- c(new_code, rep(103, s103))
+  }
+  if (s104 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + s103 + 1):(s101 + s103 + s104)])
+    new_code <- c(new_code, rep(104, s104))
+  }
+  
+  .(cell = cell[res_idx], new_code = new_code)
+}, by = poly_id]
+
+# 6. Update het raster en opslaan
+ecosysteem_2040verhard_sc3_bos <- r_eco
+ecosysteem_2040verhard_sc3_bos[sampled_cells$cell] <- sampled_cells$new_code
+
+
+#//////////////////////////////////////////
+# Scenario 3 - 75%
+#//////////////////////////////////////////
+
+r_eco <- tussenstap5_sc3_75
+v_poly <- vect(rbr_h_ontwikkelbaar)
+
+
+# 1. Polygonen dissolven en opsplitsen
+v_poly_diss <- terra::aggregate(v_poly)
+v_poly_diss <- disagg(v_poly_diss)
+v_poly_diss$poly_id <- seq_len(nrow(v_poly_diss))
+
+# 2. Verrasteren
+r_poly <- rasterize(v_poly_diss, r_eco, field = "poly_id")
+
+# 3. Omzetten naar data.table voor selectie van cellen
+dt <- data.table(
+  cell = 1:ncell(r_eco),
+  eco = values(r_eco, mat = FALSE),
+  poly_id = values(r_poly, mat = FALSE)
+)
+
+dt_sub <- dt[!is.na(poly_id)]
+
+# 4. Doelaantallen berekenen op basis van het aantal cellen per polygoon
+dt_sub[, `:=`(
+  t_101 = floor(.N * 0.50), # 50% verhard
+  t_103 = floor(.N * 0.25), # 25% hoog groen
+  t_104 = floor(.N * 0.25) # 25% laag groen
+), by = poly_id]
+
+# Filter op geschikte cellen (bestaande 101 en 102 worden niet overschreven)
+dt_geschikt <- dt_sub[!eco %in% c(101, 102)]
+
+# 5. Random toewijzing per polygoon
+sampled_cells <- dt_geschikt[, {
+  n_avail <- .N
+  target_101 <- t_101[1]
+  target_103 <- t_103[1]
+  target_104 <- t_104[1]
+  
+  # Willekeurige volgorde van beschikbare cellen
+  idx <- sample.int(n_avail)
+  
+  # Aantallen bepalen binnen de beschikbare ruimte
+  s101 <- min(n_avail, target_101)
+  s103 <- min(max(0, n_avail - s101), target_103)
+  s104 <- min(max(0, n_avail - s101 - s103), target_104)
+  
+  res_idx <- integer(0)
+  new_code <- numeric(0)
+  
+  if (s101 > 0) {
+    res_idx <- c(res_idx, idx[1:s101])
+    new_code <- c(new_code, rep(101, s101))
+  }
+  if (s103 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + 1):(s101 + s103)])
+    new_code <- c(new_code, rep(103, s103))
+  }
+  if (s104 > 0) {
+    res_idx <- c(res_idx, idx[(s101 + s103 + 1):(s101 + s103 + s104)])
+    new_code <- c(new_code, rep(104, s104))
+  }
+  
+  .(cell = cell[res_idx], new_code = new_code)
+}, by = poly_id]
+
+# 6. Update het raster en opslaan
+ecosysteem_2040verhard_sc3_75 <- r_eco
+ecosysteem_2040verhard_sc3_75[sampled_cells$cell] <- sampled_cells$new_code
 ```
 
 ### 2.2. Doel bepalen
@@ -330,6 +630,15 @@ doel_hard_sc1 <- (hard_verhard_2022 + extraverhard_2040) - hard_verhard_2015
 
 doel_zacht_sc1 <- round(zacht_verhard_2022 - (zacht_verhard_2015 - 0.2 * zacht_verhard_2015), 0)
 
+
+
+#/////////////////////////
+# Doelen wegschrijven
+#/////////////////////////
+
+save(doel_hard_sc1, doel_zacht_sc1, file = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/doelen_ontharding.RData"))
+
+
 ```
 
 ##### **Op basis van de ecosysteemkaart**
@@ -412,6 +721,8 @@ Aanpak:
 
 ```{r doel invullen}
 
+load(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/doelen_ontharding.RData"))
+
 #//////////////////////////////////////////////////////////
 # Stap 1: oververharde percelen en wegen cf. onhardingstool selecteren
 #//////////////////////////////////////////////////////////
@@ -475,9 +786,11 @@ oververhard <- oververhard |>
 #//////////////////////////////////////////////////////////
 
 basiskaart_wegen <- basiskaart %>%
-  filter(landgebr <= 0) |> 
+  filter(landgebr <= 0 | is.na(landgebr)) |> 
   vect() |> 
   makeValid()
+
+basiskaart_wegen$fid <- NULL # de fid-kolom is gereserveerd voor QGIS
 
 wegen_lijn <- st_intersection(ontwinopp_weglengte, gebied)
 wegen_lijn$FID <- NULL # de FID-kolom is gereserveerd voor QGIS
@@ -520,13 +833,15 @@ wegen_poly_cut <- qgis_as_terra(qgis_result)
 wegen_poly_filt <- wegen_poly_cut[expanse(wegen_poly_cut) >= 200, ]
 
 # onthardingspercentage = 100% -> volledig ontharden
-wegen_poly_filt <- wegen_poly_filt |> 
-  st_as_sf() |> 
-  mutate(onth_pc = 100) |> 
+wegen_poly_filt <- wegen_poly_filt |>
+  st_as_sf() |>
+  st_cast("MULTIPOLYGON") |>
+  st_cast("POLYGON", warn = FALSE) |> 
+  mutate(onth_pc = 100, TUINVERH = 0, TUINVERHpc = 0, landgebr = 0) |> 
   select(onth_pc, TUINVERH, TUINVERHpc, landgebr)
   
 # Samenvoegen met oververhard
-oververhard_wegen <- bind_rows(oververhard, wegen_poly_filt)
+oververhard_wegen <- bind_rows(oververhard, wegen_poly_filt) # NA's voor niet-tuinen
 
 
 #//////////////////////////////////////////////////////////
@@ -538,7 +853,7 @@ oververhard_wegen <- bind_rows(oververhard, wegen_poly_filt)
 overbebouwd <- opp_onthwin_overstr |> 
   st_intersection(gebied) |> 
   mutate(onth_pc = 100, TUINVERH = 0, TUINVERHpc = 0, landgebr = 100) |> 
-  select(onth_pc, TUINVERH, TUINVERHpc, landgebr) 
+  select(onth_pc, TUINVERH, TUINVERHpc, landgebr) # geen NA's
 
 
 # Gebruik QGIS union om beide lagen te combineren en het maximum te nemen bij een overlap
@@ -550,14 +865,15 @@ qgis_result <- qgis_run_algorithm(
 
 te_ontharden <- qgis_as_terra(qgis_result)
 
+sum(is.na(te_ontharden$TUINVERH))
+
+
 te_ontharden$onth_pc <- pmax(te_ontharden$onth_pc, te_ontharden$onth_pc_2, na.rm = TRUE)
 te_ontharden$TUINVERH <- pmin(te_ontharden$TUINVERH, te_ontharden$TUINVERH_2, na.rm = TRUE)
 te_ontharden$TUINVERHpc <- pmin(te_ontharden$TUINVERHpc, te_ontharden$TUINVERHpc_2, na.rm = TRUE)
 te_ontharden$landgebr <- pmin(te_ontharden$landgebr, te_ontharden$landgebr_2, na.rm = TRUE)
 
-
 te_ontharden <- te_ontharden[c("onth_pc", "TUINVERH", "TUINVERHpc", "landgebr")]
-
 
 #//////////////////////////////////////////////////////////
 # Stap 4: toevoegen bestemming (hard/zacht)
@@ -582,7 +898,7 @@ te_ontharden_schoon <- te_ontharden_sf %>%
 # Join met bestemming als de centroide van te_ontharden in een bestemming ligt
 resultaat_sf <- st_join(te_ontharden_schoon, bestemming["type"], join = function(x, y) st_intersects(st_centroid(x), y))
 
-
+sum(is.na(resultaat_sf$TUINVERH))
 
 #//////////////////////////////////////////////////////////
 # Stap 5: toevoegen gemiddelde hydrologische veerkracht
@@ -596,18 +912,24 @@ resultaat_sf_clean <- resultaat_sf %>%
 
 resultaat_sf_clean$hydro <- exact_extract(kans_onthwin_hydro_1m, resultaat_sf_clean, 'mean', progress = TRUE)
 
-resultaat_sf_clean <- resultaat_sf_clean |> 
-  # tuinen -> 50% verharding verwijderen
-  mutate(winst = if_else(onth_pc == 50, TUINVERH * 0.5,
-  # andere percelen met verharding -> 25% ontharden
-  if_else(onth_pc == 25 & TUINVERH > 0, TUINVERH * 0.25,
-  # wegen en volledig verharde percelen
-  if_else(onth_pc == 25 & TUINVERH == 0, opp_m2 * 0.25,
-  # gebouwen in overstromingsgebied en te lange wegen -> 100% ontharden
-  if_else(onth_pc == 100, opp_m2 * 1, opp_m2 * 0.25))))) |> 
-  mutate(winst_ha = round(winst/10000, 4))
-
-# write_sf(resultaat_sf_clean, str_c("C:/GIS/NARA2026/3_Scenarios/ontharding_test.shp"), overwrite = TRUE)
+resultaat_sf_clean_winst <- resultaat_sf_clean |> 
+  mutate(
+    winst = case_when(
+      # tuinen -> 50% verharding verwijderen
+      onth_pc == 50 ~ TUINVERH * 0.5,
+      # andere percelen met verharding -> 25% ontharden
+      onth_pc == 25 & !is.na(TUINVERH) & TUINVERH > 0 ~ TUINVERH * 0.25,
+      # wegen en volledig verharde percelen:
+      # TUINVERH = 0 of NA -> 25% van oppervlakte
+      onth_pc == 25 & (is.na(TUINVERH) | TUINVERH == 0) ~ opp_m2 * 0.25,
+      # gebouwen in overstromingsgebied en te lange wegen
+      # -> 100% ontharden
+      onth_pc == 100 ~ opp_m2,
+      # overige gevallen
+      TRUE ~ opp_m2 * 0.25
+    ),
+    winst_ha = round(winst / 10000, 4)
+  )
 
 
 #//////////////////////////////////////////////////////////
@@ -616,16 +938,21 @@ resultaat_sf_clean <- resultaat_sf_clean |>
 
 voedingsgebied_01 <- ifel(is.na(voedingsgebied_combi), 0, 1)
 
-resultaat_sf_clean$voeding <- exact_extract(voedingsgebied_01, resultaat_sf_clean, "mean")
+resultaat_sf_clean_winst$voeding <- exact_extract(voedingsgebied_01, resultaat_sf_clean_winst, "mean")
 
 # Minstens 50% van het perceel moet in voedingsgebied liggen
-ontharding_potent <- resultaat_sf_clean |> 
+ontharding_potent <- resultaat_sf_clean_winst |> 
   mutate(voeding01 = if_else(voeding >= 0.5, 1, 0))
+
+write_sf(ontharding_potent, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ontharding_potent.shp"), overwrite = TRUE)
+
 ```
 
 ### a) Scenario 1
 
 ```{r allocatie_sc1}
+
+# ontharding_potent <- st_read(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ontharding_potent.shp"))
 
 geselecteerd_sf <- ontharding_potent %>%
   # 1. Koppel het juiste doel aan het betreffende type
@@ -667,12 +994,12 @@ opp_sc1 <- geselecteerd_sf |>
 # onth_pc 50 -> 1/2de van de cellen omzetten naar code 104 of 103
 # onth_pc 100 = volledig te ontharden percelen -> 101 en 102 omzetten naar 104
 
-onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard, field = "onth_pc")
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard_sc1, field = "onth_pc")
 
-ecosysteem_2040_onthard <- ecosysteem_2040verhard
+ecosysteem_2040_onthard_sc1 <- ecosysteem_2040verhard_sc1
 
 # Haal de waarden op als getallen voor snelle verwerking
-v_eco  <- values(ecosysteem_2040verhard)
+v_eco  <- values(ecosysteem_2040_onthard_sc1)
 v_doel <- values(onthpc_r)
 
 # Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
@@ -693,10 +1020,13 @@ idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
 v_eco[idx_steekproef25] <- 104
 
 # 6. Schrijf de aangepaste waarden terug in het raster
-values(ecosysteem_2040_onthard) <- v_eco
+values(ecosysteem_2040_onthard_sc1) <- v_eco
 
+sc1_onthard_cellen <- ifel(ecosysteem_2040_onthard_sc1 != ecosysteem_2040verhard_sc1, 1, NA)
 
-writeRaster(ecosysteem_2040_onthard, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_ontharding.tif"), overwrite = TRUE)
+writeRaster(sc1_onthard_cellen, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_onthard_cellen.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_2040_onthard_sc1, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_ecosysteem_ontharding.tif"), overwrite = TRUE)
 
 
 
@@ -744,7 +1074,7 @@ geselecteerd_sf <- ontharding_potent %>%
   )) %>%
   # 2. Groepeer per type
   group_by(type) %>%
-  # 3. Sorteer aflopend op geschiktheid binnen de groep + eerst de 100% onthardingspercelen (overstromingsgebied)
+  # 3. Sorteer aflopend op geschiktheid binnen de groep + eerst binnen voedingsgebied en dan de 100% onthardingspercelen (overstromingsgebied)
   arrange(desc(voeding01 == 1), desc(onth_pc == 100), desc(hydro), .by_group = TRUE) %>%
   # 4. Bereken de cumulatieve winst
   mutate(cum_winst = cumsum(winst_ha)) %>%
@@ -766,12 +1096,12 @@ opp_sc2 <- geselecteerd_sf |>
 # Ecosysteemkaart aanpassen
 #//////////////////////////////////////
 
-onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard, field = "onth_pc")
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard_sc2, field = "onth_pc")
 
-ecosysteem_2040_onthard <- ecosysteem_2040verhard
+ecosysteem_2040_onthard_sc2 <- ecosysteem_2040verhard_sc2
 
 # Haal de waarden op als getallen voor snelle verwerking
-v_eco  <- values(ecosysteem_2040verhard)
+v_eco  <- values(ecosysteem_2040verhard_sc2)
 v_doel <- values(onthpc_r)
 
 # Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
@@ -792,10 +1122,13 @@ idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
 v_eco[idx_steekproef25] <- 104
 
 # 6. Schrijf de aangepaste waarden terug in het raster
-values(ecosysteem_2040_onthard) <- v_eco
+values(ecosysteem_2040_onthard_sc2) <- v_eco
 
+sc2_onthard_cellen <- ifel(ecosysteem_2040_onthard_sc2 != ecosysteem_2040verhard_sc2, 1, NA)
 
-writeRaster(ecosysteem_2040_onthard, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_ontharding.tif"), overwrite = TRUE)
+writeRaster(sc2_onthard_cellen, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_onthard_cellen.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_2040_onthard_sc2, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_ecosysteem_ontharding.tif"), overwrite = TRUE)
 
 ```
 
@@ -818,12 +1151,14 @@ opp_sc3 <- geselecteerd_sf |>
 # Ecosysteemkaart aanpassen
 #//////////////////////////////////////
 
-onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard, field = "onth_pc")
+# a) Gras
 
-ecosysteem_2040_onthard <- ecosysteem_2040verhard
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard_sc3_gras, field = "onth_pc")
+
+ecosysteem_2040_onthard_sc3_gras <- ecosysteem_2040verhard_sc3_gras
 
 # Haal de waarden op als getallen voor snelle verwerking
-v_eco  <- values(ecosysteem_2040verhard)
+v_eco  <- values(ecosysteem_2040verhard_sc3_gras)
 v_doel <- values(onthpc_r)
 
 # Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
@@ -844,10 +1179,87 @@ idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
 v_eco[idx_steekproef25] <- 104
 
 # 6. Schrijf de aangepaste waarden terug in het raster
-values(ecosysteem_2040_onthard) <- v_eco
+values(ecosysteem_2040_onthard_sc3_gras) <- v_eco
+
+sc3_gras_onthard_cellen <- ifel(ecosysteem_2040_onthard_sc3_gras != ecosysteem_2040verhard_sc3_gras, 1, NA)
+
+writeRaster(sc3_gras_onthard_cellen, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_gras_onthard_cellen.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_2040_onthard_sc3_gras, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_gras_ecosysteem_ontharding.tif"), overwrite = TRUE)
 
 
-writeRaster(ecosysteem_2040_onthard, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_ecosysteem_ontharding.tif"), overwrite = TRUE)
+# b) Bos
+
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard_sc3_bos, field = "onth_pc")
+
+ecosysteem_2040_onthard_sc3_bos <- ecosysteem_2040verhard_sc3_bos
+
+# Haal de waarden op als getallen voor snelle verwerking
+v_eco  <- values(ecosysteem_2040verhard_sc3_bos)
+v_doel <- values(onthpc_r)
+
+# Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
+v_eco[v_doel == 100 & v_eco %in% c(101, 102)] <- 104
+
+# Onthardingspercentage 50: willekeurig 50% van de 102-cellen (verharding) worden 104
+idx_50 <- which(v_doel == 50 & v_eco == 102)
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef50 <- sample(idx_50, size = round(length(idx_50) * 0.75)) # 0.75 ipv 0.5 omdat verharding in tuinen ongeveer 50% onderschat wordt in de ecosysteemkaart
+v_eco[idx_steekproef50] <- 104
+
+# Onthardingspercentage 25 (wegen, pleinen): willekeurig 25% van de 102-cellen selecteren en omzetten naar 104
+idx_25 <- which(v_doel == 25 & v_eco == 102) # een deel van deze wegen staat niet op de ecosysteemkaart -> draagt bij aan onderschatting ontharding in zachte bestemming 
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
+v_eco[idx_steekproef25] <- 104
+
+# 6. Schrijf de aangepaste waarden terug in het raster
+values(ecosysteem_2040_onthard_sc3_bos) <- v_eco
+
+sc3_bos_onthard_cellen <- ifel(ecosysteem_2040_onthard_sc3_bos != ecosysteem_2040verhard_sc3_bos, 1, NA)
+
+writeRaster(sc3_bos_onthard_cellen, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_bos_onthard_cellen.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_2040_onthard_sc3_bos, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_bos_ecosysteem_ontharding.tif"), overwrite = TRUE)
+
+
+# c) 75%
+
+onthpc_r <- rasterize(geselecteerd_sf, ecosysteem_2040verhard_sc3_75, field = "onth_pc")
+
+ecosysteem_2040_onthard_sc3_75 <- ecosysteem_2040verhard_sc3_75
+
+# Haal de waarden op als getallen voor snelle verwerking
+v_eco  <- values(ecosysteem_2040verhard_sc3_75)
+v_doel <- values(onthpc_r)
+
+# Onthardingspercentage 100: cellen met 101 of 102 (gebouwen, wegen en verharding) worden 104 (laag groen)
+v_eco[v_doel == 100 & v_eco %in% c(101, 102)] <- 104
+
+# Onthardingspercentage 50: willekeurig 50% van de 102-cellen (verharding) worden 104
+idx_50 <- which(v_doel == 50 & v_eco == 102)
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef50 <- sample(idx_50, size = round(length(idx_50) * 0.75)) # 0.75 ipv 0.5 omdat verharding in tuinen ongeveer 50% onderschat wordt in de ecosysteemkaart
+v_eco[idx_steekproef50] <- 104
+
+# Onthardingspercentage 25 (wegen, pleinen): willekeurig 25% van de 102-cellen selecteren en omzetten naar 104
+idx_25 <- which(v_doel == 25 & v_eco == 102) # een deel van deze wegen staat niet op de ecosysteemkaart -> draagt bij aan onderschatting ontharding in zachte bestemming 
+
+set.seed(42) # zorgt ervoor dat de steekproef bij elke run hetzelfde is
+idx_steekproef25 <- sample(idx_25, size = round(length(idx_25) * 0.25))
+v_eco[idx_steekproef25] <- 104
+
+# 6. Schrijf de aangepaste waarden terug in het raster
+values(ecosysteem_2040_onthard_sc3_75) <- v_eco
+
+sc3_75_onthard_cellen <- ifel(ecosysteem_2040_onthard_sc3_75 != ecosysteem_2040verhard_sc3_75, 1, NA)
+
+writeRaster(sc3_75_onthard_cellen, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_75_onthard_cellen.tif"), overwrite = TRUE)
+
+writeRaster(ecosysteem_2040_onthard_sc3_75, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_75_ecosysteem_ontharding.tif"), overwrite = TRUE)
 ```
 
 # Extra [Niet runnen]
