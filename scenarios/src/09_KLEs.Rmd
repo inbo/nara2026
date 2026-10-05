@@ -71,7 +71,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
@@ -362,7 +362,7 @@ writeRaster(kle_fractie_10m_tot, file.path(result_path,"kle_fractie_10m_tot.tif"
 
 #### 3.1.2 stap 2: enkel KLE's in landbouwgebied tellen mee
 ```{r startkaart - huidig aandeel KLE stap 2}
-kle_fractie_10m_fin <- rast(file.path(result_path,"kle_fractie_10m_tot.tif"))
+kle_fractie_10m_tot <- rast(file.path(result_path,"kle_fractie_10m_tot.tif"))
 
 # --- HUIDIGE AANDEEL KLE BEPALEN voor startkaart - STAP2 ---
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
@@ -389,6 +389,7 @@ landbouw_masker_corr <- ifel(buffer_masker & is.na(bosrand_10m), landbouw_masker
 #mapview(landbouw_masker_buf, col = "green") + mapview(landbouw_masker_corr, col = "red") + mapview(bosrand_10m, col = "purple")
 
 kle_fractie_10m_fin <- kle_fractie_10m_tot*landbouw_masker_corr
+mapview(kle_fractie_10m_fin)
 writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start.tif"), overwrite = TRUE)
 
 ```
@@ -486,7 +487,7 @@ writeRaster(start_10m_landbouw, file.path(result_path, "kle_fractie_gecorrigeerd
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc1 %in% landbouw_codes & !is.na(gewascode), 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc1 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -810,7 +811,7 @@ mapview(prior_gebied) #+ mapview(geel_oranje_rast_fin, col = "blue")
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc2 %in% landbouw_codes & !is.na(gewascode), 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc2 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -1110,7 +1111,7 @@ cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc3_bos %in% landbouw_codes & !is.na(gewascode), 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc3_bos %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -1393,7 +1394,7 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc3_gras %in% landbouw_codes & !is.na(gewascode), 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc3_gras %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
@@ -1677,7 +1678,7 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
 buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
 
-landbouw_masker <- ifel(tussenstap4_sc3_75 %in% landbouw_codes & !is.na(gewascode), 1, NA)
+landbouw_masker <- ifel(tussenstap4_sc3_75 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
 landbouw_masker_buf <- ifel(landbouw_masker_buf, 1, 0)
 #mapview(landbouw_masker_buf, col = "red") + mapview(landbouw_masker, col = "blue") 
