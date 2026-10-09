@@ -54,7 +54,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 
@@ -168,6 +168,8 @@ writeRaster(ecosysteem_2022_nat, filename = str_c("C:/R/NARA2026/nara2026-git/sc
 # 2. KLE's toevoegen
 #///////////////////////////////////////
 
+kle_fractie_gecorrigeerd_start <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/kle_fractie_gecorrigeerd_start.tif"))
+
 # KLE-kaart opdelen in klassen
 rcl_matrix <- matrix(c(
   -0.001, 0.00, NA,
@@ -177,7 +179,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 ecosysteem_2022_upd <- ifel(ecosysteem_2022_nat %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(ecosysteem_2022_nat %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, ecosysteem_2022_nat))
@@ -409,7 +411,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap2_sc1_kle <- ifel(tussenstap2_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc1))
@@ -477,7 +479,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap4_sc1_kle <- ifel(tussenstap4_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc1))
@@ -713,7 +715,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap2_sc2_kle <- ifel(tussenstap2_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc2))
@@ -781,7 +783,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap4_sc2_kle <- ifel(tussenstap4_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc2))
@@ -1006,7 +1008,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap2_sc3_kle <- ifel(tussenstap2_sc3 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc3 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc3))
@@ -1096,7 +1098,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap4_sc3_75_kle <- ifel(tussenstap4_sc3_75 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_75 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_75))
@@ -1133,7 +1135,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap4_sc3_gras_kle <- ifel(tussenstap4_sc3_gras %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_gras %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_gras))
@@ -1168,7 +1170,7 @@ rcl_matrix <- matrix(c(
   0.3, 1.00, 35
 ), ncol = 3, byrow = TRUE)
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_2022, rcl_matrix, right = TRUE)
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
 tussenstap4_sc3_bos_kle <- ifel(tussenstap4_sc3_bos %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_bos %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_bos))
