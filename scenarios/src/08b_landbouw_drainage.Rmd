@@ -63,7 +63,7 @@ Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappe
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -1172,7 +1172,12 @@ sc3_25 <- round(sc3_25_volume_totaal/1000000, 2)
 sc3_75 <- round(sc3_75_volume_totaal/1000000, 2)
 
   
-data <- data.frame(sc = c("sc1", "sc2", "sc3_25", "sc3_75"), waarde = c(sc1, sc2, sc3_25, sc3_75))
+data <- data.frame(scenario = c("sc1", "sc2", "sc3_25", "sc3_75"), volume = c(sc1, sc2, sc3_25, sc3_75))
+
+data <- data.frame(scenario = c("scen 1", "scen 2", "scen 3"), volume = c(sc1, sc2, sc3_25))
+
+saveRDS(data, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/results_dedrainage.rds"))
+
 
 ggplot(data, aes(x = sc, y = waarde, fill = sc)) +
   geom_col() +
