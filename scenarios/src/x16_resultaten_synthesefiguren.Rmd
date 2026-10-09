@@ -187,6 +187,7 @@ sc3_gras_nieuwe_nattenatuur <- ifel(!is.na(nattenatuur_sc3_gras) & is.na(nattena
 
 sc3_75_nieuwe_nattenatuur <- ifel(!is.na(nattenatuur_sc3_75) & is.na(nattenatuur_ref), scen3_75_ecosysteem_finaal, NA)
 
+
 # Wegschrijven
 
 writeRaster(sc1_nieuwe_nattenatuur,
@@ -1275,16 +1276,36 @@ library(ggbreak)
 
 ## 4. Actoren
 
+### a) Opbouw actorenkaart
+
 ```{r actoren}
+ecosysteemkaart <- rast(file.path(hoofdfolder_data, "ecosysteemkaart_zonderzee.tif"))
 
-overheid <- rast(file.path(hoofdfolder_data, "eigendom_2022.tif"))
-overheid[overheid == 0] <- NA
+eigendom <- rast(file.path(hoofdfolder_data, "eigendom_2022.tif"))
+eigendom[eigendom == 0] <- NA
+eigendom <- resample(eigendom, ecosysteemkaart, method = "near")
 
-natuurbeheer <- rast(file.path(hoofdfolder_data, "natuur_open_beheerd_2022.tif"))
-natuurbeheer[natuurbeheer == 0] <- NA
+overheid <- ifel(eigendom < 10, 1, NA)
+overheid <- resample(overheid, ecosysteemkaart, method = "near")
 
-landbouw <- rast(file.path(hoofdfolder_data, "rast_landbouw_open_2022_binair.tif"))
-landbouw[landbouw == 0] <- NA
+natuurbeheer_poly <- st_read(file.path(hoofdfolder_data, "natuurbeheerplannen_poly.shp"))
+natuurbeheer_poly <- natuurbeheer_poly |> filter(natuurbehe != "Natuurbeheerplan Type 1")
+natuurbeheer <- rasterize(natuurbeheer_poly, ecosysteemkaart, field = "natuurbehe")
+writeRaster(natuurbeheer, str_c(hoofdfolder_data, "natuurbeheer.tif"), overwrite=TRUE)
+
+landbouw <- rast(file.path(hoofdfolder_data, "lbgp_2022.tif"))
+landbouw <- ifel(!is.na(landbouw), 1, NA)
+landbouw <- resample(landbouw, ecosysteemkaart, method = "near")
+landbouw <- ifel(!is.na(natuurbeheer) & !is.na(landbouw), NA, landbouw)
+writeRaster(landbouw, str_c(hoofdfolder_data, "landbouw.tif"), overwrite=TRUE)
+
+lu_niv2 <- rast(file.path(hoofdfolder_data, "niveau2_vla_2022_v3.tif"))
+lu_niv2 <- resample(lu_niv2, ecosysteemkaart, method = "near")
+lu_niv2[lu_niv2 == 0] <- NA
+
+lu_niv2_res <- ifel(lu_niv2 == 12, 1, NA)
+lu_niv2_bedrijf <- ifel(is.na(overheid) & is.na(lu_niv2_res) & lu_niv2 >= 13, 1, NA)
+lu_niv2_overig <- ifel(!is.na(lu_niv2) & (is.na(lu_niv2_res) | is.na(lu_niv2_bedrijf)), 1, NA)
 
 # Eigendomsklassen:
 # overheid_natuur -> eigendom < 10 & natuurbeheer == 1
@@ -1292,22 +1313,184 @@ landbouw[landbouw == 0] <- NA
 # overheid_rest -> eigendom < 10
 # privaat_landbouw -> eigendom == 10 & landbouw == 1
 # privaat_residentieel -> lu_niv2_res
-# privaat_bedrijven -> lu_niv2_bedrijf
+# privaat_bedrijven -> lu_niv2_bedrijf (geen overheid en geen residentieel maar wel in li_niv2)
 # privaat_tbh -> eigendom == 20
 
-eigendom <- ifel(overheid == 3 & natuurbeheer == 1, 1, NA)
+overheid_nat_lb <- ifel(!is.na(overheid) & !is.na(natuurbeheer), 11,
+                        ifel(!is.na(overheid) & !is.na(landbouw), 12, 
+                             ifel(!is.na(overheid), 10, NA)))
+writeRaster(overheid_nat_lb, str_c(hoofdfolder_data, "overheid_nat_lb.tif"), overwrite=TRUE)
 
-label_dict_eigendom_2022 <- c(
-  "1" = "Lokale overheid",
-  "2" = "OCMW",
-  "3" = "Regionale overheid",
-  "4" = "Overig",
-  "5" = "Publiek samenwerkingsverband",
-  "6" = "Publieke levensbeschouwelijke instelling",
-  "7" = "Federale overheid",
-  "8" = "Provinciale overheid",
-  "9" = "Complex publiek eigendomsrecht",
-  "10" = "Privaat - regulier",
+privaat <- ifel(is.na(eigendom), NA, 
+                ifel(is.na(overheid) & !is.na(natuurbeheer), 21,
+                ifel(is.na(overheid) & !is.na(landbouw), 22,
+                ifel(is.na(overheid) & !is.na(lu_niv2_res), 23,
+                ifel(is.na(overheid) & !is.na(lu_niv2_bedrijf), 24,
+                ifel(is.na(overheid) & !is.na(lu_niv2_overig), 25,
+                30))))))
+writeRaster(privaat, str_c(hoofdfolder_data, "privaat.tif"), overwrite=TRUE)
+
+
+actoren <- ifel(!is.na(overheid_nat_lb), overheid_nat_lb, privaat)
+crs(actoren) <- crs(ecosysteemkaart)
+actoren_vl <- cover(actoren, ecosysteemkaart)
+
+# opvullen NA's (vooral water en wegen)
+codes <- unique(actoren_vl)[, 1]
+
+nieuwe_codes <- codes
+nieuwe_codes[codes > 100] <- 11 # natuur (vooral slikken en schorren)
+nieuwe_codes[codes == 102] <- 13 # verharding (vooral wegen)
+nieuwe_codes[codes %in% c(105, 801, 802, 901, 902, 1001, 1003)] <- 14 # water
+
+actoren_vl <- subst(x = actoren_vl, from = codes, to = nieuwe_codes)
+
+writeRaster(actoren_vl, str_c(hoofdfolder_data, "actoren_vl.tif"), overwrite=TRUE)
+
+
+# laag eigendom:
+  "1" = "Lokale overheid"
+  "2" = "OCMW"
+  "3" = "Regionale overheid"
+  "4" = "Overig"
+  "5" = "Publiek samenwerkingsverband"
+  "6" = "Publieke levensbeschouwelijke instelling"
+  "7" = "Federale overheid"
+  "8" = "Provinciale overheid"
+  "9" = "Complex publiek eigendomsrecht"
+  "10" = "Privaat - regulier"
   "20" = "Privaat - TBH"
+```
+
+### b) Actorenanalyse per deelgebied
+
+```{r actoren_deelgebied}
+
+actoren_vl <- rast(str_c(hoofdfolder_data, "actoren_vl.tif"))
+
+# Actorenkaart deelgebied
+actoren <- crop(actoren_vl, ecosysteem_2022_nat, mask = TRUE)
+
+# 1. Natte natuur
+
+act_natnat_sc1 <- crop(actoren, sc1_nieuwe_nattenatuur, mask = TRUE)
+act_natnat_sc2 <- crop(actoren, sc2_nieuwe_nattenatuur, mask = TRUE)
+act_natnat_sc3 <- crop(actoren, sc3_gras_nieuwe_nattenatuur, mask = TRUE)
+act_natnat_sc3 <- crop(actoren, sc3_75_nieuwe_nattenatuur, mask = TRUE)
+
+
+# 2. Ontharding
+sc1_onthard_cellen <- rast(str_c(folder_output, "sc1_onthard_cellen.tif"))
+sc2_onthard_cellen <- rast(str_c(folder_output, "sc2_onthard_cellen.tif"))
+sc3_75_onthard_cellen <- rast(str_c(folder_output, "sc3_75_onthard_cellen.tif"))
+
+act_onth_sc1 <- crop(actoren, sc1_onthard_cellen, mask = TRUE)
+act_onth_sc2 <- crop(actoren, sc2_onthard_cellen, mask = TRUE)
+act_onth_sc3 <- crop(actoren, sc3_gras_onthard_cellen, mask = TRUE)
+
+
+# 3. Dedrainage
+sc1_dedrain_cellen <- rast(str_c(folder_output, "sc1_dedrain_cellen.tif"))
+sc2_dedrain_cellen <- rast(str_c(folder_output, "sc2_dedrain_cellen.tif"))
+sc3_25_dedrain_cellen <- rast(str_c(folder_output, "sc3_dedrain_cellen_25.tif"))
+
+act_dedrain_sc1 <- crop(actoren, sc1_dedrain_cellen, mask = TRUE)
+act_dedrain_sc2 <- crop(actoren, sc2_dedrain_cellen, mask = TRUE)
+act_dedrain_sc3 <- crop(actoren, sc3_25_dedrain_cellen, mask = TRUE)
+
+# Grafieken
+
+list_actor <- c(
+  "sc1" = act_natnat_sc1,
+  "sc2" = act_natnat_sc2,
+  "sc3" = act_natnat_sc3,
+  "sc1_onth" = act_onth_sc1,
+  "sc2_onth" = act_onth_sc2,
+  "sc3_onth" = act_onth_sc3,
+  "sc1_dedrain" = act_dedrain_sc1,
+  "sc2_dedrain" = act_dedrain_sc2,
+  "sc3_dedrain" = act_dedrain_sc3
+  
 )
+
+bereken_actor_scenario <- function(r, scenario_naam) {
+  resultaat <- data.frame(
+    scenario = scenario_naam,
+    klasse = freq(r)$value,
+    opp = round(freq(r)$count/100, 0)
+  )
+  return(resultaat)
+}
+
+results_actor <- bind_rows(
+  lapply(names(list_actor), function(scen) {
+    bereken_actor_scenario(
+      r = list_actor[[scen]],
+      scenario_naam = scen
+    )
+  })
+)
+
+# Omzetten naar factoren voor de juiste volgorde en handmatige kleuring
+results_actor <- results_actor %>%
+  mutate(
+    scenario = factor(scenario, levels = c("sc1", "sc2", "sc3", "sc1_onth", "sc2_onth", "sc3_onth", "sc1_dedrain", "sc2_dedrain", "sc3_dedrain")),
+    klasse   = factor(klasse, levels = c("10", "11", "12", "13", "14",
+                                         "21", "22", "23", "24", "25", "30")),
+    maatregel = case_when(
+      scenario %in% c("sc1", "sc2", "sc3") ~ "natte natuur",
+      scenario %in% c("sc1_onth", "sc2_onth", "sc3_onth") ~ "ontharding",
+      scenario %in% c("sc1_dedrain", "sc2_dedrain", "sc3_dedrain") ~ "dedrainage"
+  )) |> 
+  group_by(scenario) |> 
+  mutate(opp_totaal = sum(opp)) |> 
+  ungroup() |> 
+  mutate(opp_pc = opp/opp_totaal)
+
+# Kies gewenste kleuren per klasse
+eigen_kleuren <- c(
+  "10" = "yellow2",
+  "11" = "green3",
+  "12" = "khaki1",
+  "13" = "grey",
+  "14" = "dodgerblue",
+  "21" = "darkgreen",
+  "22" = "khaki3",
+  "23" = "firebrick1",
+  "24" = "firebrick",
+  "25" = "firebrick4",
+  "30" = "hotpink2"
+)
+
+ggplot(results_actor, aes(x = scenario, y = opp_pc, fill = klasse)) +
+  geom_col(position = "stack", width = 0.6) +
+  scale_fill_manual(
+    values = eigen_kleuren
+  ) +
+  facet_wrap(~ maatregel, scales = "free_x") +
+  labs(
+    title = "",
+    x = "",
+    y = "Oppervlakte (ha)",
+    fill = "actor"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+## 5) Dedrainage
+
+```{r dedrainage}
+
+data <- readRDS(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/results_dedrainage.rds"))
+
+ggplot(data, aes(x = scenario, y = volume)) +
+  geom_col(position = "stack", width = 0.6, fill = "steelblue1") +
+  labs(
+    title = "Kleine Nete - Extra grondwatervolume",
+    x = "",
+    y = "Berging grondwater (miljoen m³)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
 ```

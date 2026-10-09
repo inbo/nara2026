@@ -79,10 +79,10 @@ run_invest_ndr <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
     watersheds_path        = file.path(scenarios_dir, "gebied.shp"),
     biophysical_table_path = path_bio_in,
     
-    calc_p = TRUE,
+    calc_p = FALSE, # alleen stikstof berekenen
     calc_n = TRUE,
-    subsurface_critical_length_n = 200,
-    subsurface_eff_n             = 0.9,
+    subsurface_critical_length_n = 100, # korter dan oppervlakkige route (sneller maximale retentie)
+    subsurface_eff_n             = 0.8,
     
     flow_dir_algorithm    = "MFD",
     threshold_flow_accumulation = 1750L,

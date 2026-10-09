@@ -70,7 +70,7 @@ Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toesta
 # Stap 0: Kies het studiegebied en het aantal cores
 #/////////////////////////////////////////////////////////////
 
-studiegebied   <- "kleine_nete"
+studiegebied   <- "herk_mombeek"
 aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
 
 plan(multisession, workers = aantal_workers)
