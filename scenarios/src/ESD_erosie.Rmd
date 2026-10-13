@@ -60,7 +60,7 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 > | C:/R/NARA2026/scenarios
 > |    `scenarios.Rproj`
 > |    \|—– data
-> |    \|—– src -\> `09_KLEs.Rmd`
+> |    \|—– src -\> `ESD_erosie.Rmd`
 > |    \|—– herk_mombeek
 > |          \|—– data -\>
 
@@ -499,6 +499,7 @@ writeRaster(scen3_gras_erosie_vermeden, file.path(result_path, "scen3_gras_erosi
 library(ggplot2)
 library(scales)
 library(INBOtheme)
+p_fixed <- set_panel_size(p, width = unit(7, "cm"), height = unit(2, "cm"))
 # ==========================================
 # STAP 1: Resultaten inladen
 # ==========================================
@@ -509,7 +510,7 @@ scen3_gras <- file.path(result_path, "scen3_gras_erosie_vermeden.tif")
 startkaart <- rast(file.path(result_path, "start_erosie.tif"))
 totaal_start <- global(startkaart, fun = "sum", na.rm = TRUE)$sum
 
-scenario_files <- c(scen1, scen2, scen3_bos)
+scenario_files <- c(scen1, scen2, scen3_bos, scen3_gras)
 scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
 
 resultaten <- list()
@@ -577,12 +578,12 @@ p <- ggplot(df_long, aes(x = Scenario, y = Waarde, fill = Type)) +
   # Gestapelde staven
   geom_col(width = 0.55) +
   # Text labels IN de staven (op de berekende middenpositie)
-  geom_text(
-    aes(y = Positie_Y, label = Label_Tekst),
-    color = "white",        
-    fontface = "bold",
-    size = 3.0
-  ) +
+  # geom_text(
+  #   aes(y = Positie_Y, label = Label_Tekst),
+  #   color = "white",        
+  #   fontface = "bold",
+  #   size = 3.0
+  # ) +
   # X-as labels BOVENAAN plaatsen
   scale_x_discrete(position = "top") +
   # # Horizontale oriëntatie
@@ -597,7 +598,14 @@ p <- ggplot(df_long, aes(x = Scenario, y = Waarde, fill = Type)) +
   scale_y_continuous(
     expand = c(0, 0),
     limits = c(0, max(df_resultaten$Binnen_Afstroom + df_resultaten$Buiten_Afstroom) * 1.05),
-    labels = label_percent(scale = 1)
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
   ) +
   # Titels en opmaak
   labs(
@@ -607,32 +615,36 @@ p <- ggplot(df_long, aes(x = Scenario, y = Waarde, fill = Type)) +
     fill = NULL
   ) +
   theme_inbo() +
+  theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 print(p)
 
-# ==========================================
-# STAP 4: Opslaan met hoogte 2 cm
-# ==========================================
-
+# ========================================================
+# STAP 4: Opslaan met vaste breedte en hoogte
+# ========================================================
 ggsave(
   filename = file.path(result_path, "vermeden_erosie.png"),
   plot = p,
-  width = 9,      
-  height = 2,      
+  width = 7,
+  height = 3, 
   units = "cm",
   dpi = 300,
-  scaling = 0.45 # om labels te verkleinen
+  scaling = 0.6 # om labels te verkleinen
 )
+plot(p)
 ```
 
