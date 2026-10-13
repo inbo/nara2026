@@ -22,6 +22,8 @@ library(scales)
 # Inladen functie voor Investmodel
 source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_seasonal_water_yield2.R")
 
+conflicted::conflicts_prefer(dplyr::filter)
+
 ```
 
 Het script berekent de **infiltratie** (L, local recharge), **evapotranspiratie** (aet), **afstroming** (QF, quickflow), bijdrage aan het **basisdebiet** (B, baseflow) en de **cumulatieve bijdrage aan het basisdebiet** (B_sum) via het Investmodel [Seasonal Water Yield](https://storage.googleapis.com/releases.naturalcapitalproject.org/invest-userguide/latest/en/seasonal_water_yield.html). B geeft de bijdrage van elke cel aan het finale basisdebiet en B_sum geeft de hoeveel water die via een cel uiteindelijk in de rivier terechtkomt (trekt verdamping door lager gelegen vegetaties af).
@@ -47,7 +49,7 @@ Het model wordt gerund voor de drie scenario's, met voor elk scenario een afzond
 Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toestand zijn er al KLE's aanwezig. De huidige KLE's worden toegevoegd aan de startkaart (ecosysteem_2022) en tussenstap 2 en 4 -\> aangepaste kaarten zijn ecosysteem_2022_upd, tussenstap2_sc1_kle en tussenstap4_sc1_kle (zie script compilatie).
 
 | Scenario | maatregelenset | suffix | ecosysteemkaart |
-|------------------|------------------|------------------|-------------------|
+|----|----|----|----|
 | huidige toestand | / | 0 | ecosysteem_2022_upd.tif |
 | scenario 1 | nieuwe natuur | sc1_nat | tussenstap2_sc1_kle.tif |
 |  | infiltratie | sc1_inf | tussenstap4_sc1_kle.tif |
@@ -70,7 +72,7 @@ Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toesta
 # Stap 0: Kies het studiegebied en het aantal cores
 #/////////////////////////////////////////////////////////////
 
-studiegebied   <- "herk_mombeek"
+studiegebied   <- "kleine_nete"
 aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
 
 plan(multisession, workers = aantal_workers)
@@ -420,7 +422,7 @@ for (v in variabelen) {
 
 ```{r}
 
-var <- "B"
+var <- "aet"
   
 # ------------------------------------------------------------
 # 1. data selecteren
@@ -601,16 +603,6 @@ pad_folder    <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
 pad_voedingsgebied <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data/voedingsgebied_combi.tif")
 
 r_voeding          <- rast(pad_voedingsgebied)
-
-# afstroomgebieden
-pad_afstroomgebied <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data/afstroomgebied_5m_crs.tif")
-ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_2022.tif"))
-
-r_afstroom_5m          <- rast(pad_afstroomgebied)
-r_afstroom <- resample(r_afstroom_5m, ecosysteem_2022, method = 'near')
-
-r_voeding <- r_afstroom
-
 
 r_voeding <- ifel(!is.na(r_voeding), 1, NA)
 
@@ -899,4 +891,266 @@ ggplot(
   theme(axis.text = element_text(size = 18),
         axis.title.x = element_blank(),
         axis.title.y = element_text(size = 18))
+```
+
+## Deel 3 - Totaal en voedingsgebied samen
+
+### 1. Berekening
+
+```{r combinatie}
+
+# Paden instellen
+scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+pad_folder    <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+# voedingsgebieden
+pad_voedingsgebied <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data/voedingsgebied_combi.tif")
+
+r_voeding          <- rast(pad_voedingsgebied)
+r_voeding <- ifel(!is.na(r_voeding), 1, NA)
+
+
+# ==============================================================================
+# 1. RASTERS INLEZEN EN BASIS-SOM BEREKENEN BINNEN EN BUITEN VOEDINGSGEBIED
+# ==============================================================================
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^(QF|B|L|aet)", basename(tif_bestanden)) & 
+                                 !grepl("^B_sum", basename(tif_bestanden))] # eventueel B_sum toch toevoegen
+
+df_raw <- map_df(tif_bestanden, function(f) {
+  r <- rast(f)
+  
+  # --- NIEUW: TOTAAL BEREKENEN (hele raster) ---
+  som_totaal_waarde <- global(r, "sum", na.rm = TRUE)[[1]]
+  
+  # --- BEREKENING VOEDINGSGEBIED ---
+  # 1. Knip het raster eerst grofweg bij op de 'extent' van het voedingsgebied (voor snelheid)
+  r_crop <- crop(r, ext(r_voeding))
+  
+  # 2. Lijn het voedingsgebied exact uit op de grid-eigenschappen van het bijgeknipte raster
+  r_voeding_aligned <- resample(r_voeding, r_crop, method = "near")
+  
+  # 3. Nu maskeren (dit werkt nu gegarandeerd omdat de extents 100% matchen)
+  r_mask <- mask(r_crop, r_voeding_aligned)
+  
+  naam <- tools::file_path_sans_ext(basename(f))
+  som_waarde <- global(r_mask, "sum", na.rm = TRUE)[[1]]
+  
+  tibble(bestand = naam, som = som_waarde, som_totaal = som_totaal_waarde)
+})
+
+
+# ==============================================================================
+# 1b. EXTRA INFILTRATIE BEREKENEN PER SCENARIO (LOKAAL + TOTAAL)
+# ==============================================================================
+scenarios_lookup <- c("1", "2", "3_gras", "3_bos", "3_75")
+
+df_extra_inf <- map_df(scenarios_lookup, function(scen) {
+  kaart_inf <- get_kaart_naam(scen, "inf")
+  path_lulc <- file.path(scenarios_dir, kaart_inf)
+  
+  suffix_name <- paste0("sc", scen, "_inf")
+  path_qf     <- file.path(pad_folder, suffix_name, paste0("QF_", suffix_name, ".tif"))
+  
+  if (file.exists(path_lulc) && file.exists(path_qf)) {
+    r_lulc <- rast(path_lulc)
+    r_qf   <- rast(path_qf)
+    
+    # --- OPLOSSING: LULC-raster eerst uitlijnen op QF voor de totale berekening ---
+    r_lulc_aligned_tot <- resample(r_lulc, r_qf, method = "near")
+    cellen_infilt_tot <- ifel(r_lulc_aligned_tot %in% c(210, 230), 1, NA)
+    
+    # Nu matchen de extents 100% voor de vermenigvuldiging
+    qf_afstroom_tot   <- cellen_infilt_tot * r_qf
+    
+    extra_val_tot <- round(0.7 * global(qf_afstroom_tot, fun = "sum", na.rm = TRUE)[[1]], 0)
+    if (is.na(extra_val_tot)) extra_val_tot <- 0
+    
+    # --- EXTRA INFILTRATIE VOEDINGSGEBIED ---
+    # Zelfde strategie: uitlijnen van het voedingsgebied op het QF-raster
+    r_qf_crop <- crop(r_qf, ext(r_voeding))
+    r_voeding_aligned_qf <- resample(r_voeding, r_qf_crop, method = "near")
+    r_qf_mask <- mask(r_qf_crop, r_voeding_aligned_qf)
+    
+    # Stem LULC-raster en gemaskeerd QF-raster exact op elkaar af
+    r_lulc_aligned <- resample(r_lulc, r_qf_mask, method = "near")
+    
+    # Infiltratiecellen (210, 230) en afstroom selecteren
+    cellen_infilt <- ifel(r_lulc_aligned %in% c(210, 230), 1, NA)
+    qf_afstroom   <- cellen_infilt * r_qf_mask
+    
+    # Extra infiltratie berekenen (70% efficiëntie)
+    extra_val <- round(0.7 * global(qf_afstroom, fun = "sum", na.rm = TRUE)[[1]], 0)
+    if (is.na(extra_val)) extra_val <- 0
+    
+  } else {
+    extra_val <- 0
+    extra_val_tot <- 0
+  }
+  
+  scen_label <- if (startsWith(scen, "sc")) scen else paste0("sc", scen)
+  
+  tibble(scenario = scen_label, 
+         extra_infiltratie = extra_val, 
+         extra_infiltratie_totaal = extra_val_tot)
+})
+
+# ==============================================================================
+# 2. DATAFRAME STRUCTUREREN EN EXTRA INFILTRATIE VERWERKEN (B/B_sum & QF)
+# ==============================================================================
+maatregelen      <- c("nat", "inf", "kle", "onth", "ont")
+scenarios_labels <- c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")
+
+df_clean_combi <- df_raw %>%
+  mutate(
+    bestand = str_replace(bestand, "_ont$", "_onth"),
+    
+    # Maatregel bepalen
+    maatregel = map_chr(bestand, ~ {
+      m <- maatregelen[str_detect(.x, paste0("_", maatregelen, "$"))]
+      if (length(m) > 0) m[1] else "referentie"
+    }),
+    maatregel = if_else(maatregel == "ont", "onth", maatregel),
+    
+    # Scenario bepalen
+    scenario = map_chr(bestand, ~ {
+      s <- scenarios_labels[str_detect(.x, paste0("_", scenarios_labels, "(_|$)"))]
+      if (length(s) > 0) s else "referentie"
+    }),
+    
+    # Variabele bepalen
+    variabele = str_remove(bestand, paste0("_(", paste(scenarios_labels, collapse="|"), ").*")),
+    variabele = str_remove(variabele, paste0("_(", paste(maatregelen, collapse="|"), ")$"))
+  ) %>%
+  # Koppel de berekende extra infiltratie per scenario
+  left_join(df_extra_inf, by = "scenario") %>%
+  mutate(
+    extra_infiltratie = coalesce(extra_infiltratie, 0),
+    extra_infiltratie_totaal = coalesce(extra_infiltratie_totaal, 0), # NIEUW
+    
+    # Aanpassing som (voedingsgebied): optellen bij L, aftrekken van QF
+    som = case_when(
+      variabele %in% c("L") & maatregel %in% c("inf", "kle", "onth") ~ som + extra_infiltratie,
+      variabele == "QF" & maatregel %in% c("inf", "kle", "onth") ~ som - extra_infiltratie,
+      TRUE                                                           ~ som
+    ),
+    
+    # NIEUW: Aanpassing som_totaal (volledige gebied): optellen bij L, aftrekken van QF
+    som_totaal = case_when(
+      variabele %in% c("L") & maatregel %in% c("inf", "kle", "onth") ~ som_totaal + extra_infiltratie_totaal,
+      variabele == "QF" & maatregel %in% c("inf", "kle", "onth") ~ som_totaal - extra_infiltratie_totaal,
+      TRUE                                                           ~ som_totaal
+    )
+  ) %>%
+  # NIEUW: som_totaal toevoegen in output
+  select(variabele, scenario, maatregel, som, som_totaal) 
+
+# Volgordes vastleggen via factors
+df_clean_combi <- df_clean_combi %>%
+  mutate(
+    scenario  = factor(scenario, levels = c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
+    maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth"))
+  )
+
+
+# Stap 1: Haal de referentiewaarden (som_totaal) op per variabele
+df_referentie <- df_clean_combi %>%
+  dplyr::filter(maatregel == "referentie") %>%
+  select(variabele, ref_voed = som, ref_totaal = som_totaal) %>%
+  distinct() # Zorgt voor één unieke referentiewaarde per variabele
+
+# Stap 2: Filter op 'onth', koppel de referentiewaarden en bereken de percentages
+df_resultaten <- df_clean_combi %>%
+  filter(maatregel == "onth") %>%
+  left_join(df_referentie, by = "variabele") %>%
+  mutate(
+    binnen_voeding_pc = 100 * (som - ref_voed) / ref_totaal,
+    buiten_voeding_pc = 100 * ((som_totaal - ref_totaal) - (som - ref_voed)) / ref_totaal
+  ) %>%
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1"      = "sc1",
+                               "Scenario 2"      = "sc2",
+                               "Scenario 3 gras" = "sc3_gras",
+                               "Scenario 3 bos"  = "sc3_bos",
+                               "Scenario 3 75%"  = "sc3_75"
+                               )) |>
+  select(variabele, scenario, binnen_voeding_pc, buiten_voeding_pc)
+
+
+```
+
+### 2. Grafiek à la Katrijn
+
+```{r Grafiek_kat}
+library(scales)
+library(INBOtheme)
+
+var <- "L"
+
+df_long <- df_resultaten %>%
+  dplyr::filter(variabele == var, scenario != "Scenario 3 75%") |> 
+  mutate(
+    Totaal = binnen_voeding_pc + buiten_voeding_pc
+  ) %>%
+  pivot_longer(
+    cols = c("binnen_voeding_pc", "buiten_voeding_pc"),
+    names_to = "Type",
+    values_to = "Waarde"
+  ) %>%
+  mutate(
+    # Volgorde in de staaf: binnen_voeding_pc eerst (links/basis)
+    Type = factor(Type, levels = c("buiten_voeding_pc", "binnen_voeding_pc")),
+    Pct = (Waarde / Totaal) * 100,
+    Label_Tekst = sprintf("%d%%", round(Pct))
+  ) %>%
+  # Bereken de middenpositie van elk segment voor het tekstlabel
+  group_by(scenario) %>%
+  mutate(
+    Positie_Y = cumsum(Waarde) - (0.5 * Waarde)
+  ) %>%
+  ungroup()
+
+
+p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
+  geom_col(aes(y = Totaal), fill = "grey80", width = 0.75, position = "identity") +
+  geom_col(width = 0.55) +
+  # Text labels in de staven (op de berekende middenpositie)
+  # geom_text(
+  #   aes(y = Positie_Y, label = Label_Tekst),
+  #   color = "white",        
+  #   fontface = "bold",
+  #   size = 3.0
+  # ) +
+  scale_x_discrete(position = "top") +
+  scale_fill_manual(
+    values = c("binnen_voeding_pc" = inbo_groen, "buiten_voeding_pc" = inbo_steun_blauw),
+    labels = c("binnen_voeding_pc" = "voor landnatuur", 
+               "buiten_voeding_pc" = "voor rest bekken")
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_long$Totaal) * 1.05, min(df_long$Waarde) * 1.05)), 
+               max(c(0, max(df_long$Totaal) * 1.05, max(df_long$Waarde) * 1.05))),
+    labels = label_percent(scale = 1)
+  ) +
+  labs(
+    title = str_c("Verandering in ", var, " als % van huidig totaal"),
+    x = NULL,
+    y = "% huidig totaal",
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "right",
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
 ```
