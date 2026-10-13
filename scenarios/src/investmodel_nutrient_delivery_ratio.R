@@ -1,3 +1,7 @@
+studiegebied <- "kleine_nete"
+kaart <- "ecosysteem_2022_nat.tif"
+suffix <- ""
+
 run_invest_ndr <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_2022.tif", suffix = "") {
   
   # ==============================================================================
@@ -116,7 +120,9 @@ run_invest_ndr <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   # Outputs NDR
   tif_patroon <- paste0("^(n_total_export|p_surface_export|modified_load_n|modified_load_p)", clean_suffix, "\\.tif$")
   tif_outputs <- list.files(workspace_path_ndr, pattern = tif_patroon, full.names = TRUE, recursive = TRUE) # recursive = TRUE -> ook in subfolders zoeken
-  
+  gpkg_patroon <- paste0("^(watershed_results_ndr)", clean_suffix, "\\.gpkg$")
+  gpkg_outputs <- list.files(workspace_path_ndr, pattern = gpkg_patroon, full.names = TRUE, recursive = TRUE)
+    
   for (f in tif_outputs) {
     r_out <- rast(f)
     r_lulc_aligned <- r_lulc
@@ -135,9 +141,10 @@ run_invest_ndr <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   
   # Verwijder alle overige bestanden die we niet expliciet willen behouden (bijv. .txt logs of ongewenste rasters)
   # Hier behouden we de core TIFs en optioneel de resulterende CSV rapportages (.csv)
-  te_behouden_patroon <- paste0("^(n_total_export|p_surface_export|modified_load_n|modified_load_p)", clean_suffix, "\\.(tif|csv|tif\\.aux\\.xml|tfw|prj)$")
+    te_behouden_patroon <- paste0("^(n_total_export|p_surface_export|modified_load_n|modified_load_p|watershed_results_ndr)", clean_suffix, "\\.(tif|csv|gpkg|gpkg\\.aux\\.xml|tfw|prj)$")
   alle_items <- list.files(workspace_path_ndr, full.names = TRUE, include.dirs = FALSE)
   items_om_te_verwijderen <- alle_items[!grepl(te_behouden_patroon, basename(alle_items), ignore.case = TRUE)]
   
   unlink(items_om_te_verwijderen, force = TRUE)
+  
 }
