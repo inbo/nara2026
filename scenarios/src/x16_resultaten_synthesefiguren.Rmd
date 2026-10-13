@@ -41,7 +41,7 @@ De data zitten in de mappen "output" en "data" onder de folder van het `studiege
 ```{r}
 
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 
 folder_output <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/")
@@ -2054,7 +2054,7 @@ p
 # Grafieken per maatregel apart
 #////////////////////////////////////
 
-kiesmaatregel <- "nieuwe natuur"
+kiesmaatregel <- "natte natuur"
 
 p <- ggplot(df_resultaten |> filter(maatregel == kiesmaatregel), aes(x = scenario, y = opp, fill = klasse)) +
   geom_col(width = 0.55) +
