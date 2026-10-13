@@ -47,7 +47,7 @@ Het model wordt gerund voor de drie scenario's, met voor elk scenario een afzond
 Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toestand zijn er al KLE's aanwezig. De huidige KLE's worden toegevoegd aan de startkaart (ecosysteem_2022) en tussenstap 2 en 4 -\> aangepaste kaarten zijn ecosysteem_2022_upd, tussenstap2_sc1_kle en tussenstap4_sc1_kle (zie script compilatie).
 
 | Scenario | maatregelenset | suffix | ecosysteemkaart |
-|------------------|------------------|------------------|-------------------|
+|----|----|----|----|
 | huidige toestand | / | 0 | ecosysteem_2022_upd.tif |
 | scenario 1 | nieuwe natuur | sc1_nat | tussenstap2_sc1_kle.tif |
 |  | infiltratie | sc1_inf | tussenstap4_sc1_kle.tif |
