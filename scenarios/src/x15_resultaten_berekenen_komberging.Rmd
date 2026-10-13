@@ -48,7 +48,7 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 # 1. Parameters definiëren en kaarten inladen
 # ------------------------------------------------------------
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 waterdiepte <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/overstromingsdiepte_t100_flu_plu.tif"))
 
 scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
@@ -100,37 +100,99 @@ for (kaart in tif_bestanden) {
   resultaat <- bind_rows(resultaat, tibble(scenario = scenario, volume_natuur = volume_natuur, volume_nat = volume_nat))
 }
 
+df_resultaten <- resultaat |>
+  mutate(scenario = fct_recode(scenario,
+                               "Referentie" = "ecosysteem_2022_upd.tif",
+                               "Scenario 1"      = "scen1",
+                               "Scenario 2"      = "scen2",
+                               "Scenario 3 gras" = "scen3_gras",
+                               "Scenario 3 bos"  = "scen3_bos",
+                               "Scenario 3 75%"  = "scen3_75"
+  ),
+  volume_droog = volume_natuur - volume_nat) %>%
+  mutate(
+    ref_natuur = ifelse(any(scenario == "Referentie"), 
+                        volume_natuur[scenario == "Referentie"], 
+                        NA),
+    pct_nat = 100 * ((volume_natuur - ref_natuur) / ref_natuur) * (volume_nat / volume_natuur),
+    pct_droog = 100 * ((volume_natuur - ref_natuur)  / ref_natuur) * (volume_droog / volume_natuur)
+  ) %>%
+  ungroup() |> 
+  select(scenario, pct_nat, pct_droog, volume_natuur)
+
 ```
 
 ### Grafiek
 
 ```{r grafiek_komberging}
 
-df_grafiek <- resultaat |> 
-  pivot_longer(
-  cols = c("volume_natuur", "volume_nat"),
-  names_to = "variabele",
-  values_to = "volume") |> 
+df_long <- df_resultaten %>%
+  # dplyr::filter(!scenario %in% c("Scenario 3 75%", "Referentie")) |>
   mutate(
-    scenario  = factor(scenario, levels = c("referentie", "scen1", "scen2", "scen3_gras", "scen3_bos", "scen3_75")),
-    variabele = factor(variabele, levels = c("volume_natuur", "volume_nat"))
-  )
+    Totaal = pct_nat + pct_droog) %>%
+  pivot_longer(
+    cols = c("pct_nat", "pct_droog"),
+    names_to = "Type",
+    values_to = "Waarde"
+  ) %>%
+  mutate(
+    # Volgorde in de staaf: binnen_voeding_pc eerst (links/basis)
+    Type = factor(Type, levels = c("pct_droog", "pct_nat")),
+    Label_Tekst = sprintf("%d%%", round(Waarde))
+  ) %>%
+  # Bereken de middenpositie van elk segment voor het tekstlabel
+  group_by(scenario) %>%
+  mutate(
+    Positie_Y = cumsum(Waarde) - (0.5 * Waarde)
+  ) %>%
+  ungroup()
 
-ggplot(df_grafiek, aes(x = scenario, y = volume, fill = variabele)) +
-  geom_col(position = position_dodge(preserve = "single"), color = "black", width = 0.7) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+overstromingsvolume <- round(pull(global(waterdiepte * 100, "sum", na.rm = TRUE)) / 1000000, 0)
+
+p <- ggplot(df_long |> filter(!scenario %in% c("Scenario 3 75%", "Referentie")),
+            aes(x = scenario, y = Waarde, fill = Type)) +
+  geom_col(width = 0.55) +
+  geom_text(
+    aes(y = Positie_Y, label = Label_Tekst),
+    color = "white",
+    fontface = "bold",
+    size = 3.0
+  ) +
+  scale_x_discrete(position = "top") +
+  scale_fill_manual(
+    values = c("pct_nat" = inbo_steun_blauw, "pct_droog" = inbo_geel),
+    labels = c("pct_nat" = "natte natuur", 
+               "pct_droog" = "overige natuur")
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_long$Totaal) * 1.05, min(df_long$Waarde) * 1.05)), 
+               max(c(0, max(df_long$Totaal) * 1.05, max(df_long$Waarde) * 1.05))),
+    labels = label_percent(scale = 1)
+  ) +
   labs(
-    x = "Scenario",
-    y = "Kombergingsvolume (m³)",
-    fill = "variabele"
+    title = str_c("Toename in komberging als % van huidige komberging"),
+    subtitle = str_c("Huidige komberging: ", df_long$volume_natuur[1], " milj. m³ - totaal volume overstromingen: ", overstromingsvolume, " milj. m³"),
+    x = NULL,
+    y = "% huidig totaal",
+    fill = NULL
   ) +
   theme_minimal() +
   theme(
-    panel.grid.major.x = element_blank(),
-    plot.title = element_text(face = "bold", size = 14)
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    plot.subtitle = element_text(size = 10, face = 'italic', color = 'grey50'),
+    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "right",
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm")
   )
 
-
+print(p)
 ```
 
 ## 
