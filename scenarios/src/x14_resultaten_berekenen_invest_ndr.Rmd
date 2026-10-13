@@ -22,6 +22,8 @@ library(scales)
 # Inladen functie voor Investmodel
 source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_nutrient_delivery_ratio.R")
 
+conflicted::conflicts_prefer(dplyr::filter)
+
 ```
 
 Het script berekent de totale **export en retentie van stikstof en fosfor** in het gebied op basis van het InVestmodel [Nutrient Delivery Ratio](https://storage.googleapis.com/releases.naturalcapitalproject.org/invest-userguide/latest/en/ndr.html).
@@ -68,7 +70,7 @@ Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toesta
 # Stap 0: Kies het studiegebied en het aantal cores
 #/////////////////////////////////////////////////////////////
 
-studiegebied   <- "herk_mombeek"
+studiegebied   <- "kleine_nete"
 aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
 
 plan(multisession, workers = aantal_workers)
@@ -589,7 +591,7 @@ df_clean <- df_raw %>%
   select(variabele, scenario, maatregel, som)
 
 # Volgordes vastleggen via factors
-df_clean <- df_clean %>%
+df_clean_voeding <- df_clean %>%
   mutate(
     scenario  = factor(scenario, levels = c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
     maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth"))
@@ -768,4 +770,319 @@ ggplot(
   theme(axis.text = element_text(size = 18),
         axis.title.x = element_blank(),
         axis.title.y = element_text(size = 18))
+```
+
+## Deel 3 - Totaal en voedingsgebied samen
+
+### 1. Berekening
+
+#### a) Kaarten
+
+```{r combinatie}
+
+# Paden instellen
+
+scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+pad_folder    <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied, "NDR")
+
+pad_voedingsgebied <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "data/voedingsgebied_combi.tif") 
+r_voeding          <- rast(pad_voedingsgebied)
+
+r_voeding <- ifel(!is.na(r_voeding), 1, NA)
+
+
+# ==============================================================================
+# 1. RASTERS INLEZEN EN BASIS-SOM BEREKENEN BINNEN EN BUITEN VOEDINGSGEBIED
+# ==============================================================================
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^(n_total_export|modified_load_n)", basename(tif_bestanden))] 
+# tif_bestanden <- tif_bestanden[grepl("^(n_total_export|p_surface_export)", basename(tif_bestanden))] # als ook fosfor berekend wordt
+
+df_raw <- map_df(tif_bestanden, function(f) {
+  r <- rast(f)
+  
+  # --- TOTAAL BEREKENEN (hele raster) ---
+  som_totaal_waarde <- global(r, "sum", na.rm = TRUE)[[1]]
+  
+  # --- BEREKENING VOEDINGSGEBIED ---
+  # 1. Knip het raster eerst grofweg bij op de 'extent' van het voedingsgebied (voor snelheid)
+  r_crop <- crop(r, ext(r_voeding))
+  
+  # 2. Lijn het voedingsgebied exact uit op de grid-eigenschappen van het bijgeknipte raster
+  r_voeding_aligned <- resample(r_voeding, r_crop, method = "near")
+  
+  # 3. Nu maskeren (dit werkt nu gegarandeerd omdat de extents 100% matchen)
+  r_mask <- mask(r_crop, r_voeding_aligned)
+  
+  naam <- tools::file_path_sans_ext(basename(f))
+  som_waarde <- global(r_mask, "sum", na.rm = TRUE)[[1]]
+  
+  tibble(bestand = naam, som = som_waarde, som_totaal = som_totaal_waarde)
+})
+
+
+# ==============================================================================
+# 2. DATAFRAME STRUCTUREREN
+# ==============================================================================
+maatregelen      <- c("nat", "inf", "kle", "onth", "ont")
+scenarios_labels <- c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")
+
+df_clean_combi <- df_raw %>%
+  mutate(
+    bestand = str_replace(bestand, "_ont$", "_onth"),
+    
+    # Maatregel bepalen
+    maatregel = map_chr(bestand, ~ {
+      m <- maatregelen[str_detect(.x, paste0("_", maatregelen, "$"))]
+      if (length(m) > 0) m[1] else "referentie"
+    }),
+    maatregel = if_else(maatregel == "ont", "onth", maatregel),
+    
+    # Scenario bepalen
+    scenario = map_chr(bestand, ~ {
+      s <- scenarios_labels[str_detect(.x, paste0("_", scenarios_labels, "(_|$)"))]
+      if (length(s) > 0) s else "referentie"
+    }),
+    
+    # Variabele bepalen
+    variabele = str_remove(bestand, paste0("_(", paste(scenarios_labels, collapse="|"), ").*")),
+    variabele = str_remove(variabele, paste0("_(", paste(maatregelen, collapse="|"), ")$"))
+  ) %>%
+  
+  select(variabele, scenario, maatregel, som, som_totaal) 
+
+# Volgordes vastleggen via factors
+df_clean_combi <- df_clean_combi %>%
+  mutate(
+    scenario  = factor(scenario, levels = c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
+    maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth"))
+  )
+
+
+# Stap 1: Haal de referentiewaarden (som_totaal) op per variabele
+df_referentie <- df_clean_combi %>%
+  dplyr::filter(maatregel == "referentie") %>%
+  select(variabele, ref_voed = som, ref_totaal = som_totaal) %>%
+  distinct() # Zorgt voor één unieke referentiewaarde per variabele
+
+# Stap 2: Filter op 'onth', koppel de referentiewaarden en bereken de percentages
+df_resultaten <- df_clean_combi %>%
+  filter(maatregel == "onth") %>%
+  left_join(df_referentie, by = "variabele") %>%
+  mutate(
+    binnen_voeding_pc = 100 * (som - ref_voed) / ref_totaal,
+    buiten_voeding_pc = 100 * ((som_totaal - ref_totaal) - (som - ref_voed)) / ref_totaal
+  ) %>%
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1"      = "sc1",
+                               "Scenario 2"      = "sc2",
+                               "Scenario 3 gras" = "sc3_gras",
+                               "Scenario 3 bos"  = "sc3_bos",
+                               "Scenario 3 75%"  = "sc3_75"
+                               )) |>
+  select(variabele, scenario, binnen_voeding_pc, buiten_voeding_pc)
+
+
+```
+
+#### b) Syntheseresultaten (geopackages)
+
+```{r}
+
+# ==============================================================================
+# 1. GPKG-BESTANDEN INLEZEN EN WAARDEN OPHALEN
+# ==============================================================================
+pad_folder <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied, "NDR")
+
+# Zoek alle gpkg-bestanden met 'watershed_results_ndr' in de naam
+gpkg_bestanden <- list.files(pad_folder, pattern = "\\.gpkg$", full.names = TRUE, recursive = TRUE)
+gpkg_bestanden <- gpkg_bestanden[grepl("watershed_results_ndr", basename(gpkg_bestanden))]
+
+df_gpkg_raw <- map_df(gpkg_bestanden, function(f) {
+  # Lees gpkg in en verwijder geometrie voor snellere verwerking
+  data <- st_read(f, quiet = TRUE) %>% 
+    st_drop_geometry()
+  
+  # Bereken de som per kolom (werkt zowel bij 1 als bij meerdere polygonen/sub-stroomgebieden)
+  load_surf    <- sum(data$n_surface_load, na.rm = TRUE)
+  load_subsurf <- sum(data$n_subsurface_load, na.rm = TRUE)
+  exp_surf     <- sum(data$n_surface_export, na.rm = TRUE)
+  exp_subsurf  <- sum(data$n_subsurface_export, na.rm = TRUE)
+  
+  naam <- tools::file_path_sans_ext(basename(f))
+  
+  tibble(
+    bestand = naam,
+    n_surface_load = load_surf,
+    n_subsurface_load = load_subsurf,
+    n_surface_export = exp_surf,
+    n_subsurface_export = exp_subsurf
+  )
+})
+
+# ==============================================================================
+# 2. DATAFRAME STRUCTUREREN (SCENARIO EN MAATREGEL BEPALEN)
+# ==============================================================================
+maatregelen      <- c("nat", "inf", "kle", "onth", "ont")
+scenarios_labels <- c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")
+
+df_gpkg_clean <- df_gpkg_raw %>%
+  mutate(
+    # Maatregel bepalen uit de bestandsnaam
+    maatregel = map_chr(bestand, ~ {
+      m <- maatregelen[str_detect(.x, paste0("_", maatregelen, "($|_)"))]
+      if (length(m) > 0) m[1] else "referentie"
+    }),
+    # Zet 'onth' om naar 'ont' indien aanwezig in bestandsnaam
+    maatregel = if_else(maatregel == "onth", "ont", maatregel),
+    
+    # Scenario bepalen uit de bestandsnaam
+    scenario = map_chr(bestand, ~ {
+      s <- scenarios_labels[str_detect(.x, paste0("_", scenarios_labels, "(_|$)"))]
+      if (length(s) > 0) s[1] else "referentie"
+    })
+  ) %>%
+  select(scenario, maatregel, n_surface_load, n_subsurface_load, n_surface_export, n_subsurface_export)
+
+df_gpkg_clean <- df_gpkg_clean |> 
+  mutate(load = n_surface_load + n_subsurface_load,
+         export = n_surface_export + n_subsurface_export,
+         retent = load - export,
+         frc_ret = retent / load, # fractie retentie
+         frc_exp = export / load) # fractie export
+
+
+# Filter op 'ont'
+df_resultaten_synt <- df_gpkg_clean %>%
+  filter(maatregel %in% c("ont", "referentie")) %>%
+  mutate(scenario = fct_recode(scenario,
+                               "Referentie" = "referentie",
+                               "Scenario 1"      = "sc1",
+                               "Scenario 2"      = "sc2",
+                               "Scenario 3 gras" = "sc3_gras",
+                               "Scenario 3 bos"  = "sc3_bos",
+                               "Scenario 3 75%"  = "sc3_75"
+  )) %>%
+  mutate(
+    ref_waarde = ifelse(any(scenario == "Referentie"), 
+                        frc_ret[scenario == "Referentie"], 
+                        NA),
+    pct_frac = 100 * (frc_ret - ref_waarde)
+  ) %>%
+  ungroup() %>%
+  select(scenario, load, export, retent, frc_ret, frc_exp, pct_frac)
+```
+
+### 2. Grafiek à la Katrijn
+
+#### a) Kaarten
+
+```{r Grafiek_kat}
+library(scales)
+library(INBOtheme)
+
+var <- "modified_load_n" # modified_load_n / n_total_export
+
+df_long <- df_resultaten %>%
+  dplyr::filter(variabele == var, scenario != "Scenario 3 75%") |> 
+  mutate(
+    Totaal = binnen_voeding_pc + buiten_voeding_pc
+  ) %>%
+  pivot_longer(
+    cols = c("binnen_voeding_pc", "buiten_voeding_pc"),
+    names_to = "Type",
+    values_to = "Waarde"
+  ) %>%
+  mutate(
+    # Volgorde in de staaf: binnen_voeding_pc eerst (links/basis)
+    Type = factor(Type, levels = c("buiten_voeding_pc", "binnen_voeding_pc")),
+    Pct = (Waarde / Totaal) * 100,
+    Label_Tekst = sprintf("%d%%", round(Pct))
+  ) %>%
+  # Bereken de middenpositie van elk segment voor het tekstlabel
+  group_by(scenario) %>%
+  mutate(
+    Positie_Y = cumsum(Waarde) - (0.5 * Waarde)
+  ) %>%
+  ungroup()
+
+
+p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
+  geom_col(aes(y = Totaal), fill = "grey80", width = 0.75, position = "identity") +
+  geom_col(width = 0.55) +
+  # Text labels in de staven (op de berekende middenpositie)
+  # geom_text(
+  #   aes(y = Positie_Y, label = Label_Tekst),
+  #   color = "white",        
+  #   fontface = "bold",
+  #   size = 3.0
+  # ) +
+  scale_x_discrete(position = "top") +
+  scale_fill_manual(
+    values = c("binnen_voeding_pc" = inbo_groen, "buiten_voeding_pc" = inbo_steun_blauw),
+    labels = c("binnen_voeding_pc" = "voor landnatuur", 
+               "buiten_voeding_pc" = "voor rest bekken")
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_long$Totaal) * 1.05, min(df_long$Waarde) * 1.05)), 
+               max(c(0, max(df_long$Totaal) * 1.05, max(df_long$Waarde) * 1.05))),
+    labels = label_percent(scale = 1)
+  ) +
+  labs(
+    title = str_c("Verandering in ", var, " als % van huidig totaal"),
+    x = NULL,
+    y = "% huidig totaal",
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "right",
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+```
+
+#### b) Syntheseresultaten
+
+```{r}
+library(INBOtheme)
+p <- ggplot(df_resultaten_synt |> filter(!scenario %in% c("Referentie", "Scenario 3 75%")), aes(x = scenario, y = pct_frac)) +
+  geom_col(width = 0.55) +
+  scale_x_discrete(position = "top") +
+  scale_fill_manual(values = "inbo_groen") +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_resultaten_synt$pct_frac) * 1.05, min(df_resultaten_synt$pct_frac) * 1.05)), 
+               max(c(0, max(df_resultaten_synt$pct_frac) * 1.05, max(df_resultaten_synt$pct_frac) * 1.05))),
+    labels = label_percent(scale = 1)
+  ) +
+  labs(
+    title = "Procentpuntverschil in % retentie tov huidige toestand",
+    x = NULL,
+    y = "procentpuntverschil",
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "right",
+    legend.text = element_text(size = 8),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
 ```
