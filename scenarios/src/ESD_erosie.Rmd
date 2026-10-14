@@ -499,7 +499,7 @@ writeRaster(scen3_gras_erosie_vermeden, file.path(result_path, "scen3_gras_erosi
 library(ggplot2)
 library(scales)
 library(INBOtheme)
-p_fixed <- set_panel_size(p, width = unit(7, "cm"), height = unit(2, "cm"))
+
 # ==========================================
 # STAP 1: Resultaten inladen
 # ==========================================
@@ -601,7 +601,7 @@ p <- ggplot(df_long, aes(x = Scenario, y = Waarde, fill = Type)) +
     #labels = label_percent(scale = 1),
     # voor een constant aantal tekens op de Y-as: 
     labels = function(x) {
-    # genereer de standaard percent-labels zonder decimalen
+    # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
     raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
     # vul elk label op met spaties tot 5 tekens breedte
     sprintf("%5s", raw_labels)
