@@ -43,7 +43,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # In welke folders zitten de data?
 
@@ -752,10 +752,214 @@ p <- ggplot(df_totaal, aes(x = Scenario, y = Totaal_opp/100, fill = Type)) +
 print(p)
 
 # ==========================================
-# STAP 4: Opslaan met hoogte 2 cm
+# STAP 4: Opslaan met hoogte 3 cm
 # ==========================================
 ggsave(
   filename = file.path(result_path, "totaal_natuur.png"),
+  plot = p,
+  width = 7,
+  height = 3,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur totale opp natte natuur}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_nat <- ifel(start_ecosysteem %in% c(bos_nat, open_natuur_nat) & start_kle == 0, 1, 0)
+totaal_start_nat <- global(start_nat, fun = "sum", na.rm = TRUE)$sum
+
+df_totaal <- bind_rows(
+  df_resultaten_bos,
+  df_resultaten_open,
+  df_resultaten_urbaan,
+  df_resultaten_kle,
+  df_resultaten_bos_nat,
+  df_resultaten_open_nat
+)
+df_totaal <- df_totaal |> 
+  mutate(Type = factor(Type, 
+                       levels = c("bos", 
+                                  "bos nat",
+                                  "open natuur",
+                                  "open natuur nat", 
+                                  "urbaan", 
+                                  "kle"))) |> 
+  dplyr::filter(Type %in% c("bos nat", "open natuur nat")) |> 
+  droplevels() 
+df_nat <- df_totaal |> 
+  mutate(Perc = Totaal_opp/totaal_start_nat*100)
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_nat, aes(x = Scenario, y = Perc, fill = Type)) +
+  # Gestapelde staven
+  geom_col(width = 0.55) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Kleuren en legenda
+  scale_fill_manual(
+    values = c("bos" = inbo_groen, 
+               "open natuur" = inbo_steun_geelgroen, 
+               "bos nat" = inbo_steun_blauw, 
+               "open natuur nat" = inbo_lichtblauw, 
+               "urbaan" = inbo_rood, 
+               "kle" = inbo_geelgr),
+    labels = c("bos" = "bos - droog", 
+               "open natuur" = "open natuur - droog",
+               "bos nat" = "bos - nat", 
+               "open natuur nat" = "open natuur - nat",
+               "urbaan" = "urbaan groen", 
+               "kle" = "kle")) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "totaal_nat.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur totale opp droge natuur}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_droog <- ifel(start_ecosysteem %in% c(bos_droog, open_natuur_droog) & start_kle == 0, 1, 0)
+totaal_start_droog <- global(start_droog, fun = "sum", na.rm = TRUE)$sum
+
+df_totaal <- bind_rows(
+  df_resultaten_bos,
+  df_resultaten_open,
+  df_resultaten_urbaan,
+  df_resultaten_kle,
+  df_resultaten_bos_nat,
+  df_resultaten_open_nat
+)
+df_totaal <- df_totaal |> 
+  mutate(Type = factor(Type, 
+                       levels = c("bos", 
+                                  "bos nat",
+                                  "open natuur",
+                                  "open natuur nat", 
+                                  "urbaan", 
+                                  "kle"))) |> 
+  dplyr::filter(Type %in% c("bos", "open natuur")) |> 
+  droplevels() 
+df_droog <- df_totaal |> 
+  mutate(Perc = Totaal_opp/totaal_start_droog*100)
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_droog, aes(x = Scenario, y = Perc, fill = Type)) +
+  # Gestapelde staven
+  geom_col(width = 0.55) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Kleuren en legenda
+  scale_fill_manual(
+    values = c("bos" = inbo_groen, 
+               "open natuur" = inbo_steun_geelgroen, 
+               "bos nat" = inbo_steun_blauw, 
+               "open natuur nat" = inbo_lichtblauw, 
+               "urbaan" = inbo_rood, 
+               "kle" = inbo_geelgr),
+    labels = c("bos" = "bos - droog", 
+               "open natuur" = "open natuur - droog",
+               "bos nat" = "bos - nat", 
+               "open natuur nat" = "open natuur - nat",
+               "urbaan" = "urbaan groen", 
+               "kle" = "kle")) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "totaal_droog.png"),
   plot = p,
   width = 7,
   height = 2,
