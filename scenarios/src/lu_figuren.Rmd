@@ -45,21 +45,9 @@ De volgende datasets worden gebruikt:
 
 studiegebied <- "kleine_nete"
 
-# Kies de bestanden die je nodig hebt
-# ecosysteem_2022.tif is steeds nodig als referentieraster
-
-targets <- c("ecosysteem_2022_upd.tif", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif", 
-"kle_fractie_gecorrigeerd_start.tif",
-"kle_fractie_gecorrigeerd_sc1.tif",
-"kle_fractie_gecorrigeerd_sc2.tif",
-"kle_fractie_gecorrigeerd_sc3_bos.tif",
-"kle_fractie_gecorrigeerd_sc3_gras.tif"
-)
-
 # In welke folders zitten de data?
 
-search_paths <- c(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data"), str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten"), 
-  "C:/R/NARA2026/scenarios/data")
+data_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data")
 
 # Waar slaan we het resultaat op?
 
@@ -67,108 +55,32 @@ result_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten")
 
 ```
 
-### 1.2. Data inladen
-
-Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
-
-```{r data_inladen}
-
-# 1. Inladen bestanden
-
-all_available_files <- list.files(search_paths, full.names = TRUE, recursive = TRUE)
-
-# Filter de lijst: behoud alleen de bestanden die in je 'targets' lijst staan
-files_to_load <- all_available_files[basename(all_available_files) %in% targets]
-
-# functie om de bestanden in te laden (tifs, shapes en xlsx)
-load_file <- function(path) {
-  ext <- tolower(file_ext(path))
-  obj <- switch(ext,
-    "shp"  = st_read(path, quiet = TRUE),
-    "tif"  = rast(path),
-    "xlsx" = read_excel(path),
-    stop(paste("Bestandstype niet ondersteund:", ext))
-  )
-  return(obj)
-}
-
-data_list <- lapply(files_to_load, load_file)
-
-names(data_list) <- file_path_sans_ext(basename(files_to_load))
-
-
-# 2. CRS en extent gelijkstellen
-
-ref_raster <- data_list$ecosysteem_2022_upd
-
-# Functie om rasters te harmoniseren
-harmoniseer_raster <- function(r, ref, is_categorisch = NULL) {
-  # Controleer of het object een raster is
-  if (!inherits(r, "SpatRaster")) {
-    return(r)
-  }
- 
-  # Bepaal of het raster categorisch is
-  if (!is.null(is_categorisch)) {
-    is_cat <- is_categorisch
-  } else {
-    # Automatische detectie: check factor, bool, int of gehele getallen in double
-    is_cat <- is.factor(r) || is.bool(r) || is.int(r)
-   
-    if (!is_cat) {
-      vals <- values(r, mat = FALSE)
-      vals <- vals[!is.na(vals)] # Filter NA's vooraf weg
-     
-      # Als alle niet-NA waarden gehele getallen zijn, behandel als categorisch
-      if (length(vals) > 0 && all(vals == round(vals))) {
-        is_cat <- TRUE
-      }
-    }
-  }
- 
-  # 'near' voor categorische data (codes), 'bilinear' voor continue data
-  method_type <- if(is_cat) "near" else "bilinear"
- 
-  # CRS, extent en resolutie van ref_raster
-  r_gelijkaardig <- project(r, ref, method = method_type)
- 
-  # Bijknippen met ref_raster
-  r_geclipt <- mask(r_gelijkaardig, ref)
- 
-  return(r_geclipt)
-}
-# Pas functie toe op de hele lijst
-data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
-
-
-# 3. Zet bestanden in je Global Environment
-list2env(data_list_ok, envir = .GlobalEnv)
-
-```
-
 # 2. Figuren
+
 ```{r figuurdata laden}
 # ==========================================
 # STAP 1: Resultaten inladen
 # ==========================================
-scen1 <- scen1_ecosysteem_finaal
-scen2 <- scen2_ecosysteem_finaal
-scen3_bos <- scen3_bos_ecosysteem_finaal
-scen3_gras <- scen3_gras_ecosysteem_finaal
-start_ecosysteem <- ecosysteem_2022_upd
+scen1 <- rast(file.path(result_path, "scen1_ecosysteem_finaal.tif"))
+scen2 <- rast(file.path(result_path, "scen2_ecosysteem_finaal.tif"))
+scen3_bos <- rast(file.path(result_path, "scen3_bos_ecosysteem_finaal.tif"))
+scen3_gras <- rast(file.path(result_path, "scen3_gras_ecosysteem_finaal.tif"))
+start_ecosysteem <- rast(file.path(result_path, "ecosysteem_2022_upd.tif"))
 
-scen1_kle <- kle_fractie_gecorrigeerd_sc1
-scen2_kle <- kle_fractie_gecorrigeerd_sc2
-scen3_bos_kle <- kle_fractie_gecorrigeerd_sc3_bos
-scen3_gras_kle <- kle_fractie_gecorrigeerd_sc3_gras
-start_kle <- kle_fractie_gecorrigeerd_start
+scen1_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc1.tif"))
+scen2_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc2.tif"))
+scen3_bos_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_bos.tif"))
+scen3_gras_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_gras.tif"))
+start_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_start.tif"))
 
 bos_droog <- c(400, 401, 402, 403, 404)
 open_natuur_droog <- c(302, 501, 601, 1102, 1103)
 groen_urbaan <- c(103, 104)
+bos_nat <- c(410, 420)
+open_natuur_nat <- c(320, 701, 702, 901, 902)
 ```
 
-```{r figuur bos}
+```{r figuur bos droog}
 # =========================================
 # STAP 2: resultaten klaarmaken voor ggplot
 # =========================================
@@ -234,7 +146,7 @@ p <- ggplot(df_resultaten_bos, aes(x = Scenario, y = Totaal_pc)) +
   ) +
   # Titels en opmaak
   labs(
-    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    #title = "Oppervlakte bijkomend droog bos als % van de huidige droge bosoppervlakte in ha",
     x = NULL,
     y = NULL,
     fill = NULL
@@ -313,7 +225,7 @@ p <- ggplot(df_resultaten_open, aes(x = Scenario, y = Totaal_pc)) +
   # Gestapelde staven
   geom_col(width = 0.55, 
            show.legend = FALSE, 
-           fill = inbo_lichtgroen) +
+           fill = inbo_steun_geelgroen) +
   
   # X-as labels BOVENAAN plaatsen
   scale_x_discrete(position = "top") +
@@ -333,7 +245,7 @@ p <- ggplot(df_resultaten_open, aes(x = Scenario, y = Totaal_pc)) +
   ) +
   # Titels en opmaak
   labs(
-    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    #title = "Oppervlakte bijkomende droge open natuur als % van de huidige oppervlakte in ha",
     x = NULL,
     y = NULL,
     fill = NULL
@@ -365,6 +277,205 @@ ggsave(
   #scaling = 0.6 # om labels te verkleinen
 )
 ```
+
+```{r figuur bos nat}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_bos_nat <- ifel(start_ecosysteem %in% bos_nat & start_kle == 0, 1, 0)
+scen1_bos_nat <- ifel(scen1 %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 1, 0)
+scen2_bos_nat <- ifel(scen2 %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 1, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 1, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 1, 0)
+
+totaal_start <- global(start_bos_nat, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_bos_nat, scen2_bos_nat, scen3_bos_bos_nat, scen3_gras_bos_nat)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_bos_nat <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "bos nat")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_bos_nat, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_steun_blauw) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_bos_nat$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomend nat bos als % van de huidige natte bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "bos_nat.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur open natuur nat}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_open_nat <- ifel(start_ecosysteem %in% open_natuur_nat & start_kle == 0, 1, 0)
+scen1_open_nat <- ifel(scen1 %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 1, 0)
+scen2_open_nat <- ifel(scen2 %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 1, 0)
+scen3_bos_open_nat <- ifel(scen3_bos %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 1, 0)
+scen3_gras_open_nat <- ifel(scen3_gras %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 1, 0)
+
+totaal_start <- global(start_open_nat, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_open_nat, scen2_open_nat, scen3_bos_open_nat, scen3_gras_open_nat)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_open_nat <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "open natuur nat")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_open_nat, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_lichtblauw) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_open_nat$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomende natte open natuur als % van de huidige oppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "open_natuur_nat.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
 
 ```{r figuur groen in urbaan}
 # =========================================
@@ -432,7 +543,7 @@ p <- ggplot(df_resultaten_urbaan, aes(x = Scenario, y = Totaal_pc)) +
   ) +
   # Titels en opmaak
   labs(
-    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    #title = "Oppervlakte bijkomend urbaan groen als % van de huidige oppervlakte in ha",
     x = NULL,
     y = NULL,
     fill = NULL
@@ -525,7 +636,7 @@ p <- ggplot(df_resultaten_kle, aes(x = Scenario, y = Totaal_pc)) +
   ) +
   # Titels en opmaak
   labs(
-    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    #title = "Oppervlakte bijkomende KLE als % van de huidige oppervlakte in ha",
     x = NULL,
     y = NULL,
     fill = NULL
@@ -566,8 +677,18 @@ df_totaal <- bind_rows(
   df_resultaten_bos,
   df_resultaten_open,
   df_resultaten_urbaan,
-  df_resultaten_kle
+  df_resultaten_kle,
+  df_resultaten_bos_nat,
+  df_resultaten_open_nat
 )
+df_totaal <- df_totaal |> 
+  mutate(Type = factor(Type, 
+                       levels = c("bos", 
+                                  "bos nat",
+                                  "open natuur",
+                                  "open natuur nat", 
+                                  "urbaan", 
+                                  "kle")))
 
 # ==========================================
 # STAP 3: Figuur maken met ggplot
@@ -593,9 +714,18 @@ p <- ggplot(df_totaal, aes(x = Scenario, y = Totaal_opp/100, fill = Type)) +
   ) +
   # Kleuren en legenda
   scale_fill_manual(
-    values = c("bos" = inbo_groen, "open natuur" = inbo_lichtgroen, "urbaan" = inbo_rood, "kle" = inbo_geelgr),
+    values = c("bos" = inbo_groen, 
+               "open natuur" = inbo_steun_geelgroen, 
+               "bos nat" = inbo_steun_blauw, 
+               "open natuur nat" = inbo_lichtblauw, 
+               "urbaan" = inbo_rood, 
+               "kle" = inbo_geelgr),
     labels = c("bos" = "bos - droog", 
-               "open natuur" = "open natuur - droog", "urbaan" = "urbaan groen", "kle" = "kle")) +
+               "open natuur" = "open natuur - droog",
+               "bos nat" = "bos - nat", 
+               "open natuur nat" = "open natuur - nat",
+               "urbaan" = "urbaan groen", 
+               "kle" = "kle")) +
   # Titels en opmaak
   labs(
     #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",

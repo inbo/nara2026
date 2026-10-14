@@ -14,10 +14,7 @@ library(sf)
 library(tidyterra)
 library(tools)
 library(readxl)
-library(igraph)
-library(viridis)
 library(mapview)
-library(leaflet) # Nodig voor colorFactor
 
 ```
 ## Inleiding
