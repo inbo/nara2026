@@ -47,7 +47,11 @@ ln(TSSin/TSSuit) = 2,66 * log(breedte grasstrook)
 
 Met TSSn/TSSuit = de verhouding van het sedimentgehalte (total suspended solids) in het inspoelende ten opzichte van het uitspoelende water. 
 We gaan ervan uit dat 1% KLE’s in een hectare overeenkomt met een strook van 1 m breedte, 10% = 10m breedte. 
-We berekenen de P-factoren per 100m²-cel in plaats van per ha-cel, om een waarde tussen 0 en 1 te bekomen vermenigvuldigen we het % KLE (de breedte in cm) per 100m²-cel dus met 100.
+We berekenen de P-factoren per 100m²-cel in plaats van per ha-cel (1/100ste van 1 ha), om een waarde tussen 0 en 1 te bekomen vermenigvuldigen we het % KLE (de breedte in cm) per 100m²-cel dus met 100, dwz 1% KLE geeft dezelfde p-waarde als een grasstrook van 1m breedte --> de gemiddelde p-waarde in 1 ha blijft dezelfde, het totale bodemverlies in 1 ha dus ook.
+
+Om een P-factor tussen 0 en 1 te bekomen, stellen we het minimum % KLE gelijk aan 1. We rekenen met een minimum P-waarde van 0.03, dat is de P-waarde bij 20% KLE (minimumwaarde in de data van Nelissen et al).
+
+Omdat de P*C-waarde voor een akker op deze manier nog steeds lager kan worden dan de C-factor van een grasland of zelfs van een bos, limiteren we de PC-waarde tot een minimum gelijk aan de waarde voor grasland of struikachtige vegetatie = 0,01.
 
 
 ## 1. Data inladen en klaarmaken
@@ -83,7 +87,7 @@ studiegebied <- "kleine_nete"
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp",  "kle_fractie_gecorrigeerd_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3_bos.tif","kle_fractie_gecorrigeerd_sc3_gras.tif", "kle_fractie_gecorrigeerd_sc3_75.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif")
+targets <- c("ecosysteem_2022_upd.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp",  "kle_fractie_gecorrigeerd_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3_bos.tif","kle_fractie_gecorrigeerd_sc3_gras.tif", "kle_fractie_gecorrigeerd_sc3_75.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif")
 
 # In welke folders zitten de data?
 
@@ -194,7 +198,7 @@ Daarvoor:
 3) Die kaart vermenigvuldigen met de fysische geschiktheid voor erosie (R*K*LS uit RUSLE).
 
 ```{r rusle startkaart}
-ecosysteem <- ecosysteem_2022
+ecosysteem <- ecosysteem_2022_upd
 kle_fractie <- kle_fractie_gecorrigeerd_start
 
 # 1. Maskers maken van akker/niet-akker
@@ -222,19 +226,25 @@ akker_erosie_masker <- ifel(erosie_rast == "zeer hoog" | erosie_rast == "hoog" |
 akker_erosie_hoog <- akker_erosie_masker*gewas_erosie_tot*akker_masker
 akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie_tot*akker_masker)
 
-# 3. P-factor op akkers met KLE's
-kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20%KLE  = 0.03, C*P wordt minimum de waarde van C voor grasland (0.01).
+
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0.01, 1/exp(2.66*log10(kle_fractie*100)), 
               ifel(kle_fractie > 0.20, 0.03, 1))
+
 # houtachtige KLE in grasland geven we dezelfde erosiegevoeligheid als struiken C-factor = 0,01 = de C-factor van gras --> hoeven we dus niet speciaal in rekening te brengen
 # gras_kle_c <- gras_masker*(ecosysteem_erosie*(1 - kle_start) + 0.01*kle_start)
 
-# KLE-stroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
+# KLE-stroken op akkers krijgen de C-factor van gras en struiken = 0,01, p-factor geldt op de rest van het perceel
 akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
 
 # 4. Aanvullende P-factor op akkers met hoge en zeer hoge erosiegevoeligheid
+
 akker_erosie_p <- ifel(erosie_rast == "zeer hoog", 0.3155,
                        ifel(erosie_rast == "hoog" | erosie_rast == "hoog /C", 0.4018, 1))
 akker_erosie_cp <- akker_kle_cp*akker_erosie_p
+
+# minimumwaarde voor C*P op akkers is de C-waarde voor grasland (0,01): akker + kle en evt. + andere maatregelen (rode en paarse percelen) kan het niet beter doen dan grasland
+akker_erosie_cp_fin <- ifel(akker_erosie_cp < 0.01, 0.01, akker_erosie_cp)*akker_masker
 
 # 5. C-factor voor andere ecosystemen dan akker bepalen
 tbl_ecosysteem    <- deel_3_reclass_ecosysteem_erosie
@@ -243,7 +253,8 @@ ecosysteem_erosie <- classify(x = ecosysteem, rcl = reclass_ecosysteem, others =
 ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
-cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp_fin
+#mapview(cp_factor_totaal)
 start_erosie <- fysges_ton_ha/100*cp_factor_totaal
 mapview(start_erosie)
 
@@ -252,6 +263,9 @@ writeRaster(start_erosie, file.path(result_path, "start_erosie.tif"), overwrite 
 ```
 
 # 3. Scenario 1: vermeden (risico op) bodemverlies
+
+Het vermeden (risico op) bodemverlies bepalen we als het verschil tussen het risico op erosie in de startkaart en het risico op erosie in elk scenario.
+
 ```{r rusle scen1}
 ecosysteem <- scen1_ecosysteem_finaal
 kle_fractie <- kle_fractie_gecorrigeerd_sc1
@@ -269,15 +283,16 @@ niet_akker_masker <- ifel(akker_masker == 1, 0, 1)
 
 # 2. C-factor op akkers bepalen
 
+gewas_erosie <- classify(x = gewascode, rcl = reclass_gewas, others = 0)
 gewas_erosie_tot <- gewas_erosie + kle_buiten_landbouw*0.37
 
 # maximumwaarde c-factor op percelen met een zeer hoge en hoge erosiegevoeligheid (rode en paarse percelen) is 0,5
 akker_erosie_hoog <- akker_erosie_masker*gewas_erosie_tot*akker_masker
 akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie_tot*akker_masker)
 
-# 3. P-factor op akkers met KLE's
+# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20%KLE  = 0.03, C*P wordt minimum de waarde van C voor grasland (0.01).
 
-kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0.01, 1/exp(2.66*log10(kle_fractie*100)), 
               ifel(kle_fractie > 0.20, 0.03, 1))
 
 # grasstroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
@@ -287,16 +302,21 @@ akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
 
 akker_erosie_cp <- akker_kle_cp*akker_erosie_p
 
+# minimumwaarde voor C*P op akkers is de C-waarde voor grasland (0,01): akker + kle en evt. + andere maatregelen (rode en paarse percelen) kan het niet beter doen dan grasland
+akker_erosie_cp_fin <- ifel(akker_erosie_cp < 0.01, 0.01, akker_erosie_cp)*akker_masker
+
 # 5. C-factor voor andere ecosystemen dan akker bepalen
 
+ecosysteem_erosie <- classify(x = ecosysteem, rcl = reclass_ecosysteem, others = 0)
 ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
-cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp_fin
+mapview(cp_factor_totaal)
 scen1_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
-mapview(scen1_erosie)
+#mapview(scen1_erosie)
 
 # 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
 
@@ -324,20 +344,21 @@ landbouw_codes_akker <- c(201, 202, 203, 204, 205, 210, 220, 230, 2005, 2015, 20
 niet_landbouw_masker <- ifel(ecosysteem %in% landbouw_codes & !is.na(gewascode), 0, 1)
 kle_buiten_landbouw <- ifel(niet_landbouw_masker & kle_fractie > 0, 1, 0)
 
-akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker & !is.na(gewascode)| kle_buiten_landbouw > 0, 1, 0) # KLE's buiten landbouw worden KLE's op akker --> gewascode van die zone moet dan ook akker zijn = 0,37
+akker_masker <- ifel(ecosysteem %in% landbouw_codes_akker & !is.na(gewascode)| kle_buiten_landbouw > 0, 1, 0) # KLE's buiten landbouw worden KLE's op akker --> gewascode van die zone moet dan ook die van een gemiddelde akker zijn = 0,37
 niet_akker_masker <- ifel(akker_masker == 1, 0, 1)
 
 # 2. C-factor op akkers bepalen
 
+gewas_erosie <- classify(x = gewascode, rcl = reclass_gewas, others = 0)
 gewas_erosie_tot <- gewas_erosie + kle_buiten_landbouw*0.37
 
 # maximumwaarde c-factor op percelen met een zeer hoge en hoge erosiegevoeligheid (rode en paarse percelen) is 0,5
 akker_erosie_hoog <- akker_erosie_masker*gewas_erosie_tot*akker_masker
 akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie_tot*akker_masker)
 
-# 3. P-factor op akkers met KLE's
+# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20%KLE  = 0.03, C*P wordt minimum de waarde van C voor grasland (0.01).
 
-kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0.01, 1/exp(2.66*log10(kle_fractie*100)), 
               ifel(kle_fractie > 0.20, 0.03, 1))
 
 # grasstroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
@@ -347,13 +368,18 @@ akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
 
 akker_erosie_cp <- akker_kle_cp*akker_erosie_p
 
+# minimumwaarde voor C*P op akkers is de C-waarde voor grasland (0,01): akker + kle en evt. + andere maatregelen (rode en paarse percelen) kan het niet beter doen dan grasland
+akker_erosie_cp_fin <- ifel(akker_erosie_cp < 0.01, 0.01, akker_erosie_cp)*akker_masker
+
 # 5. C-factor voor andere ecosystemen dan akker bepalen
 
+ecosysteem_erosie <- classify(x = ecosysteem, rcl = reclass_ecosysteem, others = 0)
 ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+mapview(cp_factor_totaal)
 scen2_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
 mapview(scen2_erosie)
@@ -389,15 +415,16 @@ niet_akker_masker <- ifel(akker_masker == 1, 0, 1)
 
 # 2. C-factor op akkers bepalen
 
+gewas_erosie <- classify(x = gewascode, rcl = reclass_gewas, others = 0)
 gewas_erosie_tot <- gewas_erosie + kle_buiten_landbouw*0.37
 
 # maximumwaarde c-factor op percelen met een zeer hoge en hoge erosiegevoeligheid (rode en paarse percelen) is 0,5
 akker_erosie_hoog <- akker_erosie_masker*gewas_erosie_tot*akker_masker
 akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie_tot*akker_masker)
 
-# 3. P-factor op akkers met KLE's
+# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20%KLE  = 0.03, C*P wordt minimum de waarde van C voor grasland (0.01).
 
-kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0.01, 1/exp(2.66*log10(kle_fractie*100)), 
               ifel(kle_fractie > 0.20, 0.03, 1))
 
 # grasstroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
@@ -407,13 +434,18 @@ akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
 
 akker_erosie_cp <- akker_kle_cp*akker_erosie_p
 
+# minimumwaarde voor C*P op akkers is de C-waarde voor grasland (0,01): akker + kle en evt. + andere maatregelen (rode en paarse percelen) kan het niet beter doen dan grasland
+akker_erosie_cp_fin <- ifel(akker_erosie_cp < 0.01, 0.01, akker_erosie_cp)*akker_masker
+
 # 5. C-factor voor andere ecosystemen dan akker bepalen
 
+ecosysteem_erosie <- classify(x = ecosysteem, rcl = reclass_ecosysteem, others = 0)
 ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+mapview(cp_factor_totaal)
 scen3_bos_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
 mapview(scen3_bos_erosie)
@@ -449,15 +481,16 @@ niet_akker_masker <- ifel(akker_masker == 1, 0, 1)
 
 # 2. C-factor op akkers bepalen
 
+gewas_erosie <- classify(x = gewascode, rcl = reclass_gewas, others = 0)
 gewas_erosie_tot <- gewas_erosie + kle_buiten_landbouw*0.37
 
 # maximumwaarde c-factor op percelen met een zeer hoge en hoge erosiegevoeligheid (rode en paarse percelen) is 0,5
 akker_erosie_hoog <- akker_erosie_masker*gewas_erosie_tot*akker_masker
 akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie_tot*akker_masker)
 
-# 3. P-factor op akkers met KLE's
+# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20%KLE  = 0.03, C*P wordt minimum de waarde van C voor grasland (0.01).
 
-kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0, 1/exp(2.66*log10(kle_fractie*100)), 
+kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0.01, 1/exp(2.66*log10(kle_fractie*100)), 
               ifel(kle_fractie > 0.20, 0.03, 1))
 
 # grasstroken op akkers krijgen de C-factor van gras = 0,01, p-factor geldt op de rest van het perceel
@@ -466,14 +499,18 @@ akker_kle_cp <- akker_erosie_c*(kle_p*(1 - kle_fractie) + kle_fractie*0.01)
 # 4. Aanvullende P-factor op akkers met hoge en zeer hoge erosiegevoeligheid
 
 akker_erosie_cp <- akker_kle_cp*akker_erosie_p
+# minimumwaarde voor C*P op akkers is de C-waarde voor grasland (0,01): akker + kle en evt. + andere maatregelen (rode en paarse percelen) kan het niet beter doen dan grasland
+akker_erosie_cp_fin <- ifel(akker_erosie_cp < 0.01, 0.01, akker_erosie_cp)*akker_masker
 
 # 5. C-factor voor andere ecosystemen dan akker bepalen
 
+ecosysteem_erosie <- classify(x = ecosysteem, rcl = reclass_ecosysteem, others = 0)
 ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
+mapview(cp_factor_totaal)
 scen3_gras_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
 mapview(scen3_gras_erosie)
