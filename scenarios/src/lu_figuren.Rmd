@@ -1,0 +1,2380 @@
+---
+title: "figuren landgebruiksveranderingen"
+author: "NARA"
+date: "2026-10-13"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r packages, include = FALSE}
+library(tidyverse)
+library(here)
+library(terra)
+library(sf)
+library(tidyterra)
+library(tools)
+library(readxl)
+library(mapview)
+library(leaflet) 
+library(ggplot2)
+library(ggpattern)
+library(scales)
+library(INBOtheme)# Nodig voor colorFactor
+
+```
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/R/NARA2026/scenarios
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– src -\> `lu_figuren.Rmd`
+> |    \|—– herk_mombeek
+> |          \|—– data -\>
+
+### 1.1. Kies bestanden
+
+De volgende datasets worden gebruikt:
+
+- gebied.shp -\> polygoon van het gebied (zonder buffer)
+- scen..._ecosysteem_finaal.tif -\> resultaat van het compilatiescript dat alle maatregelen per scenario een plaats geeft
+- ecosysteem_2022_upd.tif -\> ecosysteemkaart van het gebied (FLEA) met een update voor natte natuurklassen en andere klassen nodig voor de scenarioberekeningen
+
+```{r bestanden_folders}
+
+studiegebied <- "herk_mombeek"
+
+# In welke folders zitten de data?
+
+data_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/data")
+
+# Waar slaan we het resultaat op?
+
+result_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten")
+
+```
+
+# 2. Figuren
+
+```{r figuurdata laden}
+# ==========================================
+# STAP 1: Resultaten inladen
+# ==========================================
+scen1 <- rast(file.path(result_path, "scen1_ecosysteem_finaal.tif"))
+scen2 <- rast(file.path(result_path, "scen2_ecosysteem_finaal.tif"))
+scen3_bos <- rast(file.path(result_path, "scen3_bos_ecosysteem_finaal.tif"))
+scen3_gras <- rast(file.path(result_path, "scen3_gras_ecosysteem_finaal.tif"))
+start_ecosysteem <- rast(file.path(result_path, "ecosysteem_2022_upd.tif"))
+
+scen1_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc1.tif"))
+scen2_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc2.tif"))
+scen3_bos_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_bos.tif"))
+scen3_gras_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_gras.tif"))
+start_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_start.tif"))
+
+scen1_dedrain <- rast(file.path(data_path, "sc1_dedrain_cellen.tif"))
+scen2_dedrain <- rast(file.path(data_path, "sc2_dedrain_cellen.tif"))
+scen3_dedrain <- rast(file.path(data_path, "sc3_dedrain_cellen_25.tif"))
+
+scen1_infilt <- rast(file.path(data_path, "sc1_infilt_cellen.tif"))
+scen2_infilt <- rast(file.path(data_path, "sc2_infilt_cellen.tif"))
+scen3_infilt <- rast(file.path(data_path, "sc3_25_infilt_cellen.tif"))
+
+gebied <- vect(file.path(data_path, "gebied.shp"))
+
+bos_droog <- c(400, 401, 402, 403, 404)
+open_natuur_droog <- c(302, 501, 601, 1102, 1103)
+groen_urbaan <- c(103, 104)
+bos_nat <- c(410, 420)
+open_natuur_nat <- c(320, 701, 702, 901, 902)
+```
+
+```{r figuur bos droog}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_bos <- ifel(start_ecosysteem %in% bos_droog & start_kle == 0, 1, 0)
+scen1_bos <- ifel(scen1 %in% bos_droog & scen1_kle == 0 & start_bos == 0, 1, 0)
+scen2_bos <- ifel(scen2 %in% bos_droog & scen2_kle == 0 & start_bos == 0, 1, 0)
+scen3_bos_bos <- ifel(scen3_bos %in% bos_droog & scen3_bos_kle == 0 & start_bos == 0, 1, 0)
+scen3_gras_bos <- ifel(scen3_gras %in% bos_droog & scen3_gras_kle == 0 & start_bos == 0, 1, 0)
+
+totaal_start <- global(start_bos, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_bos, scen2_bos, scen3_bos_bos, scen3_gras_bos)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_bos <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "bos")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_bos, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_groen) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_bos$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomend droog bos als % van de huidige droge bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "bos_droog.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur open natuur}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_open <- ifel(start_ecosysteem %in% open_natuur_droog & start_kle == 0, 1, 0)
+scen1_open <- ifel(scen1 %in% open_natuur_droog & scen1_kle == 0 & start_open == 0, 1, 0)
+scen2_open <- ifel(scen2 %in% open_natuur_droog & scen2_kle == 0 & start_open == 0, 1, 0)
+scen3_bos_open <- ifel(scen3_bos %in% open_natuur_droog & scen3_bos_kle == 0 & start_open == 0, 1, 0)
+scen3_gras_open <- ifel(scen3_gras %in% open_natuur_droog & scen3_gras_kle == 0 & start_open == 0, 1, 0)
+
+totaal_start <- global(start_open, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_open, scen2_open, scen3_bos_open, scen3_gras_open)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_open <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "open natuur")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_open, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_steun_geelgroen) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_open$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomende droge open natuur als % van de huidige oppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "open_natuur_droog.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur bos nat}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_bos_nat <- ifel(start_ecosysteem %in% bos_nat & start_kle == 0, 1, 0)
+scen1_bos_nat <- ifel(scen1 %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 1, 0)
+scen2_bos_nat <- ifel(scen2 %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 1, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 1, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 1, 0)
+
+totaal_start <- global(start_bos_nat, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_bos_nat, scen2_bos_nat, scen3_bos_bos_nat, scen3_gras_bos_nat)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_bos_nat <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "bos nat")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_bos_nat, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_steun_blauw) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_bos_nat$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomend nat bos als % van de huidige natte bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "bos_nat.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur open natuur nat}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_open_nat <- ifel(start_ecosysteem %in% open_natuur_nat & start_kle == 0, 1, 0)
+scen1_open_nat <- ifel(scen1 %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 1, 0)
+scen2_open_nat <- ifel(scen2 %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 1, 0)
+scen3_bos_open_nat <- ifel(scen3_bos %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 1, 0)
+scen3_gras_open_nat <- ifel(scen3_gras %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 1, 0)
+
+totaal_start <- global(start_open_nat, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_open_nat, scen2_open_nat, scen3_bos_open_nat, scen3_gras_open_nat)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_open_nat <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "open natuur nat")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_open_nat, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_lichtblauw) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_open_nat$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomende natte open natuur als % van de huidige oppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "open_natuur_nat.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+
+```{r figuur groen in urbaan}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_urbaan <- ifel(start_ecosysteem %in% groen_urbaan, 1, 0)
+scen1_urbaan <- ifel(scen1 %in% groen_urbaan & start_urbaan == 0, 1, 0)
+scen2_urbaan <- ifel(scen2 %in% groen_urbaan & start_urbaan == 0, 1, 0)
+scen3_bos_urbaan <- ifel(scen3_bos %in% groen_urbaan & start_urbaan == 0, 1, 0)
+scen3_gras_urbaan <- ifel(scen3_gras %in% groen_urbaan & start_urbaan == 0, 1, 0)
+
+totaal_start <- global(start_urbaan, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_urbaan, scen2_urbaan, scen3_bos_urbaan, scen3_gras_urbaan)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_urbaan <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "urbaan")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_urbaan, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_rood) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_urbaan$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomend urbaan groen als % van de huidige oppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "urbaan_groen.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur kle}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+totaal_start <- global(start_kle, fun = "sum", na.rm = TRUE)$sum
+
+scenario_files <- list(scen1_kle, scen2_kle, scen3_bos_kle, scen3_gras_kle)
+scenario_namen <- c("Scenario 1", "Scenario 2", "Scenario 3 bos", "Scenario 3 gras")
+
+resultaten <- list()
+
+for (i in seq_along(scenario_files)) {
+  natuur_raster <- scenario_files[[i]]
+  
+  # Totale opp in het ganse gebied
+  totaal_natuur <- global(natuur_raster, fun = "sum", na.rm = TRUE)$sum
+  
+  # Uitgedrukt als percentage van opp in de startkaart
+  totaal_natuur_pc <- totaal_natuur/totaal_start*100
+ 
+  resultaten[[i]] <- data.frame(
+    Scenario = scenario_namen[i],
+    Totaal_opp = totaal_natuur,
+    Totaal_pc = totaal_natuur_pc
+  )
+}
+
+# Combineer tot de dataframe voor ggplot
+df_resultaten_kle <- bind_rows(resultaten) %>%
+  mutate(Scenario = factor(Scenario, levels = scenario_namen),
+         Type = "kle")
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_resultaten_kle, aes(x = Scenario, y = Totaal_pc)) +
+  # Gestapelde staven
+  geom_col(width = 0.55, 
+           show.legend = FALSE, 
+           fill = inbo_geelgr) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(0, max(df_resultaten_kle$Totaal_pc) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bijkomende KLE als % van de huidige oppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "kle.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur totale opp}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+df_totaal <- bind_rows(
+  df_resultaten_bos,
+  df_resultaten_open,
+  df_resultaten_urbaan,
+  df_resultaten_kle,
+  df_resultaten_bos_nat,
+  df_resultaten_open_nat
+)
+df_totaal <- df_totaal |> 
+  mutate(Type = factor(Type, 
+                       levels = c("bos", 
+                                  "bos nat",
+                                  "open natuur",
+                                  "open natuur nat", 
+                                  "urbaan", 
+                                  "kle")))
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_totaal, aes(x = Scenario, y = Totaal_opp/100, fill = Type)) +
+  # Gestapelde staven
+  geom_col(width = 0.55) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    # limits = c(0, max(df_totaal$Totaal_opp) * 1.05),
+    #labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", x)
+    }
+  ) +
+  # Kleuren en legenda
+  scale_fill_manual(
+    values = c("bos" = inbo_groen, 
+               "open natuur" = inbo_steun_geelgroen, 
+               "bos nat" = inbo_steun_blauw, 
+               "open natuur nat" = inbo_lichtblauw, 
+               "urbaan" = inbo_rood, 
+               "kle" = inbo_geelgr),
+    labels = c("bos" = "bos - droog", 
+               "open natuur" = "open natuur - droog",
+               "bos nat" = "bos - nat", 
+               "open natuur nat" = "open natuur - nat",
+               "urbaan" = "urbaan groen", 
+               "kle" = "kle")) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 3 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "totaal_natuur.png"),
+  plot = p,
+  width = 7,
+  height = 3,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur totale opp natte natuur}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_nat <- ifel(start_ecosysteem %in% c(bos_nat, open_natuur_nat) & start_kle == 0, 1, 0)
+totaal_start_nat <- global(start_nat, fun = "sum", na.rm = TRUE)$sum
+
+df_totaal <- bind_rows(
+  df_resultaten_bos,
+  df_resultaten_open,
+  df_resultaten_urbaan,
+  df_resultaten_kle,
+  df_resultaten_bos_nat,
+  df_resultaten_open_nat
+)
+df_totaal <- df_totaal |> 
+  mutate(Type = factor(Type, 
+                       levels = c("bos", 
+                                  "bos nat",
+                                  "open natuur",
+                                  "open natuur nat", 
+                                  "urbaan", 
+                                  "kle"))) |> 
+  dplyr::filter(Type %in% c("bos nat", "open natuur nat")) |> 
+  droplevels() 
+df_nat <- df_totaal |> 
+  mutate(Perc = Totaal_opp/totaal_start_nat*100)
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_nat, aes(x = Scenario, y = Perc, fill = Type)) +
+  # Gestapelde staven
+  geom_col(width = 0.55) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Kleuren en legenda
+  scale_fill_manual(
+    values = c("bos" = inbo_groen, 
+               "open natuur" = inbo_steun_geelgroen, 
+               "bos nat" = inbo_steun_blauw, 
+               "open natuur nat" = inbo_lichtblauw, 
+               "urbaan" = inbo_rood, 
+               "kle" = inbo_geelgr),
+    labels = c("bos" = "bos - droog", 
+               "open natuur" = "open natuur - droog",
+               "bos nat" = "bos - nat", 
+               "open natuur nat" = "open natuur - nat",
+               "urbaan" = "urbaan groen", 
+               "kle" = "kle")) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "totaal_nat.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r figuur totale opp droge natuur}
+# =========================================
+# STAP 2: resultaten klaarmaken voor ggplot
+# =========================================
+start_droog <- ifel(start_ecosysteem %in% c(bos_droog, open_natuur_droog) & start_kle == 0, 1, 0)
+totaal_start_droog <- global(start_droog, fun = "sum", na.rm = TRUE)$sum
+
+df_totaal <- bind_rows(
+  df_resultaten_bos,
+  df_resultaten_open,
+  df_resultaten_urbaan,
+  df_resultaten_kle,
+  df_resultaten_bos_nat,
+  df_resultaten_open_nat
+)
+df_totaal <- df_totaal |> 
+  mutate(Type = factor(Type, 
+                       levels = c("bos", 
+                                  "bos nat",
+                                  "open natuur",
+                                  "open natuur nat", 
+                                  "urbaan", 
+                                  "kle"))) |> 
+  dplyr::filter(Type %in% c("bos", "open natuur")) |> 
+  droplevels() 
+df_droog <- df_totaal |> 
+  mutate(Perc = Totaal_opp/totaal_start_droog*100)
+
+# ==========================================
+# STAP 3: Figuur maken met ggplot
+# ==========================================
+
+p <- ggplot(df_droog, aes(x = Scenario, y = Perc, fill = Type)) +
+  # Gestapelde staven
+  geom_col(width = 0.55) +
+  
+  # X-as labels BOVENAAN plaatsen
+  scale_x_discrete(position = "top") +
+  
+  # Y-As instellen
+  scale_y_continuous(
+    expand = c(0, 0),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+    # genereer de standaard percent-labels zonder decimalen
+    raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    # vul elk label op met spaties tot 5 tekens breedte
+    sprintf("%5s", raw_labels)
+    }
+  ) +
+  # Kleuren en legenda
+  scale_fill_manual(
+    values = c("bos" = inbo_groen, 
+               "open natuur" = inbo_steun_geelgroen, 
+               "bos nat" = inbo_steun_blauw, 
+               "open natuur nat" = inbo_lichtblauw, 
+               "urbaan" = inbo_rood, 
+               "kle" = inbo_geelgr),
+    labels = c("bos" = "bos - droog", 
+               "open natuur" = "open natuur - droog",
+               "bos nat" = "bos - nat", 
+               "open natuur nat" = "open natuur - nat",
+               "urbaan" = "urbaan groen", 
+               "kle" = "kle")) +
+  # Titels en opmaak
+  labs(
+    #title = "Oppervlakte bos als % van de huidige bosoppervlakte in ha",
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_inbo() +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 11, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 11, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    legend.text = element_text(size = 11),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+
+# ==========================================
+# STAP 4: Opslaan met hoogte 2 cm
+# ==========================================
+ggsave(
+  filename = file.path(result_path, "totaal_droog.png"),
+  plot = p,
+  width = 7,
+  height = 2,
+  dpi = 300,
+  #scaling = 0.6 # om labels te verkleinen
+)
+```
+
+```{r kaart nieuwe natuur}
+#=============================
+# Stap 1 Voorbereiding
+#=============================
+start_bos <- ifel(start_ecosysteem %in% bos_droog & start_kle == 0, 1, 0)
+scen1_bos <- ifel(scen1 %in% bos_droog & scen1_kle == 0 & start_bos == 0, 1, 0)
+scen2_bos <- ifel(scen2 %in% bos_droog & scen2_kle == 0 & start_bos == 0, 1, 0)
+scen3_bos_bos <- ifel(scen3_bos %in% bos_droog & scen3_bos_kle == 0 & start_bos == 0, 1, 0)
+scen3_gras_bos <- ifel(scen3_gras %in% bos_droog & scen3_gras_kle == 0 & start_bos == 0, 1, 0)
+
+start_open <- ifel(start_ecosysteem %in% open_natuur_droog & start_kle == 0, 1, 0)
+scen1_open <- ifel(scen1 %in% open_natuur_droog & scen1_kle == 0 & start_open == 0, 2, 0)
+scen2_open <- ifel(scen2 %in% open_natuur_droog & scen2_kle == 0 & start_open == 0, 2, 0)
+scen3_bos_open <- ifel(scen3_bos %in% open_natuur_droog & scen3_bos_kle == 0 & start_open == 0, 2, 0)
+scen3_gras_open <- ifel(scen3_gras %in% open_natuur_droog & scen3_gras_kle == 0 & start_open == 0, 2, 0)
+
+start_bos_nat <- ifel(start_ecosysteem %in% bos_nat & start_kle == 0, 1, 0)
+scen1_bos_nat <- ifel(scen1 %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 3, 0)
+scen2_bos_nat <- ifel(scen2 %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 3, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 3, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 3, 0)
+
+start_open_nat <- ifel(start_ecosysteem %in% open_natuur_nat & start_kle == 0, 1, 0)
+scen1_open_nat <- ifel(scen1 %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 4, 0)
+scen2_open_nat <- ifel(scen2 %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 4, 0)
+scen3_bos_open_nat <- ifel(scen3_bos %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 4, 0)
+scen3_gras_open_nat <- ifel(scen3_gras %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 4, 0)
+
+start_urbaan <- ifel(start_ecosysteem %in% groen_urbaan, 1, 0)
+scen1_urbaan <- ifel(scen1 %in% groen_urbaan & start_urbaan == 0, 5, 0)
+scen2_urbaan <- ifel(scen2 %in% groen_urbaan & start_urbaan == 0, 5, 0)
+scen3_bos_urbaan <- ifel(scen3_bos %in% groen_urbaan & start_urbaan == 0, 5, 0)
+scen3_gras_urbaan <- ifel(scen3_gras %in% groen_urbaan & start_urbaan == 0, 5, 0)
+
+#==============================
+# Stap 2: Kaart maken
+#==============================
+
+# ---Scenario 1 kaart-------
+
+scen1_kaart <- scen1_bos + scen1_open + scen1_bos_nat + scen1_open_nat + 
+  scen1_urbaan 
+scen1_kaart <- ifel(scen1_kaart == 0, NA, scen1_kaart) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen1_infilt_vect <- as.polygons(scen1_infilt) 
+scen1_dedrain_vect <- as.polygons(scen1_dedrain) 
+scen1_infilt_vect$type <- "infiltratie"
+scen1_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen1_kaart) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_geelgroen, 
+               "3" = inbo_steun_blauw, 
+               "4" = inbo_lichtblauw, 
+               "5" = inbo_rood),
+    labels = c("1" = "bos - droog", 
+               "2" = "open natuur - droog",
+               "3" = "bos - nat", 
+               "4" = "open natuur - nat",
+               "5" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen1_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in schuine grijze arcering ---
+  geom_sf_pattern(
+    data = scen1_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",      # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+    #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = NA,
+    color = NA,
+    #alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelf verkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"), # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 2,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale en verticale lijnen en XY-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",      
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank()
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen1_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 2 kaart-------
+
+scen2_kaart <- scen2_bos + scen2_open + scen2_bos_nat + scen2_open_nat + 
+  scen2_urbaan 
+scen2_kaart <- ifel(scen2_kaart == 0, NA, scen2_kaart) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen2_infilt_vect <- as.polygons(scen2_infilt) 
+scen2_dedrain_vect <- as.polygons(scen2_dedrain) 
+scen2_infilt_vect$type <- "infiltratie"
+scen2_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen2_kaart) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_geelgroen, 
+               "3" = inbo_steun_blauw, 
+               "4" = inbo_lichtblauw, 
+               "5" = inbo_rood),
+    labels = c("1" = "bos - droog", 
+               "2" = "open natuur - droog",
+               "3" = "bos - nat", 
+               "4" = "open natuur - nat",
+               "5" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen2_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen2_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+    #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = NA,
+    color = NA,
+    #alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"),  # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 2,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als egende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen2_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 3 bos kaart-------
+
+scen3_kaart_bos <- scen3_bos_bos + scen3_bos_open + scen3_bos_bos_nat + scen3_bos_open_nat + 
+  scen3_bos_urbaan 
+scen3_kaart_bos <- ifel(scen3_kaart_bos == 0, NA, scen3_kaart_bos) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen3_infilt_vect <- as.polygons(scen3_infilt) 
+scen3_dedrain_vect <- as.polygons(scen3_dedrain) 
+scen3_infilt_vect$type <- "infiltratie"
+scen3_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen3_kaart_bos) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_geelgroen, 
+               "3" = inbo_steun_blauw, 
+               "4" = inbo_lichtblauw, 
+               "5" = inbo_rood),
+    labels = c("1" = "bos - droog", 
+               "2" = "open natuur - droog",
+               "3" = "bos - nat", 
+               "4" = "open natuur - nat",
+               "5" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen3_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen3_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+   #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = NA,
+    color = NA,
+    #alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"),  # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 2,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen3_bos_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+
+# ---Scenario 3 gras kaart-------
+
+scen3_kaart_gras <- scen3_gras_bos + scen3_gras_open + scen3_gras_bos_nat + scen3_gras_open_nat + 
+  scen3_gras_urbaan 
+scen3_kaart_gras <- ifel(scen3_kaart_gras == 0, NA, scen3_kaart_gras) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen3_infilt_vect <- as.polygons(scen3_infilt) 
+scen3_dedrain_vect <- as.polygons(scen3_dedrain) 
+scen3_infilt_vect$type <- "infiltratie"
+scen3_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen3_kaart_gras) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_geelgroen, 
+               "3" = inbo_steun_blauw, 
+               "4" = inbo_lichtblauw, 
+               "5" = inbo_rood),
+    labels = c("1" = "bos - droog", 
+               "2" = "open natuur - droog",
+               "3" = "bos - nat", 
+               "4" = "open natuur - nat",
+               "5" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen3_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen3_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+    #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = NA,
+    color = NA,
+    #alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"),  # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 2,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" = legende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen3_gras_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+```
+
+```{r kaart nieuwe natuur - samengevoegde categorieën}
+#=============================
+# Stap 1 Voorbereiding
+#=============================
+start_bos <- ifel(start_ecosysteem %in% bos_droog & start_kle == 0, 1, 0)
+scen1_bos <- ifel(scen1 %in% bos_droog & scen1_kle == 0 & start_bos == 0, 1, 0)
+scen2_bos <- ifel(scen2 %in% bos_droog & scen2_kle == 0 & start_bos == 0, 1, 0)
+scen3_bos_bos <- ifel(scen3_bos %in% bos_droog & scen3_bos_kle == 0 & start_bos == 0, 1, 0)
+scen3_gras_bos <- ifel(scen3_gras %in% bos_droog & scen3_gras_kle == 0 & start_bos == 0, 1, 0)
+
+start_open <- ifel(start_ecosysteem %in% open_natuur_droog & start_kle == 0, 1, 0)
+scen1_open <- ifel(scen1 %in% open_natuur_droog & scen1_kle == 0 & start_open == 0, 1, 0)
+scen2_open <- ifel(scen2 %in% open_natuur_droog & scen2_kle == 0 & start_open == 0, 1, 0)
+scen3_bos_open <- ifel(scen3_bos %in% open_natuur_droog & scen3_bos_kle == 0 & start_open == 0, 1, 0)
+scen3_gras_open <- ifel(scen3_gras %in% open_natuur_droog & scen3_gras_kle == 0 & start_open == 0, 1, 0)
+
+start_bos_nat <- ifel(start_ecosysteem %in% bos_nat & start_kle == 0, 1, 0)
+scen1_bos_nat <- ifel(scen1 %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 2, 0)
+scen2_bos_nat <- ifel(scen2 %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 2, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 2, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 2, 0)
+
+start_open_nat <- ifel(start_ecosysteem %in% open_natuur_nat & start_kle == 0, 1, 0)
+scen1_open_nat <- ifel(scen1 %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 2, 0)
+scen2_open_nat <- ifel(scen2 %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 2, 0)
+scen3_bos_open_nat <- ifel(scen3_bos %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 2, 0)
+scen3_gras_open_nat <- ifel(scen3_gras %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 2, 0)
+
+start_urbaan <- ifel(start_ecosysteem %in% groen_urbaan, 1, 0)
+scen1_urbaan <- ifel(scen1 %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen2_urbaan <- ifel(scen2 %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen3_bos_urbaan <- ifel(scen3_bos %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen3_gras_urbaan <- ifel(scen3_gras %in% groen_urbaan & start_urbaan == 0, 3, 0)
+
+#==============================
+# Stap 2: Kaart maken
+#==============================
+
+# ---Scenario 1 kaart-------
+
+scen1_kaart <- scen1_bos + scen1_open + scen1_bos_nat + scen1_open_nat + 
+  scen1_urbaan 
+scen1_kaart <- ifel(scen1_kaart == 0, NA, scen1_kaart) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen1_infilt_vect <- as.polygons(scen1_infilt) 
+scen1_dedrain_vect <- as.polygons(scen1_dedrain) 
+scen1_infilt_vect$type <- "infiltratie"
+scen1_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen1_kaart) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_blauw, 
+               "3" = inbo_rood 
+               ),
+    labels = c("1" = "droge natuur", 
+               "2" = "natte natuur",
+               "3" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen1_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in schuine grijze arcering ---
+  geom_sf_pattern(
+    data = scen1_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",      # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+    #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = inbo_grijs,
+    color = NA,
+    alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelf verkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"), # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale en verticale lijnen en XY-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.box = "vertical",             # stapelt de 2 legendes
+    legend.direction = "vertical",      
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank()
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen1_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 2 kaart-------
+
+scen2_kaart <- scen2_bos + scen2_open + scen2_bos_nat + scen2_open_nat + 
+  scen2_urbaan 
+scen2_kaart <- ifel(scen2_kaart == 0, NA, scen2_kaart) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen2_infilt_vect <- as.polygons(scen2_infilt) 
+scen2_dedrain_vect <- as.polygons(scen2_dedrain) 
+scen2_infilt_vect$type <- "infiltratie"
+scen2_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen2_kaart) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_blauw, 
+               "3" = inbo_rood 
+               ),
+    labels = c("1" = "droge natuur", 
+               "2" = "natte natuur",
+               "3" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen2_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen2_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+    #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = inbo_grijs,
+    color = NA,
+    alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"),  # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als egende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen2_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 3 kaart-------
+# zelfde voor bos en gras
+scen3_kaart_bos <- scen3_bos_bos + scen3_bos_open + scen3_bos_bos_nat + scen3_bos_open_nat + 
+  scen3_bos_urbaan 
+scen3_kaart_bos <- ifel(scen3_kaart_bos == 0, NA, scen3_kaart_bos) |> 
+  as.factor()
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen3_infilt_vect <- as.polygons(scen3_infilt) 
+scen3_dedrain_vect <- as.polygons(scen3_dedrain) 
+scen3_infilt_vect$type <- "infiltratie"
+scen3_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen3_kaart_bos) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_blauw, 
+               "3" = inbo_rood 
+               ),
+    labels = c("1" = "droge natuur", 
+               "2" = "natte natuur",
+               "3" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen3_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = NA,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen3_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_grijs,  
+    pattern_fill = inbo_grijs,
+   #pattern_alpha = 0.9,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = inbo_grijs,
+    color = NA,
+    alpha = 0.3,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"),  # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen3_maatregelen.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+```
+
+```{r kaart dedrainage en infiltratie apart}
+
+# ---Scenario 1 kaart-------
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen1_infilt_vect <- as.polygons(scen1_infilt) 
+scen1_dedrain_vect <- as.polygons(scen1_dedrain) 
+scen1_infilt_vect$type <- "infiltratie"
+scen1_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+  # rand van het studiegebied
+  geom_spatvector(
+    data = gebied,      
+    fill = NA,                 
+    color = inbo_grijs,           
+    linewidth = 0.3,           
+    linetype = "solid"         
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen1_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = inbo_oranje,                   # Geen achtergrondvulling
+    color = NA,           # Randkleur
+    linewidth = 0.005,
+    alpha = 0.3
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in schuine grijze arcering ---
+  geom_sf_pattern(
+    data = scen1_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",      # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_steun_blauw,  
+    pattern_fill = inbo_steun_blauw,
+    pattern_alpha = 0.3,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = inbo_steun_blauw,
+    color = NA,
+    alpha = 0.4,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelf verkleinen
+  guides(
+      pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale en verticale lijnen en XY-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.direction = "vertical",      
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank()
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen1_drain_infilt.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 2 kaart-------
+
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen2_infilt_vect <- as.polygons(scen2_infilt) 
+scen2_dedrain_vect <- as.polygons(scen2_dedrain) 
+scen2_infilt_vect$type <- "infiltratie"
+scen2_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+   # rand van het studiegebied
+  geom_spatvector(
+    data = gebied,      
+    fill = NA,                 
+    color = inbo_grijs,           
+    linewidth = 0.3,           
+    linetype = "solid"         
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen2_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,         # doorzichtigheid patroon
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = inbo_oranje,         # achtergrondvulling
+    alpha = 0.3,                # doorzichtigheid achtergrond
+    color = NA,           # Randkleur
+    linewidth = 0.005
+    
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen2_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_steun_blauw,  
+    pattern_fill = inbo_steun_blauw,
+    pattern_alpha = 0.3,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = inbo_steun_blauw,
+    color = NA,
+    alpha = 0.4,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen2_drain_infilt.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 3 kaart-------
+# zelfde voor bos en gras
+# Infiltratie en dedrainage omzetten naar polygonen voor overdruk + 
+# type toevoegen voor legende
+scen3_infilt_vect <- as.polygons(scen3_infilt) 
+scen3_dedrain_vect <- as.polygons(scen3_dedrain) 
+scen3_infilt_vect$type <- "infiltratie"
+scen3_dedrain_vect$type <- "dedrainage"
+
+p <- ggplot() +
+   # rand van het studiegebied
+  geom_spatvector(
+    data = gebied,      
+    fill = NA,                 
+    color = inbo_grijs,           
+    linewidth = 0.3,           
+    linetype = "solid"         
+  ) +
+  
+  # Overdruk 1: infiltratiemaatregelen in diagonale oranje arcering
+  geom_sf_pattern(
+    data = scen3_infilt_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Streepjespatroon
+    pattern_color = inbo_oranje,   # Kleur van de lijnen 
+    pattern_fill = inbo_oranje,
+    pattern_alpha = 0.7,
+    pattern_angle = 45,          # Schuine hoek
+    pattern_density = 0.01,       # Dichtheid van de lijnen
+    pattern_spacing = 0.01,      # Afstand tussen lijnen
+    fill = inbo_oranje,            # achtergrondvulling
+    alpha = 0.3,
+    color = NA,           # Randkleur
+    linewidth = 0.005
+  ) +
+  
+  # Overdruk 2: dedrainagemaatregelen in geruite oranjerode arcering ---
+  geom_sf_pattern(
+    data = scen3_dedrain_vect,
+    aes(pattern_type = type),    # Koppeling voor de legende
+    pattern = "stripe",          # Ruitjes/kruispatroon = crosshatch
+    pattern_color = inbo_steun_blauw,  
+    pattern_fill = inbo_steun_blauw,
+    pattern_alpha = 0.7,
+    pattern_angle = 315,
+    pattern_density = 0.01,
+    pattern_spacing = 0.01,
+    fill = inbo_steun_blauw,
+    color = NA,
+    alpha = 0.4,
+    linewidth = 0.005
+  ) +
+  # --- Handmatige Schaal voor de Patronen-legende ---
+  scale_pattern_type_manual(
+    values = c("infiltratie", "dedrainage")
+  ) +
+  # Icoontjes in de legende zelfverkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"),  # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    ),
+    pattern_type = guide_legend(
+      keywidth = unit(0.4, "cm"),   
+      keyheight = unit(0.4, "cm"),
+      order = 2,
+      nrow = 1
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale of verticale lijnen, zonder xy-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.box = "vertical",            # stapelt de 2 legendes
+    legend.direction = "vertical",
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank(),
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen3_drain_infilt.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+```
+
+```{r kaart nieuwe natuur - samengevoegde categorieën, zonder infiltr en dedrain}
+#=============================
+# Stap 1 Voorbereiding
+#=============================
+start_bos <- ifel(start_ecosysteem %in% bos_droog & start_kle == 0, 1, 0)
+scen1_bos <- ifel(scen1 %in% bos_droog & scen1_kle == 0 & start_bos == 0, 1, 0)
+scen2_bos <- ifel(scen2 %in% bos_droog & scen2_kle == 0 & start_bos == 0, 1, 0)
+scen3_bos_bos <- ifel(scen3_bos %in% bos_droog & scen3_bos_kle == 0 & start_bos == 0, 1, 0)
+scen3_gras_bos <- ifel(scen3_gras %in% bos_droog & scen3_gras_kle == 0 & start_bos == 0, 1, 0)
+
+start_open <- ifel(start_ecosysteem %in% open_natuur_droog & start_kle == 0, 1, 0)
+scen1_open <- ifel(scen1 %in% open_natuur_droog & scen1_kle == 0 & start_open == 0, 1, 0)
+scen2_open <- ifel(scen2 %in% open_natuur_droog & scen2_kle == 0 & start_open == 0, 1, 0)
+scen3_bos_open <- ifel(scen3_bos %in% open_natuur_droog & scen3_bos_kle == 0 & start_open == 0, 1, 0)
+scen3_gras_open <- ifel(scen3_gras %in% open_natuur_droog & scen3_gras_kle == 0 & start_open == 0, 1, 0)
+
+start_bos_nat <- ifel(start_ecosysteem %in% bos_nat & start_kle == 0, 1, 0)
+scen1_bos_nat <- ifel(scen1 %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 2, 0)
+scen2_bos_nat <- ifel(scen2 %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 2, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 2, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 2, 0)
+
+start_open_nat <- ifel(start_ecosysteem %in% open_natuur_nat & start_kle == 0, 1, 0)
+scen1_open_nat <- ifel(scen1 %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 2, 0)
+scen2_open_nat <- ifel(scen2 %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 2, 0)
+scen3_bos_open_nat <- ifel(scen3_bos %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 2, 0)
+scen3_gras_open_nat <- ifel(scen3_gras %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 2, 0)
+
+start_urbaan <- ifel(start_ecosysteem %in% groen_urbaan, 1, 0)
+scen1_urbaan <- ifel(scen1 %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen2_urbaan <- ifel(scen2 %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen3_bos_urbaan <- ifel(scen3_bos %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen3_gras_urbaan <- ifel(scen3_gras %in% groen_urbaan & start_urbaan == 0, 3, 0)
+
+#==============================
+# Stap 2: Kaart maken
+#==============================
+
+# ---Scenario 1 kaart-------
+
+scen1_kaart <- scen1_bos + scen1_open + scen1_bos_nat + scen1_open_nat + 
+  scen1_urbaan 
+scen1_kaart <- ifel(scen1_kaart == 0, NA, scen1_kaart) |> 
+  as.factor()
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen1_kaart) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_blauw, 
+               "3" = inbo_rood 
+               ),
+    labels = c("1" = "droge natuur", 
+               "2" = "natte natuur",
+               "3" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+ # rand van het studiegebied
+  geom_spatvector(
+    data = gebied,      
+    fill = NA,              
+    color = inbo_grijs,           
+    linewidth = 0.3,           
+    linetype = "solid"         
+  ) +
+  
+  # Icoontjes in de legende zelf verkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"), # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale en verticale lijnen en XY-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.direction = "vertical",      
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank()
+  ) 
+print(p)
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen1_maatregelen_natuur.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 2 kaart-------
+
+scen2_kaart <- scen2_bos + scen2_open + scen2_bos_nat + scen2_open_nat + 
+  scen2_urbaan 
+scen2_kaart <- ifel(scen2_kaart == 0, NA, scen2_kaart) |> 
+  as.factor()
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen2_kaart) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_blauw, 
+               "3" = inbo_rood 
+               ),
+    labels = c("1" = "droge natuur", 
+               "2" = "natte natuur",
+               "3" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+ # rand van het studiegebied
+  geom_spatvector(
+    data = gebied,      
+    fill = NA,              
+    color = inbo_grijs,           
+    linewidth = 0.3,           
+    linetype = "solid"         
+  ) +
+  
+  # Icoontjes in de legende zelf verkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"), # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale en verticale lijnen en XY-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.direction = "vertical",      
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank()
+  ) 
+print(p)
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen2_maatregelen_natuur.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
+
+# ---Scenario 3 kaart-------
+# zelfde voor bos en gras
+scen3_kaart_bos <- scen3_bos_bos + scen3_bos_open + scen3_bos_bos_nat + scen3_bos_open_nat + 
+  scen3_bos_urbaan 
+scen3_kaart_bos <- ifel(scen3_kaart_bos == 0, NA, scen3_kaart_bos) |> 
+  as.factor()
+
+p <- ggplot() +
+  # Basislaag = nieuwe natuurraster
+  geom_spatraster(data = scen3_kaart_bos) +
+  scale_fill_manual(
+    values = c("1" = inbo_groen, 
+               "2" = inbo_steun_blauw, 
+               "3" = inbo_rood 
+               ),
+    labels = c("1" = "droge natuur", 
+               "2" = "natte natuur",
+               "3" = "urbaan groen"),
+    na.translate = FALSE # Verberg NA waarden
+  ) +
+  
+ # rand van het studiegebied
+  geom_spatvector(
+    data = gebied,      
+    fill = NA,              
+    color = inbo_grijs,           
+    linewidth = 0.3,           
+    linetype = "solid"         
+  ) +
+  
+  # Icoontjes in de legende zelf verkleinen
+  guides(
+    fill = guide_legend(
+      keywidth = unit(0.4, "cm"),   # Breedte van de kleurenvakjes
+      keyheight = unit(0.4, "cm"), # Hoogte van de kleurenvakjes
+      order = 1,                   # Staat bovenaan
+      nrow = 1,                    # Optioneel: verdeel over 2 rijen (als onderaan)
+      byrow = TRUE
+    )
+  ) +
+  
+  # --- Lay-out & Legende instellingen ---
+  theme_inbo() +
+  theme_void() + # zonder horizontale en verticale lijnen en XY-coördinaten
+  theme(
+    legend.position = "bottom",          # "right" als legende rechts
+    legend.direction = "vertical",      
+    legend.text = element_text(size = 7),
+    legend.spacing.x = unit(0.2, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.margin = margin(t = 2, b = 2),
+    legend.title = element_blank()
+  ) 
+print(p)
+
+
+# Opslaan met vaste breedte en hoogte
+
+ggsave(
+  filename = file.path(result_path, "scen3_maatregelen_natuur.png"),
+  plot = p,
+  width = 7,
+  height = 7, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6, # om labels te verkleinen,
+  bg = "white" # voor een witte achtergrond, anders transparant
+)
