@@ -1,7 +1,7 @@
 ---
 title: "ESD_erosie"
-author: "NARA"
-date: "2026-09-08"
+author: "team Natuurrapport"
+date: "2026-10-27"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -23,35 +23,43 @@ Het onderstaande script berekent het vermeden erosierisico in elk scenario. Het 
 
 Voor de berekening maken we gebruik van de RUSLE (Revised Universal Soil Loss Equation, Renard et al. 2011): 
 
-A = R*K*LS*P*C
+A = R x K x LS x P x C
 
-Met: 
-A = gemiddelde bodemverlies (ton DS/ha.j)
-R = regenerosiviteitsfactor (MJ.mm/ha.h.j)
-K = bodemerosiegevoeligheidsfactor (ton DS.h/MJ.mm)
-LS = topografische factor voor hellingslengte en hellingsgraad (dimensieloos)
-P = erosiebeheersingsfactor (dimensieloos)
-C = gewas- en bedrijfvoeringsfactor (dimensieloos). 
-
+Met:  
+  A = gemiddelde bodemverlies (ton DS/ha.j)  
+  R = regenerosiviteitsfactor (MJ.mm/ha.h.j)  
+  K = bodemerosiegevoeligheidsfactor (ton DS.h/MJ.mm)  
+  LS = topografische factor voor hellingslengte en hellingsgraad (dimensieloos)  
+  P = erosiebeheersingsfactor (dimensieloos)  
+  C = gewas- en bedrijfvoeringsfactor (dimensieloos).  
+ 
 De methodologie wordt meer in detail beschreven in bijlage 2 van Nelissen et al. 2016. 
 
 We berekenen telkens het verschil tussen het (risico op) bodemverlies in een scenario en het (risico op) bodemverlies in de huidige situatie (de referentietoestand in 2022). 
-R, K en LS blijven constant met R*K*LS uitgedrukt in ton DS/ha.jaar. 
+R, K en LS blijven constant met R x K x LS uitgedrukt in ton DS/ha.jaar. 
 
-De C-factoren in het studiegebied bepalen we op basis van de gewascodes uit de landbouwpercelenkaart van 2022 en de meest recente tabel van departement Omgeving (11-8-2025) die elke gewascode verbindt met een C-factor. Op alle paarse (zeer sterk erosiegevoelige) en rode (sterk erosiegevoelige) akkerbouwpercelen rekenen we met een maximumwaarde van 0,5 voor C (veronderstelling: erosiegevoelige gewassen worden gemeden op dergelijke percelen). Voor P hanteren we op alle paarse en rode akkerbouwpercelen een gewogen gemiddelde erosiebeheersingsfactor van respectievelijk 0,32 en 0,40.
-Daarbij houden we rekening met de huidige erosierandvoorwaarden en de toepassing van beheermaatregelen als groenbedekkers en niet-kerende bodembewerking op dergelijke percelen. 
-Om de erosiebescherming door kleine landschapselementen op akkers in rekening te brengen steunen we op onderstaande formule. 
+1. De **C-factoren voor de akkers** in het studiegebied bepalen we op basis van de gewascodes uit de landbouwpercelenkaart van 2022 en de meest recente tabel van departement Omgeving (11-8-2025) die elke gewascode verbindt met een C-factor. 
+Op alle paarse (zeer sterk erosiegevoelige) en rode (sterk erosiegevoelige) akkerbouwpercelen rekenen we met een maximumwaarde van 0,5 voor C (veronderstelling: erosiegevoelige gewassen worden gemeden op dergelijke percelen). 
+
+2.  De **C-factoren voor andere ecosystemen** kennen we toe op basis van een samenvattende tabel gebaseerd op Van der Biest et al. (2014), die de codes uit de ecosysteemkaart verbindt met een C-factor. 
+
+3. Voor **P** hanteren we op alle **paarse en rode akkerbouwpercelen** een gewogen gemiddelde erosiebeheersingsfactor van respectievelijk 0,32 en 0,40.
+Zo houden we rekening met de huidige erosierandvoorwaarden en de toepassing van beheermaatregelen als groenbedekkers en niet-kerende bodembewerking op dergelijke percelen. 
+
+4. Om de **P-factor** voor erosiebescherming door **kleine landschapselementen op akkers** in rekening te brengen steunen we op onderstaande formule. 
 Ze beschrijft de erosiereductie op een perceel in functie van de breedte van de KLE (een grasstrook, uitgedrukt in m) (Nelissen et al. 2016): 
 
-ln(TSSin/TSSuit) = 2,66 * log(breedte grasstrook)
+    ln(TSSin/TSSuit) = 2,66 * log(breedte grasstrook)
 
-Met TSSn/TSSuit = de verhouding van het sedimentgehalte (total suspended solids) in het inspoelende ten opzichte van het uitspoelende water. 
-We gaan ervan uit dat 1% KLE’s in een hectare overeenkomt met een strook van 1 m breedte, 10% = 10m breedte. 
-We berekenen de P-factoren per 100m²-cel in plaats van per ha-cel (1/100ste van 1 ha), om een waarde tussen 0 en 1 te bekomen vermenigvuldigen we het % KLE (de breedte in cm) per 100m²-cel dus met 100, dwz 1% KLE geeft dezelfde p-waarde als een grasstrook van 1m breedte --> de gemiddelde p-waarde in 1 ha blijft dezelfde, het totale bodemverlies in 1 ha dus ook.
+    Met TSSn/TSSuit = de verhouding van het sedimentgehalte (total suspended solids) in het inspoelende ten opzichte van het uitspoelende water. 
+  
+    We gaan ervan uit dat 1% KLE’s in een hectare overeenkomt met een strook van 1 m breedte, 10% = 10m breedte.
+  
+    We berekenen de P-factoren per 100m²-cel in plaats van per ha-cel (1/100ste van 1 ha), om een waarde tussen 0 en 1 te bekomen vermenigvuldigen we het % KLE (de breedte in cm) per 100m²-cel dus met 100, dwz 1% KLE geeft dezelfde p-waarde als een grasstrook van 1m breedte --> de gemiddelde p-waarde in 1 ha blijft dezelfde, het totale bodemverlies in 1 ha dus ook.
 
-Om een P-factor tussen 0 en 1 te bekomen, stellen we het minimum % KLE gelijk aan 1. We rekenen met een minimum P-waarde van 0.03, dat is de P-waarde bij 20% KLE (minimumwaarde in de data van Nelissen et al).
+    Om een P-factor tussen 0 en 1 te bekomen, stellen we het minimum % KLE gelijk aan 1. We rekenen met een minimum P-waarde van 0.03, dat is de P-waarde bij 20% KLE (minimumwaarde in de data van Nelissen et al).
 
-Omdat de P*C-waarde voor een akker op deze manier nog steeds lager kan worden dan de C-factor van een grasland of zelfs van een bos, limiteren we de PC-waarde tot een minimum gelijk aan de waarde voor grasland of struikachtige vegetatie = 0,01.
+5. Omdat de **P x C-waarde** voor een akker op deze manier nog steeds lager kan worden dan de C-factor van een grasland of zelfs van een bos, limiteren we de PC-waarde tot een minimum gelijk aan de waarde voor grasland of struikachtige vegetatie = 0,01.
 
 
 ## 1. Data inladen en klaarmaken
@@ -70,15 +78,15 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 De volgende datasets worden gebruikt:
 
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
-- scen..._ecosysteem_finaal.tif -\> resultaat van het compilatiescript dat alle maatregelen per scenario een plaats geeft
-- ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA)
-- gewascode.tif -\> kaart met de teeltcodes van landbouwpercelen uit de EPR 2022
+- scen..._ecosysteem_finaal.tif -\> resultaat van het compilatiescript dat alle maatregelen per scenario een plaats geeft (10x10m resolutie)
+- ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA, 10x10m resolutie)
+- gewascode.tif -\> kaart met de teeltcodes van landbouwpercelen uit de EPR 2022 (10x10m resolutie)
 - erosie.shp -\> polygonenkaart met de erosiegevoeligheidszones (groen, geel, oranje, rood, paars)
 - deel_3_reclass_gewascode_erosie.xlsx -\> tabel die teeltcodes verbindt met erosiegevoeligheid (C-factor > = 0,5 = erosiegevoelig)
 - deel_3_reclass_ecosysteem_erosie.xlsx -\> tabel die klassen uit de ecosysteemkaart verbindt met erosiegevoeligheid (C-factor > = 0,5 = erosiegevoelig)
-- kle_fractie_gecorrigeerd_... -\> Aandeel KLE per 10m-cel in elk scenario. Resultaat van script 09_KLE.
-- fysges_ton_ha.tif -\> basiskaart van R*K*LS uit de RUSLE (voorlopig een versie uit 2014 gebruikt)
-- afstroomgebied_5m_crs.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied. Gebruikt voor samenvatting van de resultaten.
+- kle_fractie_gecorrigeerd_... -\> Aandeel KLE per 10x10m-cel in elk scenario. Resultaat van script 09_KLE.
+- fysges_ton_ha.tif -\> basiskaart van R x K x LS uit de RUSLE, 10x10m resolutie, wel uitgedrukt in ton/ha (voorlopig een versie uit NARA 2014 gebruikt)
+- afstroomgebied_5m_crs.tif -\> kaart met afstroomgebied van natuurgebieden, ander cijfer (id_nummer) per afstroomgebied, 5x5m resolutie. Gebruikt voor samenvatting van de resultaten.
 
 ```{r bestanden_folders}
 
@@ -104,7 +112,7 @@ result_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten")
 
 Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022_upd** en zet de kaarten in de Global environment.
 
-```{r data_inladen}
+```{r data_inladen, include = FALSE}
 
 # 1. Inladen bestanden
 
@@ -193,9 +201,10 @@ gewascode <- rast(file.path(str_c("C:/R/NARA2026/scenarios/", studiegebied, "/da
 # 2. Erosierisico (bodemverlies) startkaart bepalen
 
 Daarvoor:
-1) Berekenen we de gewas- en beheerfactoren (C- en P-factoren) per ecosysteemtype.
-2) Brengen we het resultaat samen in 1 C*P-kaart.
-3) Die kaart vermenigvuldigen met de fysische geschiktheid voor erosie (R*K*LS uit RUSLE).
+
+1. Berekenen we de gewas- en beheerfactoren (C- en P-factoren) per gewas- en ecosysteemtype.
+2. Brengen we het resultaat samen in 1 C x P-kaart.
+3. Die kaart vermenigvuldigen met de fysische geschiktheid voor erosie (R x K x LS uit RUSLE).
 
 ```{r rusle startkaart}
 ecosysteem <- ecosysteem_2022_upd
@@ -256,10 +265,8 @@ ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp_fin
 #mapview(cp_factor_totaal)
 start_erosie <- fysges_ton_ha/100*cp_factor_totaal
-mapview(start_erosie)
-
 writeRaster(start_erosie, file.path(result_path, "start_erosie.tif"), overwrite = TRUE)
-
+mapview(start_erosie)
 ```
 
 # 3. Scenario 1: vermeden (risico op) bodemverlies
@@ -327,12 +334,13 @@ scen1_erosie_vermeden <- start_erosie - scen1_erosie
 # totaal_opp_kle
 # totaal_erosie_akker <- global(scen1_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
 # totaal_erosie_akker
-mapview(scen1_erosie_vermeden)
 writeRaster(scen1_erosie_vermeden, file.path(result_path, "scen1_erosie_vermeden.tif"), overwrite = TRUE)
+mapview(scen1_erosie_vermeden)
 ```
 
 # 4. Scenario 2: vermeden (risico op) bodemverlies
-```{r rusle scen2}
+
+```{r rusle scen2, echo = FALSE, warning = FALSE, message = FALSE}
 ecosysteem <- scen2_ecosysteem_finaal
 kle_fractie <- kle_fractie_gecorrigeerd_sc2
 
@@ -393,12 +401,13 @@ scen2_erosie_vermeden <- start_erosie - scen2_erosie
 # totaal_opp_kle
 # totaal_erosie_akker <- global(scen2_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
 # totaal_erosie_akker
-mapview(scen2_erosie_vermeden)
 writeRaster(scen2_erosie_vermeden, file.path(result_path, "scen2_erosie_vermeden.tif"), overwrite = TRUE)
+mapview(scen2_erosie_vermeden)
 ```
 
 # 5. Scenario 3 versie bos: vermeden (risico op) bodemverlies
-```{r rusle scen3_bos}
+
+```{r rusle scen3_bos, echo = FALSE, warning = FALSE, message = FALSE}
 ecosysteem <- scen3_bos_ecosysteem_finaal
 kle_fractie <- kle_fractie_gecorrigeerd_sc3_bos
 
@@ -459,12 +468,13 @@ scen3_bos_erosie_vermeden <- start_erosie - scen3_bos_erosie
 # totaal_opp_kle
 # totaal_erosie_akker <- global(scen3_bos_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
 # totaal_erosie_akker
-mapview(scen3_bos_erosie_vermeden)
 writeRaster(scen3_bos_erosie_vermeden, file.path(result_path, "scen3_bos_erosie_vermeden.tif"), overwrite = TRUE)
+mapview(scen3_bos_erosie_vermeden)
 ```
 
 # 6. Scenario 3 versie gras: vermeden (risico op) bodemverlies
-```{r rusle scen3_bos}
+
+```{r rusle scen3_gras, echo = FALSE, warning = FALSE, message = FALSE}
 ecosysteem <- scen3_gras_ecosysteem_finaal
 kle_fractie <- kle_fractie_gecorrigeerd_sc3_gras
 
@@ -510,26 +520,29 @@ ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
-mapview(cp_factor_totaal)
+# mapview(cp_factor_totaal)
 scen3_gras_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
-mapview(scen3_gras_erosie)
+# mapview(scen3_gras_erosie)
 
 # 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
 
 scen3_gras_erosie_vermeden <- start_erosie - scen3_gras_erosie
-totaal <- global(scen3_gras_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
-totaal
-totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
-totaal_opp_kle
-totaal_erosie_akker <- global(scen3_gras_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
-totaal_erosie_akker
-mapview(scen3_gras_erosie_vermeden)
+# totaal <- global(scen3_gras_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
+# totaal
+# totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
+# totaal_opp_kle
+# totaal_erosie_akker <- global(scen3_gras_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
+# totaal_erosie_akker
 writeRaster(scen3_gras_erosie_vermeden, file.path(result_path, "scen3_gras_erosie_vermeden.tif"), overwrite = TRUE)
+mapview(scen3_gras_erosie_vermeden)
 ```
 
 # 8. Figuren
-```{r erosie figuren}
+
+Vermeden bodemverlies per scenario, uitgedrukt als % van het erosierisico in de startkaart. Opgedeeld in "voor landnatuur" en "voor rest bekken" op basis van de ligging van de maatregelen in afstroomgebied naar landnatuur of elders in het deelbekken.
+
+```{r erosie figuren, echo = FALSE, warning = FALSE, message = FALSE}
 library(ggplot2)
 library(scales)
 library(INBOtheme)
@@ -679,6 +692,5 @@ ggsave(
   dpi = 300,
   scaling = 0.6 # om labels te verkleinen
 )
-plot(p)
 ```
 
