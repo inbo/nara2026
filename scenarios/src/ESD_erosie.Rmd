@@ -313,7 +313,7 @@ ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp_fin
-mapview(cp_factor_totaal)
+#mapview(cp_factor_totaal)
 scen1_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
 #mapview(scen1_erosie)
@@ -321,12 +321,12 @@ scen1_erosie <- fysges_ton_ha/100*cp_factor_totaal
 # 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
 
 scen1_erosie_vermeden <- start_erosie - scen1_erosie
-totaal <- global(scen1_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
-totaal
-totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
-totaal_opp_kle
-totaal_erosie_akker <- global(scen1_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
-totaal_erosie_akker
+# totaal <- global(scen1_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
+# totaal
+# totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
+# totaal_opp_kle
+# totaal_erosie_akker <- global(scen1_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
+# totaal_erosie_akker
 mapview(scen1_erosie_vermeden)
 writeRaster(scen1_erosie_vermeden, file.path(result_path, "scen1_erosie_vermeden.tif"), overwrite = TRUE)
 ```
@@ -379,20 +379,20 @@ ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
-mapview(cp_factor_totaal)
+#mapview(cp_factor_totaal)
 scen2_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
-mapview(scen2_erosie)
+#mapview(scen2_erosie)
 
 # 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
 
 scen2_erosie_vermeden <- start_erosie - scen2_erosie
-totaal <- global(scen2_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
-totaal
-totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
-totaal_opp_kle
-totaal_erosie_akker <- global(scen2_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
-totaal_erosie_akker
+# totaal <- global(scen2_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
+# totaal
+# totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
+# totaal_opp_kle
+# totaal_erosie_akker <- global(scen2_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
+# totaal_erosie_akker
 mapview(scen2_erosie_vermeden)
 writeRaster(scen2_erosie_vermeden, file.path(result_path, "scen2_erosie_vermeden.tif"), overwrite = TRUE)
 ```
@@ -445,20 +445,20 @@ ecosysteem_erosie_c <- ecosysteem_erosie*niet_akker_masker
 # 6. Resultaat optellen en vermenigvuldigen met fysische geschiktheid (R*K*LS uit de RUSLE-vergelijking) --> resultaat in ton DS/100m2
 
 cp_factor_totaal <- ecosysteem_erosie_c + akker_erosie_cp
-mapview(cp_factor_totaal)
+#mapview(cp_factor_totaal)
 scen3_bos_erosie <- fysges_ton_ha/100*cp_factor_totaal
 
-mapview(scen3_bos_erosie)
+#mapview(scen3_bos_erosie)
 
 # 7. Vermeden erosie = verschil tussen startkaart en erosie in het scenario
 
 scen3_bos_erosie_vermeden <- start_erosie - scen3_bos_erosie
-totaal <- global(scen3_bos_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
-totaal
-totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
-totaal_opp_kle
-totaal_erosie_akker <- global(scen3_bos_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
-totaal_erosie_akker
+# totaal <- global(scen3_bos_erosie_vermeden, fun = "sum", na.rm = TRUE)$sum
+# totaal
+# totaal_opp_kle <- global(kle_fractie, fun = "sum", na.rm = TRUE)$sum/100
+# totaal_opp_kle
+# totaal_erosie_akker <- global(scen3_bos_erosie_vermeden*akker_masker, fun = "sum", na.rm = TRUE)$sum
+# totaal_erosie_akker
 mapview(scen3_bos_erosie_vermeden)
 writeRaster(scen3_bos_erosie_vermeden, file.path(result_path, "scen3_bos_erosie_vermeden.tif"), overwrite = TRUE)
 ```
