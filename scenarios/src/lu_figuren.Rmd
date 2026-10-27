@@ -2185,7 +2185,7 @@ p <- ggplot() +
   # Basislaag = nieuwe natuurraster
   geom_spatraster(data = scen1_kaart) +
   scale_fill_manual(
-    values = c("1" = inbo_groen, 
+    values = c("1" = inbo_steun_geelgroen, 
                "2" = inbo_steun_blauw, 
                "3" = inbo_rood 
                ),
@@ -2238,7 +2238,7 @@ ggsave(
   height = 7, 
   units = "cm",
   dpi = 300,
-  scaling = 0.6, # om labels te verkleinen,
+  scaling = 0.7, # om labels te verkleinen,
   bg = "white" # voor een witte achtergrond, anders transparant
 )
 
@@ -2253,7 +2253,7 @@ p <- ggplot() +
   # Basislaag = nieuwe natuurraster
   geom_spatraster(data = scen2_kaart) +
   scale_fill_manual(
-    values = c("1" = inbo_groen, 
+    values = c("1" = inbo_steun_geelgroen, 
                "2" = inbo_steun_blauw, 
                "3" = inbo_rood 
                ),
@@ -2306,7 +2306,7 @@ ggsave(
   height = 7, 
   units = "cm",
   dpi = 300,
-  scaling = 0.6, # om labels te verkleinen,
+  scaling = 0.7, # om labels te verkleinen,
   bg = "white" # voor een witte achtergrond, anders transparant
 )
 
@@ -2321,7 +2321,7 @@ p <- ggplot() +
   # Basislaag = nieuwe natuurraster
   geom_spatraster(data = scen3_kaart_bos) +
   scale_fill_manual(
-    values = c("1" = inbo_groen, 
+    values = c("1" = inbo_steun_geelgroen, 
                "2" = inbo_steun_blauw, 
                "3" = inbo_rood 
                ),
@@ -2375,6 +2375,6 @@ ggsave(
   height = 7, 
   units = "cm",
   dpi = 300,
-  scaling = 0.6, # om labels te verkleinen,
+  scaling = 0.7, # om labels te verkleinen,
   bg = "white" # voor een witte achtergrond, anders transparant
 )

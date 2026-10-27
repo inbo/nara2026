@@ -82,10 +82,10 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Kies de bestanden die je nodig hebt
-# ecosysteem_2022.tif is steeds nodig als referentieraster
+# ecosysteem_2022_upd.tif is steeds nodig als referentieraster
 
 targets <- c("ecosysteem_2022_upd.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp",  "kle_fractie_gecorrigeerd_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3_bos.tif","kle_fractie_gecorrigeerd_sc3_gras.tif", "kle_fractie_gecorrigeerd_sc3_75.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif")
 
@@ -102,7 +102,7 @@ result_path <- str_c("C:/R/NARA2026/scenarios/", studiegebied, "/resultaten")
 
 ### 1.2. Data inladen
 
-Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem** en ze de kaarten in de Global environment.
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022_upd** en zet de kaarten in de Global environment.
 
 ```{r data_inladen}
 
@@ -132,7 +132,7 @@ names(data_list) <- file_path_sans_ext(basename(files_to_load))
 
 # 2. CRS en extent gelijkstellen
 
-ref_raster <- data_list$ecosysteem_2022
+ref_raster <- data_list$ecosysteem_2022_upd
 
 # Functie om rasters te harmoniseren
 harmoniseer_raster <- function(r, ref, is_categorisch = NULL) {
@@ -226,7 +226,7 @@ akker_erosie_masker <- ifel(erosie_rast == "zeer hoog" | erosie_rast == "hoog" |
 akker_erosie_hoog <- akker_erosie_masker*gewas_erosie_tot*akker_masker
 akker_erosie_c <- ifel(akker_erosie_hoog > 0.5, 0.5, gewas_erosie_tot*akker_masker)
 
-# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20%KLE  = 0.03, C*P wordt minimum de waarde van C voor grasland (0.01).
+# 3. P-factor op akkers met KLE's. Enkel cellen met meer dan 1% KLE tellen mee (anders wordt p > 1). Minimumwaarde voor P  = P bij 20% KLE  = 0.03. C*P wordt verderop minimum de waarde van C voor grasland (0.01).
 
 kle_p <- ifel(kle_fractie <= 0.20 & kle_fractie > 0.01, 1/exp(2.66*log10(kle_fractie*100)), 
               ifel(kle_fractie > 0.20, 0.03, 1))
