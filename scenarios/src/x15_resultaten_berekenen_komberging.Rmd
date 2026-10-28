@@ -20,6 +20,9 @@ library(furrr)
 library(scales)
 library(exactextractr)
 
+studiegebied <- "herk_mombeek"
+
+result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/resultaten")
 ```
 
 Het script berekent het volume **komberging** per scenario. De komberging wordt bepaald door de combineerbaarheid van de ecosystemen en de waterdiepte bij overstromingen met een terugkeerperiode van 100 jaar (100).
@@ -48,7 +51,6 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 # 1. Parameters definiëren en kaarten inladen
 # ------------------------------------------------------------
 
-studiegebied <- "herk_mombeek"
 waterdiepte <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/overstromingsdiepte_t100_flu_plu.tif"))
 
 scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
@@ -88,19 +90,50 @@ for (kaart in tif_bestanden) {
     ecosysteem %in% c(
       320, 410, 420, 701, 702, 901, 902), 1, NA)
   
+  landbouw <- ifel(
+    ecosysteem %in% c(
+      201, 202, 203, 204, 205, 301, 2005, 2015, 2025, 2035,
+      3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335), 1, NA)
+  
+  rest <- ifel(is.na(eco_combi) & is.na(landbouw), 1 , NA)
+  
   # watervolume per cel
   berging_natuur <- waterdiepte * eco_combi * 100
   berging_natte_natuur <- waterdiepte * eco_nat * 100
+  berging_landbouw <- waterdiepte * landbouw * 100
+  berging_rest <- waterdiepte * rest * 100
   
   # Totaal bergingsvolume in miljoen m³
   volume_natuur <- round(pull(global(berging_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
   volume_nat <- round(pull(global(berging_natte_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
-  
+  volume_lb <- round(pull(global(berging_landbouw, "sum", na.rm = TRUE)) / 1000000, 0)
+  volume_rest <- round(pull(global(berging_rest, "sum", na.rm = TRUE)) / 1000000, 0)
   # Resultaat toevoegen aan dataframe
-  resultaat <- bind_rows(resultaat, tibble(scenario = scenario, volume_natuur = volume_natuur, volume_nat = volume_nat))
+  resultaat <- bind_rows(resultaat, tibble(scenario = scenario, volume_natuur = volume_natuur, volume_nat = volume_nat, volume_lb = volume_lb, volume_rest = volume_rest))
 }
 
-df_resultaten <- resultaat |>
+# df_resultaten <- resultaat |>
+#   mutate(scenario = fct_recode(scenario,
+#                                "Referentie" = "ecosysteem_2022_upd.tif",
+#                                "Scenario 1"      = "scen1",
+#                                "Scenario 2"      = "scen2",
+#                                "Scenario 3 gras" = "scen3_gras",
+#                                "Scenario 3 bos"  = "scen3_bos",
+#                                "Scenario 3 75%"  = "scen3_75"
+#   ),
+#   volume_droog = volume_natuur - volume_nat) %>%
+#   mutate(
+#     ref_natuur = ifelse(any(scenario == "Referentie"), 
+#                         volume_natuur[scenario == "Referentie"], 
+#                         NA),
+#     pct_nat = 100 * ((volume_natuur - ref_natuur) / ref_natuur) * (volume_nat / volume_natuur),
+#     pct_droog = 100 * ((volume_natuur - ref_natuur)  / ref_natuur) * (volume_droog / volume_natuur)
+#   ) %>%
+#   ungroup() |> 
+#   select(scenario, pct_nat, pct_droog, volume_natuur)
+
+
+df_resultaten_vol <- resultaat |> 
   mutate(scenario = fct_recode(scenario,
                                "Referentie" = "ecosysteem_2022_upd.tif",
                                "Scenario 1"      = "scen1",
@@ -109,27 +142,29 @@ df_resultaten <- resultaat |>
                                "Scenario 3 bos"  = "scen3_bos",
                                "Scenario 3 75%"  = "scen3_75"
   ),
-  volume_droog = volume_natuur - volume_nat) %>%
-  mutate(
-    ref_natuur = ifelse(any(scenario == "Referentie"), 
-                        volume_natuur[scenario == "Referentie"], 
-                        NA),
-    pct_nat = 100 * ((volume_natuur - ref_natuur) / ref_natuur) * (volume_nat / volume_natuur),
-    pct_droog = 100 * ((volume_natuur - ref_natuur)  / ref_natuur) * (volume_droog / volume_natuur)
-  ) %>%
-  ungroup() |> 
-  select(scenario, pct_nat, pct_droog, volume_natuur)
-
+  volume_droog = volume_natuur - volume_nat,
+  volume_totaal = volume_natuur + volume_lb + volume_rest,
+  pct_nat = 100 * volume_nat / volume_totaal,
+  pct_droog = 100 * volume_droog / volume_totaal,
+  pct_natuur = 100 * volume_natuur / volume_totaal
+  )
 ```
 
 ### Grafiek
 
 ```{r grafiek_komberging}
 
-df_long <- df_resultaten %>%
-  # dplyr::filter(!scenario %in% c("Scenario 3 75%", "Referentie")) |>
-  mutate(
-    Totaal = pct_nat + pct_droog) %>%
+pct_huidig <- df_resultaten_vol |> 
+  filter(scenario == "Referentie") |> 
+  pull(pct_natuur)
+
+df_resultaten_subset <- df_resultaten_vol |> 
+  filter(!scenario %in% c("Scenario 3 75%", "Scenario 3 bos", "Referentie")) |> 
+  select("scenario", "pct_nat", "pct_droog") |> 
+  bind_rows(data.frame(scenario = "blanco", pct_nat = NA, pct_droog = NA)) %>%
+  mutate(scenario = fct_inorder(scenario))
+
+df_long <- df_resultaten_subset %>%
   pivot_longer(
     cols = c("pct_nat", "pct_droog"),
     names_to = "Type",
@@ -147,18 +182,19 @@ df_long <- df_resultaten %>%
   ) %>%
   ungroup()
 
-overstromingsvolume <- round(pull(global(waterdiepte * 100, "sum", na.rm = TRUE)) / 1000000, 0)
+# overstromingsvolume <- round(pull(global(waterdiepte * 100, "sum", na.rm = TRUE)) / 1000000, 0)
 
-p <- ggplot(df_long |> filter(!scenario %in% c("Scenario 3 75%", "Referentie")),
-            aes(x = scenario, y = Waarde, fill = Type)) +
+
+p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
   geom_col(width = 0.55) +
-  geom_text(
-    aes(y = Positie_Y, label = Label_Tekst),
-    color = "white",
-    fontface = "bold",
-    size = 3.0
-  ) +
-  scale_x_discrete(position = "top") +
+  # geom_text(
+  #   aes(y = Positie_Y, label = Label_Tekst),
+  #   color = "white",
+  #   fontface = "bold",
+  #   size = 3.0
+  # ) +
+  geom_hline(yintercept = pct_huidig, linetype = "dashed", color = "red") +
+  scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
   scale_fill_manual(
     values = c("pct_nat" = inbo_steun_blauw, "pct_droog" = inbo_geel),
     labels = c("pct_nat" = "natte natuur", 
@@ -168,31 +204,49 @@ p <- ggplot(df_long |> filter(!scenario %in% c("Scenario 3 75%", "Referentie")),
     expand = c(0, 0),
     limits = c(min(c(0, min(df_long$Totaal) * 1.05, min(df_long$Waarde) * 1.05)), 
                max(c(0, max(df_long$Totaal) * 1.05, max(df_long$Waarde) * 1.05))),
-    labels = label_percent(scale = 1)
+    # labels = label_percent(scale = 1),
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
   ) +
   labs(
-    title = str_c("Toename in komberging als % van huidige komberging"),
-    subtitle = str_c("Huidige komberging: ", df_long$volume_natuur[1], " milj. m³ - totaal volume overstromingen: ", overstromingsvolume, " milj. m³"),
+    # title = str_c("Komberging als % van het totale overstromingsvolume"),
+    # subtitle = str_c("Huidige komberging: ", df_long$volume_natuur[1], " milj. m³ - totaal volume overstromingen: ", overstromingsvolume, " milj. m³"),
     x = NULL,
-    y = "% huidig totaal",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    plot.subtitle = element_text(size = 10, face = 'italic', color = 'grey50'),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 
-print(p)
+p
+
+ggsave(
+  filename = file.path(result_path, "komberging.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 ```
 
 ## 
