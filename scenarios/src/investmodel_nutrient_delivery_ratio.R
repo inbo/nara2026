@@ -77,7 +77,7 @@ run_invest_ndr <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
     workspace_dir  = workspace_path_ndr,
     results_suffix = suffix,
     
-    dem_path               = file.path(gis_data_dir, "dhm_10m.tif"),
+    dem_path               = file.path(gis_data_dir, "dhm_breached_10m.tif"),
     lulc_path              = path_lulc,
     runoff_proxy_path      = path_qf,
     watersheds_path        = file.path(scenarios_dir, "gebied.shp"),
