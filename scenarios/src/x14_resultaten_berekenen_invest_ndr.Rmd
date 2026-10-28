@@ -18,11 +18,16 @@ library(tools)     # Handig voor file_ext()
 library(reticulate)
 library(furrr)
 library(scales)
+library(INBOtheme)
 
 # Inladen functie voor Investmodel
 source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_nutrient_delivery_ratio.R")
 
+studiegebied   <- "herk_mombeek"
+
 conflicted::conflicts_prefer(dplyr::filter)
+
+result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/resultaten")
 
 ```
 
@@ -47,7 +52,7 @@ Het model wordt gerund voor de drie scenario's, met voor elk scenario een afzond
 Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toestand zijn er al KLE's aanwezig. De huidige KLE's worden toegevoegd aan de startkaart (ecosysteem_2022) en tussenstap 2 en 4 -\> aangepaste kaarten zijn ecosysteem_2022_upd, tussenstap2_sc1_kle en tussenstap4_sc1_kle (zie script compilatie).
 
 | Scenario | maatregelenset | suffix | ecosysteemkaart |
-|----|----|----|----|
+|------------------|------------------|------------------|------------------|
 | huidige toestand | / | 0 | ecosysteem_2022_upd.tif |
 | scenario 1 | nieuwe natuur | sc1_nat | tussenstap2_sc1_kle.tif |
 |  | infiltratie | sc1_inf | tussenstap4_sc1_kle.tif |
@@ -70,7 +75,6 @@ Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toesta
 # Stap 0: Kies het studiegebied en het aantal cores
 #/////////////////////////////////////////////////////////////
 
-studiegebied   <- "kleine_nete"
 aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
 
 plan(multisession, workers = aantal_workers)
@@ -978,10 +982,8 @@ df_resultaten_synt <- df_gpkg_clean %>%
 #### a) Kaarten
 
 ```{r Grafiek_kat}
-library(scales)
-library(INBOtheme)
 
-var <- "modified_load_n" # modified_load_n / n_total_export
+var <- "n_total_export" # modified_load_n / n_total_export
 
 df_long <- df_resultaten %>%
   dplyr::filter(variabele == var, scenario != "Scenario 3 75%") |> 
@@ -1008,7 +1010,6 @@ df_long <- df_resultaten %>%
 
 
 p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
-  geom_col(aes(y = Totaal), fill = "grey80", width = 0.75, position = "identity") +
   geom_col(width = 0.55) +
   # Text labels in de staven (op de berekende middenpositie)
   # geom_text(
@@ -1027,28 +1028,49 @@ p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
     expand = c(0, 0),
     limits = c(min(c(0, min(df_long$Totaal) * 1.05, min(df_long$Waarde) * 1.05)), 
                max(c(0, max(df_long$Totaal) * 1.05, max(df_long$Waarde) * 1.05))),
-    labels = label_percent(scale = 1)
+    # labels = label_percent(scale = 1),
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
   ) +
   labs(
-    title = str_c("Verandering in ", var, " als % van huidig totaal"),
+    # title = str_c("Verandering in ", var, " als % van huidig totaal"),
     x = NULL,
-    y = "% huidig totaal",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
+
 print(p)
+
+ggsave(
+  filename = file.path(result_path, "stikstofretentie.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
+
 ```
 
 #### b) Syntheseresultaten
