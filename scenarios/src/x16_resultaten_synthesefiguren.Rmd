@@ -22,7 +22,11 @@ library(kableExtra)
 # if (!requireNamespace("remotes", quietly = TRUE)) {install.packages("remotes")}
 library(waffle)
 library(patchwork)
+library(ggbreak)
+library(INBOtheme)
+library(scales)
 
+conflicted::conflicts_prefer(dplyr::filter)
 ```
 
 ## 0. Data inladen en klaarmaken
@@ -41,23 +45,46 @@ De data zitten in de mappen "output" en "data" onder de folder van het `studiege
 ```{r}
 
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
+#////////////////////////
+# Werkfolders
+#////////////////////////
 
+# Locatie kaarten modeloutputs
 folder_output <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/")
-folder_data <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/")
+
+# Locatie kaarten intermediaire modeloutputs
 folder_temp <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/")
+
+# Locatie bronkaarten per studiegebied
+folder_data <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/")
+
+# Locatie bronkaarten Vlaanderen
 hoofdfolder_data <- str_c("C:/R/NARA2026/nara2026-git/scenarios/data/")
+
+# Locatie grafieken
+result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/resultaten")
+
+
+#////////////////////////
+# Polygoon studiegebied
+#////////////////////////
+
+gebied <- st_read(file.path(folder_data, "gebied.shp"))
 
 
 #////////////////////////
 # Ecosysteemkaarten
 #////////////////////////
 
+# Ecosysteemkaart 2022 met aanduiding van natte natuurklassen
 ecosysteem_2022_nat <- rast(file.path(folder_output, "ecosysteem_2022_nat.tif"))
 
+# Ecosysteemkaart 2022 met aanduiding van natte natuurklassen en KLE
 ecosysteem_2022_upd <- rast(file.path(folder_output, "ecosysteem_2022_upd.tif"))
 
+# Ecosysteemkaarten scenario's
 scen1_ecosysteem_finaal <- rast(file.path(folder_output, "scen1_ecosysteem_finaal.tif"))
 
 scen2_ecosysteem_finaal <- rast(file.path(folder_output, "scen2_ecosysteem_finaal.tif"))
@@ -69,13 +96,16 @@ scen3_gras_ecosysteem_finaal <- rast(file.path(folder_output, "scen3_gras_ecosys
 scen3_75_ecosysteem_finaal <- rast(file.path(folder_output, "scen3_75_ecosysteem_finaal.tif"))
 
 
-#////////////////////////
-# Natuurdoelen
-#////////////////////////
-
-gebied <- st_read(file.path(folder_data, "gebied.shp"))
+#/////////////////////////////
+# Terrestrische natuurdoelen
+#/////////////////////////////
 
 toekomstlaag <- st_read(file.path(folder_data, "toekomstlaag.shp"))
+
+
+#/////////////////////////////////////////////////////////
+# Tabellen voor reclass ecosysteemkaarten en natuurdoelen
+#/////////////////////////////////////////////////////////
 
 grondwaterregime_habitats <- read_excel(file.path(hoofdfolder_data, "grondwaterregime_habitats.xlsx"))
 
@@ -85,9 +115,14 @@ overstromingstolerantie_habitats_gis <- read_excel(file.path(hoofdfolder_data, "
 
 ```
 
+#### Functie categorische variabele met tekst
+
+De verrasterde natuurstreefbeelden bestaan uit tekstcodes (3260, rbbpm, ...). Als je rasters met tekstcodes wil combineren met rasters die integer-codes hebben (bv. ecosysteemkaarten), dan gebruikt terra de unieke ID's van de tekstrasters (bv. 1 = 3260, 2 = rbbbpm, ...). Die unieke ID's kunnen echter veranderen als je de toekomstlaag opnieuw verrastert. 1 is dan niet meer 3260 en 2 niet meer rbbpm, etc. De onderstaande functie past daar een mouw aan en wordt gebruikt bij de analyse van de combineerbaarheid van natuurdoelen met overstromingen.
+
 ```{r functie_codes}
 
-# Functie om twee rasters met textcodes (natuurstreefbeeldcodes) te combineren
+# De natuurstreefbelden Functie om twee rasters met textcodes (natuurstreefbeeldcodes) te combineren
+# Combineerbaarheid overstromingen
 
 combineer_categorisch <- function(r_basis, r_aanvulling,
                                   laagnaam = "code",
@@ -153,11 +188,208 @@ combineer_categorisch <- function(r_basis, r_aanvulling,
 
 ```
 
-## 1. Natte natuur
+## 1. Ecosysteemveranderingen
+
+### a) Hoofdklassen - wafflegrafiek
+
+-\> Wafflefiguur met oppervlaktes per hoofdecosystemen (natte types apart)
+
+![](images/clipboard-3057095040.png)
+
+```{r waffle}
+
+reclass_tabel <- data.frame(
+  code = c(
+    101, 102, 103, 104, 105, 106, 201, 202, 203, 204, 205, 300, 301, 302, 
+    400, 401, 402, 403, 404, 501, 601, 602, 701, 702, 801, 802, 901, 902, 
+    1001, 1002, 1003, 1102, 1103, 320, 410, 420, 210, 220, 230, 330, 
+    2005, 2015, 2025, 2035, 3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335
+  ),
+  lu_reduct = c(
+    100, 100, 400, 300, 800, 100, 200, 200, 200, 200, 200, 300, 300, 302, 
+    400, 400, 400, 400, 400, 500, 500, 500, 700, 700, 800, 800, 800, 800, 
+    800, 700, 800, 500, 700, 320, 420, 420, 200, 200, 200, 300, 
+    200, 200, 200, 200, 300, 300, 300, 300, 200, 200, 200, 200
+  )
+)
+
+sc0_reclass <- classify(ecosysteem_2022_nat, rcl = as.matrix(reclass_tabel))
+sc1_reclass <- classify(scen1_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc2_reclass <- classify(scen2_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc3_75_reclass <- classify(scen3_75_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc3_gras_reclass <- classify(scen3_gras_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc3_bos_reclass <- classify(scen3_bos_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+
+
+# 2. Definieer jouw eigen kleuren per ecosysteemcode
+colors <- c(
+  "100" = "firebrick3",  
+  "200" = "khaki1",
+  "300" = "darkolivegreen1",
+  "302" = "chartreuse2",
+  "320" = "seagreen2",
+  "400" = "darkgreen",
+  "420" = "turquoise3",
+  "500" = "darkorchid1",
+  "600" = "gold2",
+  "700" = "turquoise1",
+  "800" = "dodgerblue"
+)
+
+labels <- c(
+  "100" = "bebouwing",
+  "200" = "landbouw - akker",
+  "300" = "landbouw - gras",
+  "302" = "grasland",
+  "320" = "nat grasland",
+  "400" = "bos",
+  "420" = "nat bos",
+  "500" = "heide",
+  "600" = "duinen",
+  "700" = "moeras",
+  "800" = "water"
+)
+
+# 2. Algoritme dat garandeert dat afgeronde percentages exact sommeren tot 100
+smart_round <- function(x, target = 100) {
+  pcts <- (x / sum(x)) * target
+  res <- floor(pcts)
+  remainder <- pcts - res
+  diff <- target - sum(res)
+  if (diff > 0) {
+    idx <- order(remainder, decreasing = TRUE)[seq_len(diff)]
+    res[idx] <- res[idx] + 1
+  }
+  return(res)
+}
+
+
+# 3. Raster verwerken met herindeling en slimme afronding
+verwerk_raster <- function(r) {
+  df_freq <- freq(r) %>%
+    as.data.frame() %>%
+    select(code = value, count) %>%
+    filter(!is.na(code)) %>%
+    mutate(
+      code = factor(as.character(code), levels = names(colors)),
+      percentage = smart_round(count, target = 100)
+    ) %>%
+    filter(percentage > 0) # Verwijder categorieën die op 0% uitkomen
+  
+  return(df_freq)
+}
+
+data_scen0 <- verwerk_raster(sc0_reclass)
+data_scen1 <- verwerk_raster(sc1_reclass)
+data_scen2 <- verwerk_raster(sc2_reclass)
+data_scen3_75 <- verwerk_raster(sc3_75_reclass)
+data_scen3_gras <- verwerk_raster(sc3_gras_reclass)
+data_scen3_bos <- verwerk_raster(sc3_bos_reclass)
+
+# 4. Aangepaste waffle-functie
+maak_waffle <- function(df, titel, verberg_legende = FALSE) {
+  p <- ggplot(df, aes(fill = code, values = percentage)) +
+    geom_waffle(
+      rows = 10, 
+      size = 0.5, 
+      color = "white", 
+      flip = TRUE
+    ) +
+    scale_fill_manual(
+      values = colors,
+      labels = labels,
+      limits = names(colors),
+      drop = FALSE,
+      name = "Ecosysteem"
+    ) +
+    labs(
+      title = titel,
+      subtitle = "1 vakje = 1%"
+    ) +
+    coord_equal() +
+    theme_void() +
+    theme(
+      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
+      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "gray40")
+    )
+  
+  # Verwijder de legende voor deze specifieke plot als 'verberg_legende = TRUE'
+  if (verberg_legende) {
+    p <- p + theme(legend.position = "none")
+  }
+  
+  return(p)
+}
+
+# 2. Maak de plots, en behoud ALLEEN de legende bij de eerste plot (p0)
+p0 <- maak_waffle(data_scen0, "Scenario 0", verberg_legende = TRUE)
+p1 <- maak_waffle(data_scen1, "Scenario 1", verberg_legende = TRUE)
+p2 <- maak_waffle(data_scen2, "Scenario 2", verberg_legende = TRUE)
+p3 <- maak_waffle(data_scen3_75, "Scenario 3 - 75", verberg_legende = FALSE)
+p4 <- maak_waffle(data_scen3_gras, "Scenario 3 - gras", verberg_legende = TRUE)
+p5 <- maak_waffle(data_scen3_bos, "Scenario 3 - bos", verberg_legende = TRUE)
+
+# 3. Combineer de plots
+# Omdat er in totaal nog maar 1 legende bestaat (die van p0), 
+# verzamelt patchwork deze vlekkeloos en plaatst hem onderaan de hele figuur.
+gecombineerde_plot <- (p0 + p1 + p2 + p3 + p4 + p5) + 
+  plot_layout(
+    ncol = 3, 
+    guides = "collect"
+  )
+
+# 4. Toon het resultaat
+print(gecombineerde_plot)
+
+```
+
+### b) Kaarten nieuwe natuur
+
+Bouwt per scenario een kaart op met de nieuwe natuur. De cellen met nieuwe natuur krijgen code 1, de rest NA.
+
+```{r natuur}
+
+reclass_tabel <- data.frame(
+  code = c(
+    101, 102, 103, 104, 105, 106, 201, 202, 203, 204, 205, 300, 301, 302, 
+    400, 401, 402, 403, 404, 501, 601, 602, 701, 702, 801, 802, 901, 902, 
+    1001, 1002, 1003, 1102, 1103, 320, 410, 420, 210, 220, 230, 330, 
+    2005, 2015, 2025, 2035, 3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335
+  )
+)
+
+reclass_tabel <- reclass_tabel %>%
+  mutate(
+    natuur = case_when(
+      code >= 100 & code <= 301 ~ NA_real_,
+      code %in% c(330, 801, 802, 901, 902, 1001, 1003, 1200) ~ NA_real_,
+      code > 2000 ~ NA_real_,
+      # Als aan geen van bovenstaande is voldaan = natuur, zet op 1
+      TRUE ~ 1
+    )
+  )
+
+
+sc0_reclass <- classify(ecosysteem_2022_upd, rcl = as.matrix(reclass_tabel))
+sc1_reclass <- classify(scen1_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc2_reclass <- classify(scen2_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc3_75_reclass <- classify(scen3_75_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc3_gras_reclass <- classify(scen3_gras_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+sc3_bos_reclass <- classify(scen3_bos_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
+
+# Rasters: 1 = nieuwe natuur, NA = rest
+nieuwe_natuur_sc1 <- ifel(is.na(sc0_reclass) & !is.na(sc1_reclass), 1, NA)
+nieuwe_natuur_sc2 <- ifel(is.na(sc0_reclass) & !is.na(sc2_reclass), 1, NA)
+nieuwe_natuur_sc3 <- ifel(is.na(sc0_reclass) & !is.na(sc3_gras_reclass), 1, NA)
+
+
+```
+
+## 2. Natte natuur
 
 ### a) Kaarten natte natuur
 
--\> Kaarten met nieuwe natte natuur
+Bouwt per scenario een kaart op met de nieuwe natte natuur (behoudt de ecosysteemcodes), schrijft de kaarten weg en maakt een tabel met de oppervlaktes per natuurtype.
 
 ```{r natte_natuur}
 
@@ -211,43 +443,174 @@ writeRaster(sc3_75_nieuwe_nattenatuur,
 
 # Tabel met oppervlaktes
 
-kaarten <- list(
-  sc1 = sc1_nieuwe_nattenatuur,
-  sc2 = sc2_nieuwe_nattenatuur,
-  sc3_bos = sc3_bos_nieuwe_nattenatuur,
-  sc3_gras = sc3_gras_nieuwe_nattenatuur,
-  sc3_75 = sc3_75_nieuwe_nattenatuur
-)
-
-codes <- c(320, 410, 420, 701, 702, 901, 902)
-
-# Aantallen per code en per raster
-tabel <- sapply(kaarten, function(r) {
-  f <- freq(r)
-  x <- setNames(f$count, f$value)
-  x <- x[as.character(codes)]
-  x[is.na(x)] <- 0
-  x
-})
-
-# Omzetten naar dataframe
-tabel <- as.data.frame(tabel)
-tabel$Code <- codes
-
-# Code als eerste kolom
-tabel <- tabel[, c("Code", names(kaarten))]
-
-totaalrij <- c(
-  Code = "Totaal",
-  as.list(colSums(tabel[, names(kaarten)]))
-)
-
-tabel <- rbind(tabel, totaalrij)
-row.names(tabel) <- NULL
+# kaarten <- list(
+#   sc1 = sc1_nieuwe_nattenatuur,
+#   sc2 = sc2_nieuwe_nattenatuur,
+#   sc3_bos = sc3_bos_nieuwe_nattenatuur,
+#   sc3_gras = sc3_gras_nieuwe_nattenatuur,
+#   sc3_75 = sc3_75_nieuwe_nattenatuur
+# )
+# 
+# codes <- c(320, 410, 420, 701, 702, 901, 902)
+# 
+# # Aantallen per code en per raster
+# tabel <- sapply(kaarten, function(r) {
+#   f <- freq(r)
+#   x <- setNames(f$count, f$value)
+#   x <- x[as.character(codes)]
+#   x[is.na(x)] <- 0
+#   x
+# })
+# 
+# # Omzetten naar dataframe
+# tabel <- as.data.frame(tabel)
+# tabel$Code <- codes
+# 
+# # Code als eerste kolom
+# tabel <- tabel[, c("Code", names(kaarten))]
+# 
+# totaalrij <- c(
+#   Code = "Totaal",
+#   as.list(colSums(tabel[, names(kaarten)]))
+# )
+# 
+# tabel <- rbind(tabel, totaalrij)
+# row.names(tabel) <- NULL
 
 ```
 
-### b) Natte en droge natuur
+#### Grafiek nieuwe natte natuur
+
+Maakt een grafiek met de oppervlaktes natte natuur per scenario met onderscheid tussen open natuurtypes en bos.
+
+```{r grafiek_nieuwenattenatuur}
+
+sc1_nieuwe_nattenatuur <- rast(str_c(folder_output, "sc1_nieuwe_nattenatuur.tif"))
+sc2_nieuwe_nattenatuur <- rast(str_c(folder_output, "sc2_nieuwe_nattenatuur.tif"))
+sc3_gras_nieuwe_nattenatuur <- rast(str_c(folder_output, "sc3_gras_nieuwe_nattenatuur.tif"))
+sc3_bos_nieuwe_nattenatuur <- rast(str_c(folder_output, "sc3_bos_nieuwe_nattenatuur.tif"))
+sc3_75_nieuwe_nattenatuur <- rast(str_c(folder_output, "sc3_75_nieuwe_nattenatuur.tif"))
+
+opennatuur <- c(320, 701, 702)
+bos <- c(410, 420)
+
+sc1_nieuwnat <- ifel(sc1_nieuwe_nattenatuur %in% opennatuur, 300, ifel(sc1_nieuwe_nattenatuur %in% bos, 400, NA))
+sc2_nieuwnat <- ifel(sc2_nieuwe_nattenatuur %in% opennatuur, 300, ifel(sc2_nieuwe_nattenatuur %in% bos, 400, NA))
+sc3_gras_nieuwnat <- ifel(sc3_gras_nieuwe_nattenatuur %in% opennatuur, 300, ifel(sc3_gras_nieuwe_nattenatuur %in% bos, 400, NA))
+sc3_bos_nieuwnat <- ifel(sc3_bos_nieuwe_nattenatuur %in% opennatuur, 300, ifel(sc3_bos_nieuwe_nattenatuur %in% bos, 400, NA))
+
+
+scenarios_nattenatuur <- c(
+  "Scenario 1" = sc1_nieuwnat,
+  "Scenario 2" = sc2_nieuwnat,
+  # "Scenario 3 bos" = sc3_bos_nieuwnat,
+  "Scenario 3 gras" = sc3_gras_nieuwnat
+)
+
+bereken_natuur_scenario <- function(r, scenario_naam) {
+  resultaat <- data.frame(
+    scenario = scenario_naam,
+    open = round(freq(r, value = 300)$count/100, 0),
+    bos = round(freq(r, value = 400)$count/100, 0)
+  )
+  return(resultaat)
+}
+
+results_natnatuur <- bind_rows(
+  lapply(names(scenarios_nattenatuur), function(scen) {
+    bereken_natuur_scenario(
+      r = scenarios_nattenatuur[[scen]],
+      scenario_naam = scen
+    )
+  })
+)
+
+
+df_resultaten <- results_natnatuur |>
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1" = "Scenario 1",
+                               "Scenario 2" = "Scenario 2",
+                               # "Scenario 3 bos" = "Scenario 3 bos",
+                               "Scenario 3" = "Scenario 3 gras"
+  )) |> 
+  bind_rows(data.frame(scenario = "blanco", open = NA, bos = NA)) %>%
+  mutate(scenario = fct_inorder(scenario))
+
+df_long <- df_resultaten %>%
+  mutate(Totaal = open + bos) |> 
+  pivot_longer(
+    cols = c("open", "bos"),
+    names_to = "Type",
+    values_to = "Waarde"
+  ) %>%
+  mutate(
+    # Volgorde in de staaf: bos eerst (links/basis)
+    Type = factor(Type, levels = c("open", "bos")),
+    Pct = (Waarde / Totaal) * 100,
+    Label_Tekst = sprintf("%d%%", round(Pct))
+  ) %>%
+  # Bereken de middenpositie van elk segment voor het tekstlabel
+  group_by(scenario) %>%
+  mutate(
+    Positie_Y = cumsum(Waarde) - (0.5 * Waarde)
+  ) %>%
+  ungroup()
+
+
+p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
+  geom_col(width = 0.55) +
+  scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
+  scale_fill_manual(
+    values = c(
+      "bos" = inbo_donkergroen, 
+      "open" = inbo_steun_geelgroen 
+    ),
+    labels = c(
+      "bos" = "Bos", 
+      "open" = "Open natuur")
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_long$Waarde) * 1.05, min(df_long$Totaal) * 1.05)), 
+               max(c(0, max(df_long$Waarde) * 1.05, max(df_long$Totaal) * 1.05)))
+  ) +
+  labs(
+    # title = str_c("Nieuwe natte natuur"),
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
+    legend.key.size = unit(0.3, "cm")
+  )
+
+print(p)
+
+ggsave(
+  filename = file.path(result_path, "nieuwe_natte_natuur.png"),
+  plot = p,
+  width = 6.5,      
+  height = 2.5,      
+  units = "cm",
+  dpi = 300,
+  scaling = 0.45 # om labels te verkleinen
+)
+```
+
+### b) Combineerbaarheid natte en droge natuur
 
 -\> natuurdoelen (toekomstkaart) opdelen in natte en droge types en nagaan welke doelen al dan niet gerealiseerd kunnen worden onder de scenario's
 
@@ -377,53 +740,9 @@ results_natuur <- bind_rows(
   })
 )
 
-
-#/////////////////////////////
-# Grafiek oude versie
-#/////////////////////////////
-
-# # 2. Omvormen van breed naar lang formaat voor ggplot
-# df_long <- results_natuur |> 
-#   pivot_longer(
-#     cols = c("te_nat", "te_droog", "ok"),
-#     names_to = "categorie",
-#     values_to = "aantal"
-#   ) |> 
-#   mutate(
-#     opp = aantal/100,
-#     scenario = factor(scenario, levels = c("huidig", "scenario 1", "scenario 2", "scenario 3")),
-#     categorie = factor(categorie, levels = c("ok", "te_nat", "te_droog"))
-#   )
-# 
-# # 3. Kies hier zelf je gewenste kleuren (gebruik kleurcodes of kleurnaam-tekst)
-# eigen_kleuren <- c(
-#   "ok"       = "lightgrey", # Groen
-#   "te_nat"   = "dodgerblue3", # Blauw
-#   "te_droog" = "yellow3"  # Rood
-# )
-# 
-# # 4. Gestapeld staafdiagram maken
-# p <- ggplot(df_long, aes(x = scenario, y = opp, fill = categorie)) +
-#   geom_col(position = "stack", width = 0.6) +
-#   scale_fill_manual(
-#     values = eigen_kleuren,
-#     labels = c("ok" = "Niet afwijkend", "te_nat" = "Te nat", "te_droog" = "Te droog")
-#   ) +
-#   labs(
-#     title = "",
-#     x = "",
-#     y = "Oppervlakte (ha)",
-#     fill = ""
-#   ) +
-#   theme_minimal(base_size = 12) +
-#   theme(legend.position = "bottom")
-# 
-# p + scale_y_break(c(20, 90), ticklabels = c(10, 20, 100))
-# 
-# plot(sc1_natdoel, type = "classes", col = c("dodgerblue", "lightgrey", "yellow3"))
 ```
 
-#### Grafiek - definitieve versie
+#### Grafiek
 
 ```{r}
 
@@ -468,8 +787,18 @@ df_back <- df_long %>%
   tidyr::crossing(scenario = c("Scenario 1", "Scenario 2", "Scenario 3", "blanco")) |> mutate(Pct = ifelse(scenario == "blanco", NA, Pct))
 
 
-p <- ggplot(df_long |> filter(scenario != "Referentie", Type != "ok"), aes(x = scenario, y = Pct, fill = Type)) +
-  geom_col(data = df_back, width = 0.7) +
+#////////////////////////
+# Te droog
+#////////////////////////
+
+waarde_te_droog <- df_back |>
+  filter(Type == "te_droog_ref", !is.na(Pct)) |>
+  pull(Pct) |>
+  unique()
+
+df_long_subset <- df_long |> filter(scenario != "Referentie", Type == "te_droog")
+
+p <- ggplot(df_long_subset, aes(x = scenario, y = Pct, fill = Type)) +
   geom_col(width = 0.55) +
   # geom_text(
   #   aes(y = Positie_Y, label = Label_Tekst),
@@ -477,58 +806,79 @@ p <- ggplot(df_long |> filter(scenario != "Referentie", Type != "ok"), aes(x = s
   #   fontface = "bold",
   #   size = 3.0
   # ) +
+  geom_hline(yintercept = waarde_te_droog, linetype = "dashed", color = "red") + 
   scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
   scale_fill_manual(
-    # Voeg hier de twee nieuwe achtergrond-types toe met hun INBO kleuren
     values = c(
       "te_nat" = inbo_steun_blauw, 
-      "te_droog" = inbo_geel, 
-      "te_nat_ref" = alpha(inbo_steun_blauw, 0.3),  
-      "te_droog_ref" = alpha(inbo_geel, 0.3) 
+      "te_droog" = inbo_geel 
     ),
-    # Met breaks zorgen we ervoor dat 'te_nat_ref' en 'te_droog_ref' NIET in de legende komen
-    breaks = c("te_nat", "te_droog"),
     labels = c(
       "te_nat" = "Te nat", 
       "te_droog" = "Te droog")
   ) +
   scale_y_continuous(
     expand = c(0, 0),
-    limits = c(min(c(0, min(df_long$Pct) * 1.05, min(df_long$Pct) * 1.05)), 
-               max(c(0, max(df_long$Pct) * 1.05, max(df_long$Pct) * 1.05))),
-    labels = label_percent(scale = 1)
+    limits = c(min(c(0, min(df_long_subset$Pct) * 1.05)), 
+               max(c(0, max(df_long_subset$Pct, na.rm = TRUE) * 1.05, waarde_te_droog * 1.05), na.rm = TRUE)),
+    # labels = label_percent(scale = 1),
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
   ) +
   labs(
-    title = str_c("% terrestrische natuurdoelen niet combineerbaar met de grondwaterstand"),
-    subtitle = "Lichte kleuren: huidige toestand",
+    # title = str_c("% terrestrische natuurdoelen te lage grondwaterstand"),
+    # subtitle = "Lichte kleuren: huidige toestand",
     x = NULL,
-    y = "% van opp. natuurdoelen",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    plot.subtitle = element_text(size = 10, face = 'italic', color = 'grey50'),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 
 print(p)
 
+ggsave(
+  filename = file.path(result_path, "combi_grondw_droog.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 
-#/////////////////////////////////////////////////////////////
-# Met niet afwijkend doelen op de grafiek (schaalt tot 100%)
-#/////////////////////////////////////////////////////////////
 
-p <- ggplot(df_long |> filter(scenario != "Referentie"), aes(x = scenario, y = Pct, fill = Type)) +
-  geom_col(data = df_back, width = 0.8) +
+
+#////////////////////////
+# Te nat
+#////////////////////////
+
+waarde_te_nat <- df_back |>
+  filter(Type == "te_nat_ref", !is.na(Pct)) |>
+  pull(Pct) |>
+  unique()
+
+df_long_subset <- df_long |> filter(scenario != "Referentie", Type == "te_nat")
+
+p <- ggplot(df_long_subset, aes(x = scenario, y = Pct, fill = Type)) +
   geom_col(width = 0.55) +
   # geom_text(
   #   aes(y = Positie_Y, label = Label_Tekst),
@@ -536,102 +886,63 @@ p <- ggplot(df_long |> filter(scenario != "Referentie"), aes(x = scenario, y = P
   #   fontface = "bold",
   #   size = 3.0
   # ) +
+  geom_hline(yintercept = waarde_te_nat, linetype = "dashed", color = "red") + 
   scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
   scale_fill_manual(
-    # Voeg hier de twee nieuwe achtergrond-types toe met hun INBO kleuren
     values = c(
       "te_nat" = inbo_steun_blauw, 
-      "te_droog" = inbo_geel, 
-      "ok" = inbo_groen,
-      "te_nat_ref" = inbo_steun_blauw,  
-      "te_droog_ref" = inbo_geel 
+      "te_droog" = inbo_geel 
     ),
-    # Met breaks zorgen we ervoor dat 'te_nat_ref' en 'te_droog_ref' NIET in de legende komen
-    breaks = c("te_nat", "te_droog", "ok"),
     labels = c(
       "te_nat" = "Te nat", 
-      "te_droog" = "Te droog",
-      "ok" = "Niet afwijkend"
-    )
+      "te_droog" = "Te droog")
   ) +
   scale_y_continuous(
     expand = c(0, 0),
-    limits = c(min(c(0, min(df_long$Pct) * 1.05, min(df_long$Pct) * 1.05)), 
-               max(c(0, max(df_long$Pct) * 1.05, max(df_long$Pct) * 1.05))),
+    limits = c(min(c(0, min(df_long_subset$Pct) * 1.05)), 
+               max(c(0, max(df_long_subset$Pct, na.rm = TRUE) * 1.05, waarde_te_droog * 1.05), na.rm = TRUE)),
     labels = label_percent(scale = 1)
   ) +
   labs(
-    title = str_c("Toename grondwatervolume t.o.v. de huidige toestand"),
+    # title = str_c("% terrestrische natuurdoelen te hoge grondwaterstand"),
+    # subtitle = "Lichte kleuren: huidige toestand",
     x = NULL,
-    y = "miljoen m³",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 
 print(p)
 
 
-#/////////////////////////////////////////////////////////////
-# Met Referentie als extra balk
-#/////////////////////////////////////////////////////////////
+ggsave(
+  filename = file.path(result_path, "combi_grondw_nat.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 
-p <- ggplot(df_long, aes(x = scenario, y = Pct, fill = Type)) +
-  geom_col(width = 0.55) +
-  # Text labels in de staven (op de berekende middenpositie)
-  # geom_text(
-  #   aes(y = Positie_Y, label = Label_Tekst),
-  #   color = "white",        
-  #   fontface = "bold",
-  #   size = 3.0
-  # ) +
-  scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
-  scale_fill_manual(
-    values = c("te_nat" = inbo_steun_blauw, "te_droog" = inbo_geel, "ok" = inbo_lichtgrijs),
-    labels = c("te_nat" = "Te nat", 
-               "te_droog" = "Te droog",
-               "ok" = "Niet afwijkend")
-  ) +
-  scale_y_continuous(
-    expand = c(0, 0),
-    limits = c(min(c(0, min(df_long$Pct) * 1.05, min(df_long$Pct) * 1.05)), 
-               max(c(0, max(df_long$Pct) * 1.05, max(df_long$Pct) * 1.05))),
-    labels = label_percent(scale = 1)
-  ) +
-  labs(
-    title = str_c("Toename grondwatervolume t.o.v. de huidige toestand"),
-    x = NULL,
-    y = "miljoen m³",
-    fill = NULL
-  ) +
-  theme_minimal() +
-  theme(
-    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
-    axis.line.x.top = element_blank(),
-    axis.ticks.x.top = element_blank(),
-    
-    # Compacte marges voor beperkte hoogte output
-    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
-    legend.key.size = unit(0.3, "cm")
-  )
-print(p)
 ```
 
-### c) Overstromingen
+### c) Combineerbaarheid overstromingen
 
 ```{r overstromingen}
 
@@ -937,60 +1248,9 @@ results_flood <- bind_rows(
   })
 )
 
-
-
-# # Omzetten naar factoren voor de juiste volgorde en handmatige kleuring
-# results_flood <- results_flood %>%
-#   mutate(
-#     scenario = factor(scenario, levels = c("doel", "sc1", "sc2", "sc3")),
-#     klasse   = factor(klasse, levels = c("0", "1", "2", "3")) # Volgorde van stapeling
-#   ) |>
-#   group_by(scenario) |>
-#   mutate(opp_totaal = sum(opp)) |>
-#   ungroup() |>
-#   mutate(opp_pc = opp/opp_totaal)
-# 
-# # Kies gewenste kleuren per klasse
-# eigen_kleuren <- c(
-#   "0" = "firebrick3",
-#   "1" = "firebrick1",
-#   "2" = "#41b6c4",
-#   "3" = "#225ea8"
-# )
-# 
-# # # staafdiagram
-# #
-# ggplot(results_flood , aes(x = scenario, y = opp_pc, fill = klasse)) +
-#   geom_col(position = "stack", width = 0.6) +
-#   scale_fill_manual(
-#     values = eigen_kleuren
-#   ) +
-#   labs(
-#     title = "",
-#     x = "",
-#     y = "Oppervlakte (ha)",
-#     fill = "combineerbaarheid"
-#   ) +
-#   theme_minimal(base_size = 12) +
-#   theme(legend.position = "bottom")
-# #
-# ggplot(results_flood |> filter(!klasse %in% c(2, 3)), aes(x = scenario, y = opp_pc, fill = klasse)) +
-#   geom_col(position = "stack", width = 0.6) +
-#   scale_y_continuous(labels = scales::percent) +
-#   scale_fill_manual(
-#     values = eigen_kleuren
-#   ) +
-#   labs(
-#     title = "",
-#     x = "",
-#     y = "% oppervlakte",
-#     fill = "combineerbaarheid"
-#   ) +
-#   theme_minimal(base_size = 12) +
-#   theme(legend.position = "bottom")
 ```
 
-#### Grafiek - definitieve versie
+#### Grafiek
 
 ```{r}
 
@@ -1028,260 +1288,70 @@ df_long <- df_resultaten %>%
 
 
 # Dataset met referentiewaarden voor achtergrond
-df_back <- df_long %>%
+huidig_pct <- df_long %>%
   filter(scenario == "Referentie" & Type %in% c("opp_intol")) %>%
-  mutate(Type = paste0(Type, "_ref")) %>%
-  select(Type, Pct) %>%
-  tidyr::crossing(scenario = c("Scenario 1", "Scenario 2", "Scenario 3", "blanco")) |> mutate(Pct = ifelse(scenario == "blanco", NA, Pct))
-
+  pull(Pct)
 
 p <- ggplot(df_long |> filter(scenario != "Referentie"), aes(x = scenario, y = Pct, fill = Type)) +
-  geom_col(data = df_back, width = 0.7) +
   geom_col(width = 0.55) +
-  # geom_text(
-  #   aes(y = Positie_Y, label = Label_Tekst),
-  #   color = "white",        
-  #   fontface = "bold",
-  #   size = 3.0
-  # ) +
+  geom_hline(yintercept = huidig_pct, linetype = "dashed", color = "red") + 
   scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
   scale_fill_manual(
-    # Voeg hier de twee nieuwe achtergrond-types toe met hun INBO kleuren
-    values = c(
-      "opp_intol" = inbo_steun_blauw, 
-      "opp_intol_ref" = alpha(inbo_steun_blauw, 0.3) 
-    ),
-    # Met breaks zorgen we ervoor dat 'te_nat_ref' en 'te_droog_ref' NIET in de legende komen
-    breaks = c("opp_intol"),
-    labels = c(
-      "opp_intol" = "Niet combineerbaar")) +
+    values = c("opp_intol" = inbo_steun_blauw),
+    labels = c("opp_intol" = "Niet combineerbaar")) +
   scale_y_continuous(
     expand = c(0, 0),
-    limits = c(min(c(0, min(df_long$Pct) * 1.05, min(df_long$Pct) * 1.05)), 
-               max(c(0, max(df_long$Pct) * 1.05, max(df_long$Pct) * 1.05))),
-    labels = label_percent(scale = 1)
+    limits = c(min(c(0, min(df_long$Pct, na.rm = TRUE) * 1.05)), 
+               max(c(0, max(df_long$Pct, na.rm = TRUE) * 1.05))),
+    # labels = label_percent(scale = 1),
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
   ) +
   labs(
-    title = str_c("% terrestrische natuurdoelen niet combineerbaar met overstromingen"),
-    subtitle = "Lichte kleuren: huidige toestand",
+    # title = str_c("% terrestrische natuurdoelen niet combineerbaar met overstromingen"),
+    # subtitle = "Lichte kleuren: huidige toestand",
     x = NULL,
-    y = "% van opp. natuurdoelen",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    plot.subtitle = element_text(size = 10, face = 'italic', color = 'grey50'),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 
 print(p)
-```
 
-## 2. Ecosysteemoppervlaktes
-
-### a) Waffle
-
--\> Wafflefiguur met oppervlaktes hoofdecosystemen (natte types apart)
-
-![](images/clipboard-3057095040.png)
-
-```{r waffle}
-
-reclass_tabel <- data.frame(
-  code = c(
-    101, 102, 103, 104, 105, 106, 201, 202, 203, 204, 205, 300, 301, 302, 
-    400, 401, 402, 403, 404, 501, 601, 602, 701, 702, 801, 802, 901, 902, 
-    1001, 1002, 1003, 1102, 1103, 320, 410, 420, 210, 220, 230, 330, 
-    2005, 2015, 2025, 2035, 3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335
-  ),
-  lu_reduct = c(
-    100, 100, 400, 300, 800, 100, 200, 200, 200, 200, 200, 300, 300, 302, 
-    400, 400, 400, 400, 400, 500, 500, 500, 700, 700, 800, 800, 800, 800, 
-    800, 700, 800, 500, 700, 320, 420, 420, 200, 200, 200, 300, 
-    200, 200, 200, 200, 300, 300, 300, 300, 200, 200, 200, 200
-  )
+ggsave(
+  filename = file.path(result_path, "combi_overstroming_nat.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
 )
-
-sc0_reclass <- classify(ecosysteem_2022_nat, rcl = as.matrix(reclass_tabel))
-sc1_reclass <- classify(scen1_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc2_reclass <- classify(scen2_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc3_75_reclass <- classify(scen3_75_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc3_gras_reclass <- classify(scen3_gras_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc3_bos_reclass <- classify(scen3_bos_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-
-
-# 2. Definieer jouw eigen kleuren per ecosysteemcode
-colors <- c(
-  "100" = "firebrick3",  
-  "200" = "khaki1",
-  "300" = "darkolivegreen1",
-  "302" = "chartreuse2",
-  "320" = "seagreen2",
-  "400" = "darkgreen",
-  "420" = "turquoise3",
-  "500" = "darkorchid1",
-  "600" = "gold2",
-  "700" = "turquoise1",
-  "800" = "dodgerblue"
-)
-
-labels <- c(
-  "100" = "bebouwing",
-  "200" = "landbouw - akker",
-  "300" = "landbouw - gras",
-  "302" = "grasland",
-  "320" = "nat grasland",
-  "400" = "bos",
-  "420" = "nat bos",
-  "500" = "heide",
-  "600" = "duinen",
-  "700" = "moeras",
-  "800" = "water"
-)
-
-# 2. Algoritme dat garandeert dat afgeronde percentages exact sommeren tot 100
-smart_round <- function(x, target = 100) {
-  pcts <- (x / sum(x)) * target
-  res <- floor(pcts)
-  remainder <- pcts - res
-  diff <- target - sum(res)
-  if (diff > 0) {
-    idx <- order(remainder, decreasing = TRUE)[seq_len(diff)]
-    res[idx] <- res[idx] + 1
-  }
-  return(res)
-}
-
-
-# 3. Raster verwerken met herindeling en slimme afronding
-verwerk_raster <- function(r) {
-  df_freq <- freq(r) %>%
-    as.data.frame() %>%
-    select(code = value, count) %>%
-    filter(!is.na(code)) %>%
-    mutate(
-      code = factor(as.character(code), levels = names(colors)),
-      percentage = smart_round(count, target = 100)
-    ) %>%
-    filter(percentage > 0) # Verwijder categorieën die op 0% uitkomen
-  
-  return(df_freq)
-}
-
-data_scen0 <- verwerk_raster(sc0_reclass)
-data_scen1 <- verwerk_raster(sc1_reclass)
-data_scen2 <- verwerk_raster(sc2_reclass)
-data_scen3_75 <- verwerk_raster(sc3_75_reclass)
-data_scen3_gras <- verwerk_raster(sc3_gras_reclass)
-data_scen3_bos <- verwerk_raster(sc3_bos_reclass)
-
-# 4. Aangepaste waffle-functie
-maak_waffle <- function(df, titel, verberg_legende = FALSE) {
-  p <- ggplot(df, aes(fill = code, values = percentage)) +
-    geom_waffle(
-      rows = 10, 
-      size = 0.5, 
-      color = "white", 
-      flip = TRUE
-    ) +
-    scale_fill_manual(
-      values = colors,
-      labels = labels,
-      limits = names(colors),
-      drop = FALSE,
-      name = "Ecosysteem"
-    ) +
-    labs(
-      title = titel,
-      subtitle = "1 vakje = 1%"
-    ) +
-    coord_equal() +
-    theme_void() +
-    theme(
-      plot.title = element_text(face = "bold", size = 12, hjust = 0.5),
-      plot.subtitle = element_text(size = 9, hjust = 0.5, color = "gray40")
-    )
-  
-  # Verwijder de legende voor deze specifieke plot als 'verberg_legende = TRUE'
-  if (verberg_legende) {
-    p <- p + theme(legend.position = "none")
-  }
-  
-  return(p)
-}
-
-# 2. Maak de plots, en behoud ALLEEN de legende bij de eerste plot (p0)
-p0 <- maak_waffle(data_scen0, "Scenario 0", verberg_legende = TRUE)
-p1 <- maak_waffle(data_scen1, "Scenario 1", verberg_legende = TRUE)
-p2 <- maak_waffle(data_scen2, "Scenario 2", verberg_legende = TRUE)
-p3 <- maak_waffle(data_scen3_75, "Scenario 3 - 75", verberg_legende = FALSE)
-p4 <- maak_waffle(data_scen3_gras, "Scenario 3 - gras", verberg_legende = TRUE)
-p5 <- maak_waffle(data_scen3_bos, "Scenario 3 - bos", verberg_legende = TRUE)
-
-# 3. Combineer de plots
-# Omdat er in totaal nog maar 1 legende bestaat (die van p0), 
-# verzamelt patchwork deze vlekkeloos en plaatst hem onderaan de hele figuur.
-gecombineerde_plot <- (p0 + p1 + p2 + p3 + p4 + p5) + 
-  plot_layout(
-    ncol = 3, 
-    guides = "collect"
-  )
-
-# 4. Toon het resultaat
-print(gecombineerde_plot)
-
-```
-
-### b) Nieuwe natuur
-
-```{r natuur}
-
-reclass_tabel <- data.frame(
-  code = c(
-    101, 102, 103, 104, 105, 106, 201, 202, 203, 204, 205, 300, 301, 302, 
-    400, 401, 402, 403, 404, 501, 601, 602, 701, 702, 801, 802, 901, 902, 
-    1001, 1002, 1003, 1102, 1103, 320, 410, 420, 210, 220, 230, 330, 
-    2005, 2015, 2025, 2035, 3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335
-  )
-)
-
-reclass_tabel <- reclass_tabel %>%
-  mutate(
-    natuur = case_when(
-      code >= 100 & code <= 301 ~ NA_real_,
-      code %in% c(330, 801, 802, 901, 902, 1001, 1003, 1200) ~ NA_real_,
-      code > 2000 ~ NA_real_,
-      # Als aan geen van bovenstaande is voldaan = natuur, zet op 1
-      TRUE ~ 1
-    )
-  )
-
-
-sc0_reclass <- classify(ecosysteem_2022_upd, rcl = as.matrix(reclass_tabel))
-sc1_reclass <- classify(scen1_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc2_reclass <- classify(scen2_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc3_75_reclass <- classify(scen3_75_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc3_gras_reclass <- classify(scen3_gras_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-sc3_bos_reclass <- classify(scen3_bos_ecosysteem_finaal, rcl = as.matrix(reclass_tabel))
-
-nieuwe_natuur_sc1 <- ifel(is.na(sc0_reclass) & !is.na(sc1_reclass), 1, NA)
-nieuwe_natuur_sc2 <- ifel(is.na(sc0_reclass) & !is.na(sc2_reclass), 1, NA)
-nieuwe_natuur_sc3 <- ifel(is.na(sc0_reclass) & !is.na(sc3_gras_reclass), 1, NA)
 
 ```
 
 ## 3. Resultaten vernatting
 
-### a) Rivierherstel
+### a) Dataset rivierherstel
 
 ```{r rivierherstel}
 
@@ -1443,7 +1513,7 @@ resultaten <- resultaten |>
   mutate(herstel_all_notnhv = beekherstel_all - beekherstel_ffr)
 ```
 
-### b) Veenherstel
+### b) Dataset veenherstel
 
 ```{r veenherstel}
 
@@ -1568,87 +1638,9 @@ resultaten <- resultaten |>
 
 ### c) Grafieken
 
-#### 1 - Definitieve versie
+#### Rivierherstel
 
-```{r}
-
-#///////////////////////////////////////
-# Veenherstel
-#///////////////////////////////////////
-
-df_long_veen <- resultaten |> 
-  select(scenario, verdroogd, veen_all, veen_ondiep, veen_vlakte) |>
-  mutate(scenario = fct_recode(scenario,
-                               "Scenario 1" = "scenario 1",
-                               "Scenario 2" = "scenario 2",
-                               "Scenario 3" = "scenario 3",
-  )) |> 
-  bind_rows(data.frame(scenario = "blanco", verdroogd = NA, veen_ondiep = NA, veen_vlakte = NA)) %>%
-  mutate(scenario = fct_inorder(scenario)) |> 
-  mutate(pct_ondiep = veen_ondiep / verdroogd,
-         pct_opp = veen_vlakte / verdroogd) |> 
-  pivot_longer(
-    cols = c("pct_ondiep", "pct_opp"),
-    names_to = "Type",
-    values_to = "Waarde") |> 
-  mutate(
-    # Volgorde in de staaf: binnen_voeding_pc eerst (links/basis)
-    Type = factor(Type, levels = c("pct_opp", "pct_ondiep")),
-    Pct = Waarde * 100,
-    Label_Tekst = sprintf("%d%%", round(Pct))
-  ) %>%
-  # Bereken de middenpositie van elk segment voor het tekstlabel
-  group_by(scenario) %>%
-  mutate(
-    Positie_Y = cumsum(Waarde) - (0.5 * Waarde)
-  ) %>%
-  ungroup()
-
-
-p <- ggplot(df_long_veen, aes(x = scenario, y = Pct, fill = Type)) +
-  geom_col(width = 0.55) +
-  # Text labels in de staven (op de berekende middenpositie)
-  # geom_text(
-  #   aes(y = Positie_Y, label = Label_Tekst),
-  #   color = "white",        
-  #   fontface = "bold",
-  #   size = 3.0
-  # ) +
-  scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
-  scale_fill_manual(
-    values = c("pct_opp" = inbo_steun_blauw, "pct_ondiep" = inbo_geel),
-    labels = c("pct_opp" = "oppervlakteveen", 
-               "pct_ondiep" = "ondiep veen")
-  ) +
-  scale_y_continuous(
-    expand = c(0, 0),
-    limits = c(min(c(0, min(df_long_veen$Waarde) * 1.05, min(df_long_veen$Waarde) * 1.05)), 
-               max(c(0, max(df_long_veen$Waarde) * 1.05, max(df_long_veen$Waarde) * 1.05))),
-    labels = label_percent(scale = 1)
-  ) +
-  labs(
-    title = str_c("Veenherstel als % van oppervlakte verdroogd veen"),
-    subtitle = str_c("Opp. verdroogd veen: ", df_long_veen$verdroogd[1], " ha - Opp. veen: ", df_long_veen$veen_all[1], " ha"),
-    x = NULL,
-    y = "hectare",
-    fill = NULL
-  ) +
-  theme_minimal() +
-  theme(
-    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    plot.subtitle = element_text(size = 10, face = 'italic', color = 'grey50'),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
-    axis.line.x.top = element_blank(),
-    axis.ticks.x.top = element_blank(),
-    
-    # Compacte marges voor beperkte hoogte output
-    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
-    legend.key.size = unit(0.3, "cm")
-  )
-print(p)
-
+```{r grafiekrivierherstel}
 
 #///////////////////////////////////////
 # Rivierherstel
@@ -1692,6 +1684,7 @@ p <- ggplot(df_long_riv, aes(x = scenario, y = Pct, fill = Type)) +
   #   fontface = "bold",
   #   size = 3.0
   # ) +
+  geom_hline(yintercept = 100 * df_long_riv$ffr_2025[1]/df_long_riv$l_nhv[1], linetype = "dashed", color = "red") + 
   scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
   scale_fill_manual(
     values = c("pct_binnen" = inbo_steun_blauw, "pct_buiten" = inbo_lichtblauw),
@@ -1702,124 +1695,152 @@ p <- ggplot(df_long_riv, aes(x = scenario, y = Pct, fill = Type)) +
     expand = c(0, 0),
     limits = c(min(c(0, min(df_long_riv$Waarde) * 1.05, min(df_long_riv$Waarde) * 1.05)), 
                max(c(0, max(df_long_riv$Waarde) * 1.05, max(df_long_riv$Waarde) * 1.05))),
-    labels = label_percent(scale = 1)
+    # labels = label_percent(scale = 1),
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
   ) +
   labs(
-    title = str_c("Herstel vrijstromendheid als % van lengte NHV-netwerk"),
-    subtitle = str_c("Rivierlengte NHV: ", df_long_riv$l_nhv[1], " km - Vrijstromendheid huidig: ", df_long_riv$ffr_2025[1], " km"),
+    # title = str_c("Herstel vrijstromendheid als % van lengte NHV-netwerk"),
+    # subtitle = str_c("Rivierlengte NHV: ", df_long_riv$l_nhv[1], " km - Vrijstromendheid huidig: ", df_long_riv$ffr_2025[1], " km"),
     x = NULL,
-    y = "Km",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    plot.subtitle = element_text(size = 10, face = 'italic', color = 'grey50'),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 print(p)
+
+ggsave(
+  filename = file.path(result_path, "rivierherstel.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
+
 ```
 
-#### 2 - Oude versie
+#### Veenherstel
 
-```{r grafieken}
+```{r grafiekveenherstel}
 
+#///////////////////////////////////////
+# Veenherstel
+#///////////////////////////////////////
 
-# ------------------------------------------------------------------------------
-# FIGUUR 1: Veenoppervlakte per scenario
-# ------------------------------------------------------------------------------
-
-# Zorg dat veen_ondiep en veen_vlakte onder elkaar komen voor de stapeling
-data_veen <- resultaten |> 
-  select(scenario, veen_ondiep, veen_vlakte) |> 
+df_long_veen <- resultaten |> 
+  select(scenario, verdroogd, veen_all, veen_ondiep, veen_vlakte) |>
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1" = "scenario 1",
+                               "Scenario 2" = "scenario 2",
+                               "Scenario 3" = "scenario 3",
+  )) |> 
+  bind_rows(data.frame(scenario = "blanco", verdroogd = NA, veen_ondiep = NA, veen_vlakte = NA)) %>%
+  mutate(scenario = fct_inorder(scenario)) |> 
+  mutate(pct_ondiep = veen_ondiep / veen_all,
+         pct_opp = veen_vlakte / veen_all,
+         pct_intact = (veen_all - verdroogd) / veen_all) |> 
   pivot_longer(
-    cols = c("veen_ondiep", "veen_vlakte"),
-    names_to = "veen_type",
-    values_to = "oppervlakte"
-  ) |> 
-  mutate(veen_type = factor(veen_type, 
-                            levels = c("veen_vlakte", "veen_ondiep"),
-                            labels = c("Oppervlakteveen", "Ondiep veen")))
+    cols = c("pct_ondiep", "pct_opp", "pct_intact"),
+    names_to = "Type",
+    values_to = "Waarde") |> 
+  mutate(
+    # Volgorde in de staaf: binnen_voeding_pc eerst (links/basis)
+    Type = factor(Type, levels = c("pct_opp", "pct_ondiep", "pct_intact")),
+    Pct = Waarde * 100,
+    Label_Tekst = sprintf("%d%%", round(Pct))
+  ) %>%
+  # Bereken de middenpositie van elk segment voor het tekstlabel
+  group_by(scenario) %>%
+  mutate(
+    Positie_Y = cumsum(Waarde) - (0.5 * Waarde)
+  ) %>%
+  ungroup()
 
-figuur_veen <- ggplot() +
-  geom_col(data = data_veen, aes(x = scenario, y = oppervlakte, fill = veen_type), width = 0.5) +
-  geom_hline(yintercept = resultaten$veen_all[1], linetype = "dashed", color = "darkred", linewidth = 0.8) +
-  annotate("text", x = 0.6, y = resultaten$veen_all[1] + 130, label = "Totale oppervlakte veen", 
-           color = "darkred", hjust = 0, fontface = "italic") +
-  geom_hline(yintercept = resultaten$verdroogd[1], linetype = "dashed", color = "brown1", linewidth = 0.8) +
-  annotate("text", x = 0.6, y = resultaten$verdroogd[1] - 100, label = "Oppervlakte verdroogd veen", 
-           color = "brown1", hjust = 0, fontface = "italic") +
-  scale_fill_manual(values = c("Ondiep veen" = "#76b7b2", "Oppervlakteveen" = "#4e79a7")) +
-  labs(
-    x = "",
-    y = "Oppervlakte (ha)",
-    fill = ""
+veennat_huidig <- 100 *(df_long_veen$veen_all[1] - df_long_veen$verdroogd[1]) / df_long_veen$veen_all[1]
+
+p <- ggplot(df_long_veen, aes(x = scenario, y = Pct, fill = Type)) +
+  geom_col(width = 0.55) +
+  # geom_hline(yintercept = veennat_huidig, linetype = "dashed", color = "red") + 
+  scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
+  scale_fill_manual(
+    values = c("pct_opp" = inbo_steun_blauw, "pct_ondiep" = inbo_geel, "pct_intact" = inbo_groen),
+    labels = c("pct_opp" = "oppervlakteveen", 
+               "pct_ondiep" = "ondiep veen",
+               "pct_intact" = "intact veen")
   ) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom")
-
-print(figuur_veen)
-
-
-# ------------------------------------------------------------------------------
-# FIGUUR 2: Vrijstromende en herstelde rivieren
-# ------------------------------------------------------------------------------
-
-data_rivieren <- resultaten |> 
-  select(scenario, herstel_all_notnhv, beekherstel_ffr) |> 
-  pivot_longer(
-    cols = c("herstel_all_notnhv", "beekherstel_ffr"),
-    names_to = "categorie",
-    values_to = "lengte"
-  ) |> 
-  mutate(categorie = factor(
-    categorie,
-    levels = c("herstel_all_notnhv", "beekherstel_ffr"),
-    labels = c("Beekherstel totaal", "Beekherstel NHV-netwerk")
-  ))
-
-figuur_rivieren <- ggplot(data_rivieren, aes(x = scenario, y = lengte, fill = categorie)) +
-  geom_col(position = position_stack(), width = 0.7) +
-  scale_fill_manual(values = c(
-    "Beekherstel totaal"     = "#a0cbe8",
-    "Beekherstel NHV-netwerk" = "#1f77b4")) +
-  geom_hline(yintercept = resultaten$l_nhv[1], linetype = "dashed", color = "#1f77b4", linewidth = 0.8) +
-  annotate("text", x = 0.6, y = resultaten$l_nhv[1] + 20, label = "Lengte NHV-netwerk",
-           color = "#1f77b4", hjust = 0, fontface = "italic") +
-  geom_hline(yintercept = resultaten$l_vha[1], linetype = "dashed", color = "grey", linewidth = 0.8) +
-  annotate("text", x = 0.6, y = resultaten$l_vha[1] +20 , label = "Lengte rivieren",
-           color = "grey", hjust = 0, fontface = "italic") +
-  geom_hline(yintercept = resultaten$ffr_2025[1], linetype = "dashed", color = "brown1", linewidth = 0.8) +
-  # annotate("text", x = 0.6, y = resultaten$ffr_2025[1] + 30, label = "Lengte huidig vrijstromend", 
-           # color = "brown1", hjust = 0, fontface = "italic") +
-  # facet_zoom(y = lengte <= 250, split = TRUE) + # Om de totaalgrafiek en de zoom op de lagere waarden apart in beeld te brengen
-  labs(
-    x = "",
-    y = "Lengte (km)",
-    fill = ""
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_long_veen$Waarde) * 1.05, min(df_long_veen$Waarde) * 1.05)), 
+               max(c(0, max(df_long_veen$Waarde) * 1.05, max(df_long_veen$Waarde) * 1.05))),
+    # labels = label_percent(scale = 1),
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
   ) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "bottom")
+  labs(
+    # title = str_c("Veenherstel als % van oppervlakte verdroogd veen"),
+    # subtitle = str_c("Opp. verdroogd veen: ", df_long_veen$verdroogd[1], " ha - Opp. veen: ", df_long_veen$veen_all[1], " ha"),
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
 
-figuur_rivieren + scale_y_break(c(210, 700), ticklabels = c(150, 200, 800))
+ggsave(
+  filename = file.path(result_path, "veenherstel.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 
-print(figuur_rivieren)
-
-library(ggforce)
-library(ggbreak)
 ```
 
 ## 4. Actoren
 
-### a) Opbouw actorenkaart
+### a) Opbouw actorenkaart Vlaanderen
 
 ```{r actoren}
 ecosysteemkaart <- rast(file.path(hoofdfolder_data, "ecosysteemkaart_zonderzee.tif"))
@@ -2011,54 +2032,62 @@ df_resultaten <- results_actor %>%
   "Scenario 1" = "sc1_nieuw", "Scenario 2" = "sc2_nieuw", "Scenario 3" = "sc3_nieuw"))
 
 
-p <- ggplot(df_resultaten, aes(x = scenario, y = opp, fill = klasse)) +
-  geom_col(width = 0.55) +
-  scale_x_discrete(labels = c("Scen 1", "Scen 2", "Scen 3"), position = "top") +
-  scale_fill_manual(
-    values = c("10" = inbo_geel, "21" = inbo_groen, "22" = inbo_munt, "23" = inbo_rood, "30" = inbo_oranje),
-    labels = c("10" = "overheid", 
-               "21" = "privaat natuur",
-               "22" = "landbouw",
-               "23" = "residentieel",
-               "30" = "privaat overig")
-  ) +
-  # scale_y_continuous(
-    # expand = c(0, 0),
-    # limits = c(min(c(0, min(df_resultaten$opp) * 1.05, min(df_resultaten$opp_totaal) * 1.05)), 
-               # max(c(0, max(df_resultaten$opp) * 1.05, max(df_resultaten$opp_totaal) * 1.05)))
-  # ) +
-  labs(
-    title = str_c("Opp. betrokken actoren"),
-    x = NULL,
-    y = "hectare",
-    fill = NULL
-  ) +
-  theme_minimal() +
-  theme(
-    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
-    axis.line.x.top = element_blank(),
-    axis.ticks.x.top = element_blank(),
-    
-    # Compacte marges voor beperkte hoogte output
-    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
-    legend.key.size = unit(0.3, "cm")
-  ) +
-  facet_wrap(~ maatregel, scales = "free")
+# p <- ggplot(df_resultaten, aes(x = scenario, y = opp, fill = klasse)) +
+#   geom_col(width = 0.55) +
+#   scale_x_discrete(labels = c("Scen 1", "Scen 2", "Scen 3"), position = "top") +
+#   scale_fill_manual(
+#     values = c("10" = inbo_geel, "21" = inbo_groen, "22" = inbo_munt, "23" = inbo_rood, "30" = inbo_oranje),
+#     labels = c("10" = "overheid", 
+#                "21" = "privaat natuur",
+#                "22" = "landbouw",
+#                "23" = "residentieel",
+#                "30" = "privaat overig")
+#   ) +
+#   # scale_y_continuous(
+#     # expand = c(0, 0),
+#     # limits = c(min(c(0, min(df_resultaten$opp) * 1.05, min(df_resultaten$opp_totaal) * 1.05)), 
+#                # max(c(0, max(df_resultaten$opp) * 1.05, max(df_resultaten$opp_totaal) * 1.05)))
+#   # ) +
+#   labs(
+#     title = str_c("Opp. betrokken actoren"),
+#     x = NULL,
+#     y = "hectare",
+#     fill = NULL
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+#     axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+#     axis.line.x.top = element_blank(),
+#     axis.ticks.x.top = element_blank(),
+#     
+#     # Compacte marges voor beperkte hoogte output
+#     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+#     legend.position = "right",
+#     legend.text = element_text(size = 8),
+#     legend.key.size = unit(0.3, "cm")
+#   ) +
+#   facet_wrap(~ maatregel, scales = "free")
+# 
+# p
 
-p
+
+
+```
+
+#### Grafieken
+
+```{r grafiekactoren}
 
 #////////////////////////////////////
 # Grafieken per maatregel apart
 #////////////////////////////////////
 
-kiesmaatregel <- "natte natuur"
+kiesmaatregel <- "ontharding"
 
 p <- ggplot(df_resultaten |> filter(maatregel == kiesmaatregel), aes(x = scenario, y = opp, fill = klasse)) +
   geom_col(width = 0.55) +
-  scale_x_discrete(labels = c("Scen 1", "Scen 2", "Scen 3"), position = "top") +
+  scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3"), position = "bottom") +
   scale_fill_manual(
     values = c("10" = inbo_geel, "21" = inbo_groen, "22" = inbo_munt, "23" = inbo_rood, "30" = inbo_oranje),
     labels = c("10" = "overheid", 
@@ -2068,30 +2097,47 @@ p <- ggplot(df_resultaten |> filter(maatregel == kiesmaatregel), aes(x = scenari
                "30" = "privaat overig")
   ) +
   labs(
-    title = str_c("Opp. betrokken actoren bij ", kiesmaatregel),
+    # title = str_c("Opp. betrokken actoren bij nieuwe natuur"),
+    # title = str_c("Opp. betrokken actoren bij ", kiesmaatregel),
     x = NULL,
-    y = "hectare",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
 
 p
 
-library(ggbreak)
 
-p + scale_y_break(c(2500, 7500)) # aanpassen aan maximum
+p2 <- p + 
+  scale_y_continuous(breaks = c(0, 1000, 1500, 8000, 9000)) +
+  scale_y_break(c(2000, 8000), space = 0.2)
+
+p2
+
+ggsave(
+  filename = file.path(result_path, "actor_ontharding.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 
 
 print(p)
@@ -2101,9 +2147,6 @@ print(p)
 ## 5) Dedrainage
 
 ```{r dedrainage}
-
-studiegebied <- "kleine_nete"
-
 
 data <- readRDS(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/results_dedrainage.rds"))
 
@@ -2159,27 +2202,46 @@ p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
     expand = c(0, 0),
     limits = c(min(c(0, min(df_long$volume) * 1.05, min(df_long$Waarde) * 1.05)), 
                max(c(0, max(df_long$volume) * 1.05, max(df_long$Waarde) * 1.05))),
-    labels = label_percent(scale = 1)
+    # labels = label_percent(scale = 1),
+    # labels = function(x) {
+    #   # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+    #   raw_labels <- label_percent(scale = 1, accuracy = 1)(x)
+    #   # vul elk label op met spaties tot 5 tekens breedte
+    #   sprintf("%5s", raw_labels)
+    # }
   ) +
   labs(
-    title = str_c("Toename grondwatervolume t.o.v. de huidige toestand"),
+    # title = str_c("Toename grondwatervolume t.o.v. de huidige toestand"),
     x = NULL,
-    y = "miljoen m³",
+    y = NULL,
     fill = NULL
   ) +
   theme_minimal() +
   theme(
     #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
-    axis.text.x.top = element_text(face = "bold", size = 9, color = "black", vjust = 0.5, margin = margin(b = 6, unit = "pt")),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
     axis.line.x.top = element_blank(),
     axis.ticks.x.top = element_blank(),
     
     # Compacte marges voor beperkte hoogte output
     plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
     legend.key.size = unit(0.3, "cm")
   )
+
 print(p)
 
+ggsave(
+  filename = file.path(result_path, "dedrainage.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 ```
