@@ -2378,3 +2378,245 @@ ggsave(
   scaling = 0.7, # om labels te verkleinen,
   bg = "white" # voor een witte achtergrond, anders transparant
 )
+```
+
+# 3. Overzichtstabel
+
+```{r erosie tabel, echo = FALSE, warning = FALSE, message = FALSE}
+
+# ==========================================
+# STAP 1: Resultaten inladen
+# ==========================================
+scen1 <- rast(file.path(result_path, "scen1_ecosysteem_finaal.tif"))
+scen2 <- rast(file.path(result_path, "scen2_ecosysteem_finaal.tif"))
+scen3_bos <- rast(file.path(result_path, "scen3_bos_ecosysteem_finaal.tif"))
+scen3_gras <- rast(file.path(result_path, "scen3_gras_ecosysteem_finaal.tif"))
+start_ecosysteem <- rast(file.path(result_path, "ecosysteem_2022_upd.tif"))
+
+scen1_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc1.tif"))
+scen2_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc2.tif"))
+scen3_bos_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_bos.tif"))
+scen3_gras_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_gras.tif"))
+start_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_start.tif"))
+
+scen1_dedrain <- rast(file.path(data_path, "sc1_dedrain_cellen.tif"))
+scen2_dedrain <- rast(file.path(data_path, "sc2_dedrain_cellen.tif"))
+scen3_dedrain <- rast(file.path(data_path, "sc3_dedrain_cellen_25.tif"))
+
+scen1_infilt <- rast(file.path(data_path, "sc1_infilt_cellen.tif"))
+scen2_infilt <- rast(file.path(data_path, "sc2_infilt_cellen.tif"))
+scen3_infilt <- rast(file.path(data_path, "sc3_25_infilt_cellen.tif"))
+
+overstromingsgebied <- rast(file.path(data_path,"overstromingsdiepte_t100_flu_plu.tif"))|> 
+  as.factor() |> 
+  project(start_ecosysteem, method = "bilinear") |> 
+  mask(start_ecosysteem)
+overstromingsgebied <- ifel(is.na(overstromingsgebied), 0, 1)
+
+voedingsgebied <- rast(file.path(data_path,"voedingsgebied_fin.tif"))|> 
+  as.factor() 
+crs(voedingsgebied) <- "EPSG:31370"
+voedingsgebied <- voedingsgebied |> 
+  project(start_ecosysteem, method = "near") |> 
+  mask(start_ecosysteem)
+voedingsgebied <- ifel(is.na(voedingsgebied), 0, 1)
+
+afstroomgebied <- rast(file.path(result_path, "afstroomgebied_5m_crs.tif")) |> 
+  as.factor() |> 
+  project(ref_raster, method = "near") |> 
+  mask(ref_raster)
+afstroomgebied <- ifel(is.na(afstroomgebied), 0, 1)
+
+bos_droog <- c(400, 401, 402, 403, 404)
+open_natuur_droog <- c(302, 501, 601, 1102, 1103)
+groen_urbaan <- c(103, 104)
+bos_nat <- c(410, 420)
+open_natuur_nat <- c(320, 701, 702, 901, 902)
+
+start_bos <- ifel(start_lu %in% bos_droog & start_kle == 0, 1, 0)
+scen1_bos <- ifel(scen1_lu %in% bos_droog & scen1_kle == 0 & start_bos == 0, 1, 0)
+scen2_bos <- ifel(scen2_lu %in% bos_droog & scen2_kle == 0 & start_bos == 0, 1, 0)
+scen3_bos_bos <- ifel(scen3_bos_lu %in% bos_droog & scen3_bos_kle == 0 & start_bos == 0, 1, 0)
+scen3_gras_bos <- ifel(scen3_gras_lu %in% bos_droog & scen3_gras_kle == 0 & start_bos == 0, 1, 0)
+
+start_open <- ifel(start_lu %in% open_natuur_droog & start_kle == 0, 2, 0)
+scen1_open <- ifel(scen1_lu %in% open_natuur_droog & scen1_kle == 0 & start_open == 0, 2, 0)
+scen2_open <- ifel(scen2_lu %in% open_natuur_droog & scen2_kle == 0 & start_open == 0, 2, 0)
+scen3_bos_open <- ifel(scen3_bos_lu %in% open_natuur_droog & scen3_bos_kle == 0 & start_open == 0, 2, 0)
+scen3_gras_open <- ifel(scen3_gras_lu %in% open_natuur_droog & scen3_gras_kle == 0 & start_open == 0, 2, 0)
+
+start_bos_nat <- ifel(start_lu %in% bos_nat & start_kle == 0, 3, 0)
+scen1_bos_nat <- ifel(scen1_lu %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 3, 0)
+scen2_bos_nat <- ifel(scen2_lu %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 3, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos_lu %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 3, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras_lu %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 3, 0)
+
+start_open_nat <- ifel(start_lu %in% open_natuur_nat & start_kle == 0, 4, 0)
+scen1_open_nat <- ifel(scen1_lu %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 4, 0)
+scen2_open_nat <- ifel(scen2_lu %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 4, 0)
+scen3_bos_open_nat <- ifel(scen3_bos_lu %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 4, 0)
+scen3_gras_open_nat <- ifel(scen3_gras_lu %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 4, 0)
+
+start_urbaan <- ifel(start_lu %in% groen_urbaan, 5, 0)
+scen1_urbaan <- ifel(scen1_lu %in% groen_urbaan & start_urbaan == 0, 5, 0)
+scen2_urbaan <- ifel(scen2_lu %in% groen_urbaan & start_urbaan == 0, 5, 0)
+scen3_bos_urbaan <- ifel(scen3_bos_lu %in% groen_urbaan & start_urbaan == 0, 5, 0)
+scen3_gras_urbaan <- ifel(scen3_gras_lu %in% groen_urbaan & start_urbaan == 0, 5, 0)
+
+scen1_lu <- scen1_bos + scen1_open + scen1_bos_nat + scen1_open_nat + 
+  scen1_urbaan 
+scen1_lu <- ifel(scen1_lu == 0, NA, scen1_lu) |> 
+  as.factor()
+
+scen2_lu <- scen2_bos + scen2_open + scen2_bos_nat + scen2_open_nat + 
+  scen2_urbaan 
+scen2_lu <- ifel(scen2_lu == 0, NA, scen2_lu) |> 
+  as.factor()
+
+scen3_bos_lu <- scen3_bos_bos + scen3_bos_open + scen3_bos_bos_nat + scen3_bos_open_nat + 
+  scen3_bos_urbaan 
+scen3_bos_lu <- ifel(scen3_bos_lu == 0, NA, scen3_bos_lu) |> 
+  as.factor()
+
+scen3_gras_lu <- scen3_gras_bos + scen3_gras_open + scen3_gras_bos_nat + scen3_gras_open_nat + 
+  scen3_gras_urbaan 
+scen3_gras_lu <- ifel(scen3_gras_lu == 0, NA, scen3_gras_lu) |> 
+  as.factor()
+
+start_lu <- start_bos + start_open + start_bos_nat + start_open_nat + 
+  start_urbaan 
+start_lu <- ifel(start_lu == 0, NA, start_lu) |> 
+  as.factor()
+
+# ==========================================
+# STAP 2: oppervlaktes per lu berekenen
+# ==========================================
+# 1. kaarten groeperen in lijsten
+lu_lijst <- list(scen1_lu, scen2_lu, scen3_bos_lu, scen3_gras_lu, start_lu)
+kle_lijst <- list(scen1_kle, scen2_kle, scen3_bos_kle, scen3_gras_kle, start_kle)
+inf_lijst <- list(scen1_infilt, scen2_infilt, scen3_infilt, scen3_infilt)
+dedr_lijst <- list(scen1_dedrain, scen2_dedrain, scen3_dedrain, scen3_dedrain)
+
+# 2. referentietabel met gewenste deelindicatoren in de juiste volgorde
+ref_tabel <- data.frame(
+  deelindicator = c(
+    "lu_droog_bos", "lu_droog_open", "lu_nat_bos", "lu_nat_open", "lu_nat_urbaan", "lu_kle_afstroom", "lu_kle_rest", "lu_infiltratie_voeding", "lu_infiltratie_rest", "lu_dedrainage_voeding", "lu_dedrainage_rest", "lu_overstroming" 
+  )
+)
+
+# 3. functie voor berekening per scenario in totale waarde (ton DS)
+bereken_scenario <- function(lu_raster, afstroom_raster, voeding_raster, kle_raster, infiltratie_raster, dedrainage_raster, overstroming_raster, naam_kolom) {
+  
+  # A. som per natuurtype (codes 1 t/m 5)
+  df_lu <- freq(lu_raster) %>%
+    select(code = value, count) %>%
+    mutate(waarde = count/100) %>%
+    mutate(deelindicator = recode(as.character(code),
+      "1" = "lu_droog_bos",
+      "2" = "lu_droog_open",
+      "3" = "lu_nat_bos",
+      "4" = "lu_nat_open",
+      "5" = "lu_nat_urbaan"
+    )) %>%
+    select(deelindicator, waarde)
+  
+  # B. som kle binnen (1) en buiten (0) afstroomgebied
+  zonal_kle <- zonal(kle_raster, afstroom_raster, fun = "sum", na.rm = TRUE)
+  colnames(zonal_kle) <- c("code", "waarde")
+  
+  df_kle <- zonal_kle %>%
+    mutate(deelindicator = recode(as.character(code),
+      "1" = "lu_kle_afstroom",
+      "0" = "lu_kle_rest"
+    )) %>%
+    mutate(waarde = waarde/100)  %>% 
+    select(deelindicator, waarde)
+  
+  # C. som infiltratievoorziening binnen en buiten voedingsgebied
+  zonal_inf <- zonal(infiltratie_raster, voeding_raster, fun = "sum", na.rm = TRUE)
+  colnames(zonal_inf) <- c("code", "waarde")
+  
+  df_inf <- zonal_inf %>%
+    mutate(deelindicator = recode(as.character(code),
+      "1" = "lu_infiltratie_voeding",
+      "0" = "lu_infiltratie_rest"
+    )) %>%
+    mutate(waarde = waarde/100)  %>% 
+    select(deelindicator, waarde)
+  
+  # D. som dedrainagevoorziening binnen en buiten voedingsgebied
+  zonal_dedr <- zonal(dedrainage_raster, voeding_raster, fun = "sum", na.rm = TRUE)
+  colnames(zonal_dedr) <- c("code", "waarde")
+  
+  df_dedr <- zonal_dedr %>%
+    mutate(deelindicator = recode(as.character(code),
+      "1" = "lu_dedrainage_voeding",
+      "0" = "lu_dedrainage_rest"
+    )) %>%
+    mutate(waarde = waarde/100)  %>% 
+    select(deelindicator, waarde)
+  
+  # E. som overstromingsgebied
+  overstr <- global(overstroming_raster, fun = "sum", na.rm = TRUE)$sum/100
+  df_overstr <- data.frame(deelindicator = "lu_overstroming", waarde = overstr)
+  
+  # F. combineer alles voor dit scenario en geef de kolom de juiste naam
+  res_scenario <- bind_rows(df_lu, df_kle, df_inf, df_dedr, df_overstr)
+  colnames(res_scenario)[2] <- naam_kolom
+  
+  return(res_scenario)
+}
+
+# 4. voer de berekening uit voor elk scenario
+res1 <- bereken_scenario(lu_lijst[[1]], afstroomgebied, voedingsgebied, kle_lijst[[1]], inf_lijst[[1]], dedr_lijst[[1]], overstromingsgebied, "scen1")
+res2 <- bereken_scenario(lu_lijst[[2]], afstroomgebied, voedingsgebied, kle_lijst[[2]], inf_lijst[[2]], dedr_lijst[[2]], overstromingsgebied, "scen2")
+res3 <- bereken_scenario(lu_lijst[[3]], afstroomgebied, voedingsgebied, kle_lijst[[3]], inf_lijst[[3]], dedr_lijst[[3]], overstromingsgebied, "scen3_bos")
+res4 <- bereken_scenario(lu_lijst[[4]], afstroomgebied, voedingsgebied, kle_lijst[[4]], inf_lijst[[4]], dedr_lijst[[4]], overstromingsgebied, "scen3_gras")
+res5 <- bereken_scenario(lu_lijst[[5]], afstroomgebied, voedingsgebied, kle_lijst[[5]], inf_lijst[[4]], dedr_lijst[[4]], overstromingsgebied, "start")
+
+# 5. voeg de resultaten samen op basis van de referentietabel (voor juiste volgorde)
+eindtabel <- ref_tabel %>%
+  left_join(res1, by = "deelindicator") %>%
+  left_join(res2, by = "deelindicator") %>%
+  left_join(res3, by = "deelindicator") %>%
+  left_join(res4, by = "deelindicator") %>%
+  left_join(res5, by = "deelindicator")
+
+# 6. voeg een kolom met de eenheid toe + groepeer deelindicatoren per indicator
+tabel_ha <- eindtabel %>%
+  mutate(eenh = "ha", .after = deelindicator) |> 
+  mutate(indicator = recode(deelindicator, 
+                            "lu_nat_bos" = "lu_nieuwe_natuur_nat",
+                            "lu_nat_open" = "lu_nieuwe_natuur_nat",
+                            "lu_droog_bos" = "lu_nieuwe_natuur_droog",
+                            "lu_droog_open" = "lu_nieuwe_natuur_droog",
+                            "lu_urbaan" = "lu_nieuwe_natuur_urbaan",
+                            "lu_kle_afstroom" = "lu_kle",
+                            "lu_kle_rest" = "lu_kle",
+                            "lu_infiltratie_voeding" = "lu_infiltratie",
+                            "lu_infiltratie_rest" = "lu_infiltratie",
+                            "lu_dedrainage_voeding" = "lu_dedrainage",
+                            "lu_dedrainage_rest" = "lu_dedrainage",
+                            "lu_overstroming" = "lu_overstroming"), 
+         .before = deelindicator)
+
+# 7. maak een tweede tabel waarin alle scenariokolommen worden omgerekend naar %
+tabel_perc <- tabel_ha %>%
+  mutate(ref = sum(start, na.rm = TRUE), .by = indicator) |> 
+  mutate(
+    eenh = "perc_ref",
+    across(c(scen1, scen2, scen3_bos, scen3_gras), ~ (.x / ref) * 100), .after = deelindicator
+  ) |> 
+  dplyr::filter(!indicator %in% c("lu_infiltratie", "lu_dedrainage", "lu_overstroming" )) 
+
+
+# 8. plak beide tabellen onder elkaar
+tabel_fin <- bind_rows(tabel_ha, tabel_perc) |> 
+  mutate(case = "herk_mombeek", .before = indicator)|> 
+  select(-c(start))
+
+# ======================================================
+# STAP 3: Resultaat checken en wegschrijven naar csv
+# ======================================================
+view(tabel_fin)
+write.csv2(tabel_fin, file.path(result_path, "resultaten_lu.csv"), row.names = FALSE)
