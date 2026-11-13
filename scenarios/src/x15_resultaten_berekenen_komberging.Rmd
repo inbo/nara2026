@@ -19,15 +19,17 @@ library(reticulate)
 library(furrr)
 library(scales)
 library(exactextractr)
+library(whitebox)
+library(qgisprocess)
+library(INBOtheme)
 
-studiegebied <- "herk_mombeek"
+
+studiegebied <- "kleine_nete"
 
 result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/resultaten")
 ```
 
-Het script berekent het volume **komberging** per scenario. De komberging wordt bepaald door de combineerbaarheid van de ecosystemen en de waterdiepte bij overstromingen met een terugkeerperiode van 100 jaar (100).
-
-In het tweede deel maken we een inschatting van het effect van een **verminderde afstroming** (QF uit het InVestmodel Seasonal Water Yield) op het overstromingsrisico.
+Het script berekent het volume **komberging** per scenario. De komberging wordt bepaald door de combineerbaarheid van de ecosystemen en de waterdiepte bij overstromingen.
 
 ## 1. Data inladen en klaarmaken
 
@@ -37,23 +39,278 @@ De data zitten in een map "data" onder de folder van het `studiegebied` (rivierb
 > |    `scenarios.Rproj`
 > |    \|—– data
 > |    \|—– studiegebied
-> |          \|—– data -\>
-> |          \|—– output -\>
+> |          \|—– data -\> brondata specifiek voor studiegebied
+> |          \|—– output -\> resultaten scripts
+> |          \|—– temp -\> tijdelijke bestanden / tussenresultaten
+> |          \|—– resultaten -\> kaarten en figuren
+> |          \|—– shapes_natuur -\> natuurgebieden en veengebieden voor afbakening voedingsgebied
 > |    \|—– src -\> `x15_resultaten_berekenen_komberging.Rmd`
 
-## Deel 1 - Komberging
+## Komberging
 
-### Data compileren
+Het overstromingsrisico kan verkleind worden door water **langer vast te houden op het land** en in de waterlopen zodat piekafvoeren minder snel en hoog opbouwen en door **overstromingswater te bergen** in delen van de vallei waar de economische, sociale en ecologische schade lager is (komberging). De verandering in komberging berekenen we in het onderstaande script. De retentie op het land brengen we in beeld via het InVestmodel Seasonale Water Yield dat de procentuele afname van de oppervlakkige afstroming (quickflow) berekent.
+
+Als indicator voor de **komberging** gebruiken we de verandering van het bergingsvolume. Het bergingsvolume schatten we in door de overstromingsdiepte te vermenigvuldige met de oppervlakte van ecosystemen die combineerbaar zijn met overstromingen. Voor de overstromingsdiepte gebruiken we de kaart van de gemodelleerde waterdiepte bij overstromingen met een terugkeerperiode van 100 jaar (t100 - fluvial en pluviale overstromingen - zie script combineerbaarheid overstromingen). Omdat deze kaart gebaseerd is op het huidige water- en rivierbeheer, houden de overstromingscontouren geen rekening met herstelmaatregelen. Onder het huidige rivierbeheer zijn rivieren vaak overgedimensioneerd (te diep, te breed) waardoor een piekdebiet snel wordt afgevoerd en de rivier op die plaats niet overstroomt. Door rivierherstel verruwt de bedding van de waterloop (beddingverhoging, meandering, hout en waterplanten in de bedding) waardoor de piekafvoer afremt en de waterloop buiten haar oevers kan treden. Rivierherstel kan er dus voor zorgen dat overstromingszones ontstaan op plaatsen waar dat momenteel niet het geval is. Als dat gebeurt in bovenstrooms gelegen riviertrajecten, wordt het piekdebiet afgetopt waardoor de overstromingskans stroomafwaarts afneemt.
+
+Om de komberging door rivierherstel in rekening te brengen, moeten we de gemodelleerde overstromingskaarten dus uitbreiden met de nieuwe overstromingszones die (kunnen) ontstaan t.h.v. de zones met rivierherstel.
+
+We maken een inschatting van die nieuwe overstromingsgebieden door de relatieve hoogte van de vallei t.o.v. de rivier te bereken (HAND) en die op basis van een arbitraire maximale overstromingsdiepte af te toppen. Height Above Nearest Drainage (HAND) is een aangepast DHM waarin het natuurlijke verval van een rivier is verwijderd. Hierdoor wordt de rivierbedding weergegeven als een vlak referentievlak (0 meter) en toont elke cel de hoogte ten opzichte van de dichtstbijzijnde waterloop. Als maximale overstromingsdiepte nemen we 0.5 m.
+
+### 1. Overstromingsdiepte
+
+```{r}
+
+# Eenmalig uitvoeren als WhiteboxTools nog niet geïnstalleerd is:
+# whitebox::install_whitebox()
+wbt_init()
+
+#/////////////////////////
+# 1. Data inladen
+#/////////////////////////
+
+# Ecosysteemkaart als referentie
+ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_2022.tif"))
+
+gebied <- st_read(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/gebied.shp"), quiet = TRUE) |> st_transform(crs(ecosysteem_2022))
+
+# Herstelzone (beekherstel + vrijstromendheid)
+# sc1 (met veiligheid als een van de kaarten niet bestaat)
+paden <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/", c("sc1_vrijstromend.tif", "sc1_beekherstel.tif"))
+bestaand <- paden[file.exists(paden)]
+
+zone_sc1 <- Reduce(cover, lapply(bestaand, rast))
+  
+# sc2
+paden <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/", c("sc2_vrijstromend.tif", "sc2_beekherstel.tif"))
+bestaand <- paden[file.exists(paden)]
+
+zone_sc2 <- Reduce(cover, lapply(bestaand, rast))
+
+# sc3 (alleen vrijstromendheid)
+zone_sc3 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/sc3_vrijstromend.tif"))
+
+
+# DHM
+dhm <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/dhm.tif")) |> project(ecosysteem_2022, method = "near") |>
+  mask(ecosysteem_2022)
+
+# Rivieren - VHA selectie natuurlijke waterlopen
+vha_raw <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/wlas_owl.shp", quiet = TRUE)
+vha_raw <- vha_raw %>% select(CATC, BEHEER, CODTYPOWL, CODSTATOWL, NAAM)
+
+vha_select <- vha_raw %>%
+  dplyr::filter(CATC %in% c(1, 2, 3) & (is.na(BEHEER) | !grepl("^P", BEHEER)) & (CODSTATOWL != "KWL" | is.na(CODSTATOWL)) & !CODTYPOWL %in% c("Pz", "Pb"))
+
+vha <- st_transform(vha_select, crs(ecosysteem_2022))
+vha_gebied <- st_intersection(vha, gebied)
+
+
+# 3. VHA omzetten naar raster op hetzelfde grid als dhm
+# Een kleine buffer (bijv. 3 m) vangt kleine verschuivingen tussen VHA-as en DHM-geul op
+vha_buf <- st_buffer(vha_gebied, dist = 3)
+rivier_rast <- rasterize(vect(vha_buf), dhm, field = 1, background = 0)
+
+
+#/////////////////////////
+# 2. DHM aanpassen
+#/////////////////////////
+
+# Voor de berekening van de overstromingszone (zie verder) moet je een stijging van het waterpeil t.o.v. een referentiehoogte opgeven. In de standaardbenadering gebruik je daarvoor het wateroppervlak van de rivier. Omdat veel rivieren in Vlaanderen sterk zijn ingesneden, kan 1 m stijging in de ene rivier zorgen voor een overstroming, terwijl de oeverrand in een andere dieper ingesneden rivier niet bereikt wordt. Daarom gebruiken we de valleibodem als de referentiehoogte. Een stijging van het waterpeil zorgt dan in elke situatie tot een overstroming. Dat heeft het voordeel dat we de overstromingsdiepte in de vallei kunnen controleren via de opgegeven peilstijging.
+
+# 1. Definieer de ingesneden geul (bv. < 10 m van VHA)
+geul_mask   <- rasterize(vect(st_buffer(vha_gebied, 10)), dhm, field = 1)
+strook_mask <- rasterize(vect(st_buffer(vha_gebied, 40)), dhm, field = 1)
+
+# 2. Houd enkel het maaiveld in de oeverstrook over (10 tot 40 m naast de rivier)
+oever_dhm <- ifel(!is.na(strook_mask) & is.na(geul_mask) & dhm > 0, dhm, NA)
+
+# 3. Bereken de P10 dtm-waarde van de valleibodem
+qgis_result <- qgis_run_algorithm(
+  "grass:r.neighbors",
+  input = oever_dhm,
+  method = 15,
+  quantile = 0.1,
+  size = 5,
+)
+
+valleibodem_p10 <- qgis_as_terra(qgis_result)
+
+# 4. Vervang de dhm-waarde van de rivier door die van de valleibodem (opvullen rivieren)
+rivier_ref <- ifel(!is.na(geul_mask), valleibodem_p10, 0)
+
+dhm_opgevuld <- ifel(rivier_ref > 0, rivier_ref, dhm)
+
+# 5. Breach DTM (depressies opvullen)
+# Tussenbestanden wegschrijven
+tmp_dir <- tempdir()
+f_dhm      <- file.path(tmp_dir, "dhm_opgevuld.tif") # input
+f_rivier   <- file.path(tmp_dir, "rivier.tif") # input
+f_breached <- file.path(tmp_dir, "dhm_breached.tif") # output en input
+f_hand     <- file.path(tmp_dir, "hand.tif") #ƒ output
+
+writeRaster(dhm_opgevuld, f_dhm, datatype = "FLT4S", overwrite = TRUE)
+writeRaster(rivier_rast, f_rivier, datatype = "INT2S", overwrite = TRUE)
+
+wbt_breach_depressions_least_cost(
+  dem = f_dhm,
+  output = f_breached,
+  dist = 50,
+  fill = TRUE
+)
+
+breached <- rast(f_breached)
+
+#////////////////////////////////////////////////////
+# 3. HAND berekenen (Height Above Nearest Drainage)
+#////////////////////////////////////////////////////
+
+# 1. Run de HAND-tool met de aangepaste DHM
+wbt_elevation_above_stream(
+  dem = f_breached,
+  streams = f_rivier,
+  output = f_hand
+)
+
+hand <- rast(f_hand)
+
+
+#////////////////////////////////////////////////////
+# 4. Overstromingszone afbakenen
+#////////////////////////////////////////////////////
+
+# Drempelwaarde toepassen (bijv. +0.5 m waterpeilstijging)
+stijging_m <- 0.5
+potentiële_zone <- hand <= stijging_m
+
+# Verwijder geïsoleerde laagtes achter dijken die niet aan de rivier raken
+f_pot    <- file.path(tmp_dir, "potentieel.tif")
+f_clumps <- file.path(tmp_dir, "clumps.tif")
+
+writeRaster(ifel(potentiële_zone, 1, 0), f_pot, datatype = "INT1U", overwrite = TRUE)
+
+wbt_clump(
+  input = f_pot,
+  output = f_clumps,
+  diag = FALSE,     # gelijk aan directions = 8
+  zero_back = TRUE  # gelijk aan zeroAsNA = TRUE
+)
+
+clumps <- rast(f_clumps)
+
+rivier_mask <- ifel(rivier_rast == 1, 1, NA)
+
+verbonden_ids <- unique(values(mask(clumps, rivier_mask), mat = FALSE, na.rm = TRUE))
+overstromingszone <- ifel(clumps %in% verbonden_ids, 1, NA)
+
+
+#////////////////////////////////////////////////////
+# 5. Overstromingszone beperken tot herstelzone
+#////////////////////////////////////////////////////
+
+# 1. Zet de drie scenariozones in een lijst
+scenarios <- list(
+  sc1 = zone_sc1,
+  sc2 = zone_sc2,
+  sc3 = zone_sc3
+)
+
+rivier_volledig <- rasterize(vect(st_buffer(vha_gebied, 3)), overstromingszone, field = 1)
+
+# 3. Doorloop de drie scenario's
+for (sc_naam in names(scenarios)) {
+  message("Berekenen van overstromingsdiepte voor: ", sc_naam)
+  zone <- scenarios[[sc_naam]]
+  
+  # Sla scenario over als het raster leeg is of niet bestaat
+  if (is.null(zone) || global(zone, "notNA")[1, 1] == 0) {
+    message("  -> Geen actieve zone voor ", sc_naam, ", scenario overgeslagen.")
+    next
+  }
+  
+  # Zorg dat extent en grid exact overeenkomen met overstromingszone
+  if (!compareGeom(zone, overstromingszone, stopOnError = FALSE)) {
+    zone <- resample(zone, overstromingszone, method = "near")
+  }
+  
+  # A. Splits het rivier-raster in binnen en buiten de herstelzone
+  rivier_binnen <- ifel(!is.na(rivier_volledig) & !is.na(zone), 1, NA)
+  rivier_buiten <- ifel(!is.na(rivier_volledig) &  is.na(zone), 1, NA)
+  
+  # B. Buffer met platte uiteinden om overstroming stroomopwaarts van de bron te vermijden
+  zone_poly <- st_as_sf(as.polygons(zone, dissolve = TRUE))
+  zone_poly <- st_transform(zone_poly, st_crs(vha_gebied))
+  
+  vha_clip <- st_intersection(vha_gebied, zone_poly)
+  vha_clip <- st_collection_extract(vha_clip, "LINESTRING")
+  
+  vha_merged  <- st_line_merge(st_union(vha_clip))
+  rivier_plat <- st_buffer(vha_merged, dist = 500, endCapStyle = "FLAT")
+  plat_mask   <- rasterize(vect(rivier_plat), overstromingszone, field = 1)
+  
+  # C. Combineer afstandvergelijking met het masker
+  if (global(rivier_buiten, "notNA")[1, 1] > 0) {
+    d_binnen <- terra::distance(rivier_binnen)
+    d_buiten <- terra::distance(rivier_buiten)
+    eindresultaat <- ifel(d_binnen < d_buiten & !is.na(plat_mask), overstromingszone, NA)
+  } else {
+    # Als de herstelzone de volledige rivier in het gebied omvat, bestaat er geen 'rivier_buiten'
+    eindresultaat <- ifel(!is.na(plat_mask), overstromingszone, NA)
+  }
+  
+  # D. Bereken de overstromingsdiepte en schrijf weg
+  overstromingsdiepte <- stijging_m - eindresultaat * hand
+  
+  uitvoer_pad <- str_c(
+    "C:/R/NARA2026/nara2026-git/scenarios/", studiegebied,
+    "/temp/overstromingsdiepte_hand_", sc_naam, ".tif"
+  )
+  writeRaster(overstromingsdiepte, uitvoer_pad, datatype = "FLT4S", overwrite = TRUE)
+}
+
+
+# Opkuisen tijdelijke bestanden
+unlink(list.files(tempdir(), full.names = TRUE))
+terra::tmpFiles(remove = TRUE)  # ruimt ook interne terra-tussenbestanden op
+```
+
+### 2. Komberging
 
 ```{r komberging}
-
 # ------------------------------------------------------------
-# 1. Parameters definiëren en kaarten inladen
+# 1. Parameters definiëren en basiskaart inladen
 # ------------------------------------------------------------
 
-waterdiepte <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/overstromingsdiepte_t100_flu_plu.tif"))
+base_dir      <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied)
+scenarios_dir <- file.path(base_dir, "output")
 
-scenarios_dir <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+diepte_t100 <- rast(file.path(base_dir, "data/overstromingsdiepte_t100_flu_plu.tif"))
+
+# Hulpfunctie om per scenario de juiste waterdieptekaart samen te stellen
+bepaal_waterdiepte <- function(scenario_naam) {
+  if (scenario_naam == "referentie") {
+    return(diepte_t100)
+  }
+  
+  hand_code <- dplyr::case_when(
+    scenario_naam == "scen1"       ~ "sc1",
+    scenario_naam == "scen2"       ~ "sc2",
+    grepl("^scen3", scenario_naam) ~ "sc3",
+    TRUE                           ~ NA_character_
+  )
+  
+  hand_pad <- file.path(base_dir, "temp", paste0("overstromingsdiepte_hand_", hand_code, ".tif"))
+  
+  if (!is.na(hand_code) && file.exists(hand_pad)) {
+    diepte_hand <- rast(hand_pad)
+    if (!compareGeom(diepte_t100, diepte_hand, stopOnError = FALSE)) {
+      diepte_hand <- resample(diepte_hand, diepte_t100, method = "bilinear")
+    }
+    return(ifel(is.na(diepte_t100) & !is.na(diepte_hand), diepte_hand, diepte_t100))
+  } else {
+    warning("Geen HAND-dieptekaart gevonden voor ", scenario_naam, "; enkel diepte_t100 gebruikt.")
+    return(diepte_t100)
+  }
+}
 
 tif_bestanden <- list.files(scenarios_dir, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
 tif_bestanden <- tif_bestanden[grepl("^(scen1_ecosysteem_finaal|scen2_ecosysteem_finaal|scen3_75_ecosysteem_finaal|scen3_bos_ecosysteem_finaal|scen3_gras_ecosysteem_finaal|ecosysteem_2022_upd)", basename(tif_bestanden))]
@@ -62,7 +319,13 @@ tif_bestanden <- tif_bestanden[grepl("^(scen1_ecosysteem_finaal|scen2_ecosysteem
 # 2. Lege tabel voor de resultaten
 # ------------------------------------------------------------
 
-resultaat <- tibble(scenario = character(), volume_natuur = numeric(), volume_nat = numeric())
+resultaat <- tibble(
+  scenario      = character(),
+  volume_natuur = numeric(),
+  volume_nat    = numeric(),
+  volume_lb     = numeric(),
+  volume_rest   = numeric()
+)
 
 # ------------------------------------------------------------
 # 3. Loop door de kaarten
@@ -72,13 +335,17 @@ for (kaart in tif_bestanden) {
   
   bestandsnaam <- basename(kaart)
   
-  if (bestandsnaam == "ecosysteem_2022.tif") {scenario <- "referentie"} 
-  else {scenario <- sub("_ecosysteem_finaal\\.tif$", "", bestandsnaam)}
+  if (grepl("^ecosysteem_2022", bestandsnaam)) {
+    scenario <- "referentie"
+  } else {
+    scenario <- sub("_ecosysteem_finaal\\.tif$", "", bestandsnaam)
+  }
   
-  ecosysteem <- rast(kaart)
+  waterdiepte <- bepaal_waterdiepte(scenario)
+  ecosysteem  <- rast(kaart)
   
   # Kaart maken van de combineerbaarheid met overstromingen
-
+  
   # Natuurklassen (zonder rivieren)
   eco_combi <- ifel(
     ecosysteem %in% c(
@@ -90,52 +357,48 @@ for (kaart in tif_bestanden) {
     ecosysteem %in% c(
       320, 410, 420, 701, 702, 901, 902), 1, NA)
   
+  # Grasland landbouw/hobbyweiden
   landbouw <- ifel(
     ecosysteem %in% c(
-      201, 202, 203, 204, 205, 301, 2005, 2015, 2025, 2035,
-      3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335), 1, NA)
+      300, 301, 3005, 3015, 3025, 3035), 1, NA)
   
-  rest <- ifel(is.na(eco_combi) & is.na(landbouw), 1 , NA)
+  # landbouw <- ifel(
+  #   ecosysteem %in% c(
+  #     201, 202, 203, 204, 205, 301, 2005, 2015, 2025, 2035,
+  #     3005, 3015, 3025, 3035, 2305, 2315, 2325, 2335), 1, NA)
   
-  # watervolume per cel
-  berging_natuur <- waterdiepte * eco_combi * 100
+  rest <- ifel(is.na(eco_combi) & is.na(landbouw), 1, NA)
+  
+  # Watervolume per cel (100 m² per cel)
+  berging_natuur       <- waterdiepte * eco_combi * 100
   berging_natte_natuur <- waterdiepte * eco_nat * 100
-  berging_landbouw <- waterdiepte * landbouw * 100
-  berging_rest <- waterdiepte * rest * 100
+  berging_landbouw     <- waterdiepte * landbouw * 100
+  berging_rest         <- waterdiepte * rest * 100
   
   # Totaal bergingsvolume in miljoen m³
   volume_natuur <- round(pull(global(berging_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
-  volume_nat <- round(pull(global(berging_natte_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
-  volume_lb <- round(pull(global(berging_landbouw, "sum", na.rm = TRUE)) / 1000000, 0)
-  volume_rest <- round(pull(global(berging_rest, "sum", na.rm = TRUE)) / 1000000, 0)
+  volume_nat    <- round(pull(global(berging_natte_natuur, "sum", na.rm = TRUE)) / 1000000, 0)
+  volume_lb     <- round(pull(global(berging_landbouw, "sum", na.rm = TRUE)) / 1000000, 0)
+  volume_rest   <- round(pull(global(berging_rest, "sum", na.rm = TRUE)) / 1000000, 0)
+  
   # Resultaat toevoegen aan dataframe
-  resultaat <- bind_rows(resultaat, tibble(scenario = scenario, volume_natuur = volume_natuur, volume_nat = volume_nat, volume_lb = volume_lb, volume_rest = volume_rest))
+  resultaat <- bind_rows(
+    resultaat,
+    tibble(
+      scenario      = scenario,
+      volume_natuur = volume_natuur,
+      volume_nat    = volume_nat,
+      volume_lb     = volume_lb,
+      volume_rest   = volume_rest
+    )
+  )
 }
 
-# df_resultaten <- resultaat |>
-#   mutate(scenario = fct_recode(scenario,
-#                                "Referentie" = "ecosysteem_2022_upd.tif",
-#                                "Scenario 1"      = "scen1",
-#                                "Scenario 2"      = "scen2",
-#                                "Scenario 3 gras" = "scen3_gras",
-#                                "Scenario 3 bos"  = "scen3_bos",
-#                                "Scenario 3 75%"  = "scen3_75"
-#   ),
-#   volume_droog = volume_natuur - volume_nat) %>%
-#   mutate(
-#     ref_natuur = ifelse(any(scenario == "Referentie"), 
-#                         volume_natuur[scenario == "Referentie"], 
-#                         NA),
-#     pct_nat = 100 * ((volume_natuur - ref_natuur) / ref_natuur) * (volume_nat / volume_natuur),
-#     pct_droog = 100 * ((volume_natuur - ref_natuur)  / ref_natuur) * (volume_droog / volume_natuur)
-#   ) %>%
-#   ungroup() |> 
-#   select(scenario, pct_nat, pct_droog, volume_natuur)
 
 
 df_resultaten_vol <- resultaat |> 
   mutate(scenario = fct_recode(scenario,
-                               "Referentie" = "ecosysteem_2022_upd.tif",
+                               "Referentie" = "referentie",
                                "Scenario 1"      = "scen1",
                                "Scenario 2"      = "scen2",
                                "Scenario 3 gras" = "scen3_gras",
@@ -146,7 +409,8 @@ df_resultaten_vol <- resultaat |>
   volume_totaal = volume_natuur + volume_lb + volume_rest,
   pct_nat = 100 * volume_nat / volume_totaal,
   pct_droog = 100 * volume_droog / volume_totaal,
-  pct_natuur = 100 * volume_natuur / volume_totaal
+  pct_natuur = 100 * volume_natuur / volume_totaal,
+  pct_landbouw = 100 * volume_lb / volume_totaal
   )
 ```
 
@@ -160,19 +424,19 @@ pct_huidig <- df_resultaten_vol |>
 
 df_resultaten_subset <- df_resultaten_vol |> 
   filter(!scenario %in% c("Scenario 3 75%", "Scenario 3 bos", "Referentie")) |> 
-  select("scenario", "pct_nat", "pct_droog") |> 
-  bind_rows(data.frame(scenario = "blanco", pct_nat = NA, pct_droog = NA)) %>%
+  select("scenario", "pct_nat", "pct_droog", "pct_landbouw") |> 
+  bind_rows(data.frame(scenario = "blanco", pct_nat = NA, pct_droog = NA, pct_landbouw = NA)) %>%
   mutate(scenario = fct_inorder(scenario))
 
 df_long <- df_resultaten_subset %>%
   pivot_longer(
-    cols = c("pct_nat", "pct_droog"),
+    cols = c("pct_nat", "pct_droog", "pct_landbouw"),
     names_to = "Type",
     values_to = "Waarde"
   ) %>%
   mutate(
-    # Volgorde in de staaf: binnen_voeding_pc eerst (links/basis)
-    Type = factor(Type, levels = c("pct_droog", "pct_nat")),
+    # Volgorde in de staaf: onderaan pct_nat (links/basis)
+    Type = factor(Type, levels = c("pct_landbouw", "pct_droog", "pct_nat")),
     Label_Tekst = sprintf("%d%%", round(Waarde))
   ) %>%
   # Bereken de middenpositie van elk segment voor het tekstlabel
@@ -187,18 +451,13 @@ df_long <- df_resultaten_subset %>%
 
 p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
   geom_col(width = 0.55) +
-  # geom_text(
-  #   aes(y = Positie_Y, label = Label_Tekst),
-  #   color = "white",
-  #   fontface = "bold",
-  #   size = 3.0
-  # ) +
   geom_hline(yintercept = pct_huidig, linetype = "dashed", color = "red") +
   scale_x_discrete(labels = c("Scenario 1", "Scenario 2", "Scenario 3", ""), position = "top") +
   scale_fill_manual(
-    values = c("pct_nat" = inbo_steun_blauw, "pct_droog" = inbo_geel),
+    values = c("pct_nat" = inbo_steun_blauw, "pct_droog" = inbo_geel, "pct_landbouw" = inbo_kaki),
     labels = c("pct_nat" = "natte natuur", 
-               "pct_droog" = "overige natuur")
+               "pct_droog" = "overige natuur",
+               "pct_landbouw" = "ander grasland")
   ) +
   scale_y_continuous(
     expand = c(0, 0),
@@ -248,5 +507,3 @@ ggsave(
   scaling = 0.6 # om labels te verkleinen
 )
 ```
-
-## 
