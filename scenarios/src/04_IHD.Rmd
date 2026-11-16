@@ -66,7 +66,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "rivierbeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -82,7 +82,7 @@ search_paths <- c(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "
 
 ### 1.2. Data inladen
 
-Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **lu_niv2** en ze de kaarten in de Global environment.
+Het script laadt alle bestanden in de lijst `targets` in, zet de extent en de crs van alle rasters om naar die van de kaart **ecosysteem_2022** en ze de kaarten in de Global environment.
 
 ```{r data, message=FALSE, warning=FALSE }
 
@@ -594,9 +594,15 @@ vha_buffer <- ifel(r_cost_dist <= max_cost, 1, NA)
 
 # Kaart Vlaanderen clippen met studiegebied en verrasteren
 # Alleen leefgebieden in case
-gebied <- st_transform(gebied, crs(zonering_vha))
-leefgebied_case <- st_intersection(zonering_vha, gebied)
-leefgebied_r <- rasterize(leefgebied_case, ecosysteem_2022, touches = TRUE, field = "Zonering") %>% project(ecosysteem_2022)
+gebied <- st_transform(gebied, st_crs(zonering_vha))
+
+leefgebied_case <- st_intersection(zonering_vha, gebied) %>%
+  st_make_valid() %>%
+  st_collection_extract("LINESTRING") %>%
+  filter(!st_is_empty(.)) %>% 
+  st_transform(st_crs(ecosysteem_2022))
+
+leefgebied_r <- rasterize(vect(leefgebied_case), ecosysteem_2022, field = "Zonering", touches = TRUE)
 
 # Scenariostap ///////////////////////////////////////////////////////////////////
 # selecteer scores voor bevergebied (kernleefgebied = 1, maatwerk = 2)
@@ -1408,8 +1414,13 @@ sc1_beekherstel <- ifel(r_cost_dist <= max_cost, 10, NA)
 
 # Kaart Vlaanderen clippen met studiegebied en verrasteren
 # Alleen leefgebieden in case
-leefgebied_case <- st_intersection(zonering_vha, gebied)
-leefgebied_r <- rasterize(leefgebied_case, ecosysteem_2022, touches = TRUE, field = "Zonering") %>% project(ecosysteem_2022)
+leefgebied_case <- st_intersection(zonering_vha, gebied) %>%
+  st_make_valid() %>%
+  st_collection_extract("LINESTRING") %>%
+  filter(!st_is_empty(.)) %>% 
+  st_transform(st_crs(ecosysteem_2022))
+
+leefgebied_r <- rasterize(vect(leefgebied_case), ecosysteem_2022, field = "Zonering", touches = TRUE)
 
 # Scenariostap ///////////////////////////////////////////////////////////////////
 # selecteer scores voor bevergebied (kernleefgebied = 1, maatwerk = 2)
@@ -1467,6 +1478,8 @@ sc2_patches <- patches(sc2_mask, directions = 8)
 f <- freq(sc2_patches)
 sc2_patches_clean <- sc2_patches
 # sc2_patches_clean[sc2_patches_clean %in% f$value[f$count <= 10]] <- NA
+
+te_verwijderen <- f$value[f$count <= 10]
 
 if (length(f$value[f$count <= 10]) > 0) {
   sc2_patches_clean[sc2_patches_clean %in% te_verwijderen] <- NA
@@ -2135,8 +2148,13 @@ In scenario 3 mag bever dammen bouwen in de kernleefgebieden en maatwerkgebieden
 
 # Kaart Vlaanderen clippen met studiegebied en verrasteren
 # Alleen leefgebieden in case
-leefgebied_case <- st_intersection(zonering_vha, gebied)
-leefgebied_r <- rasterize(leefgebied_case, ecosysteem_2022, touches = TRUE, field = "Zonering") %>% project(ecosysteem_2022)
+leefgebied_case <- st_intersection(zonering_vha, gebied) %>%
+  st_make_valid() %>%
+  st_collection_extract("LINESTRING") %>%
+  filter(!st_is_empty(.)) %>% 
+  st_transform(st_crs(ecosysteem_2022))
+
+leefgebied_r <- rasterize(vect(leefgebied_case), ecosysteem_2022, field = "Zonering", touches = TRUE)
 
 # Scenariostap ///////////////////////////////////////////////////////////////////
 # selecteer scores voor bevergebied (kernleefgebied = 1, maatwerk = 2)
@@ -2581,13 +2599,29 @@ rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherste
 outdir <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/temp/")
 
 # Alle rasters afzonderlijk opslaan
+
+ontbrekende_rasters <- character() # Lijst om overgeslagen bestanden bij te houden
+
 for (nm in rasters) {
+  if (!exists(nm)) {
+    warning(str_c("Ontbreekt in environment: '", nm, "' (overgeslagen)"))
+    ontbrekende_rasters <- c(ontbrekende_rasters, nm)
+    next
+  }
+  
   writeRaster(
     get(nm),
     filename = file.path(outdir, paste0(nm, ".tif")),
     overwrite = TRUE
   )
+  message(str_c("Succesvol weggeschreven: ", nm, ".tif"))
 }
+
+if (length(ontbrekende_rasters) > 0) {
+  message("\nLet op: de volgende ", length(ontbrekende_rasters), " rasters zijn niet weggeschreven: ", 
+          paste(ontbrekende_rasters, collapse = ", "))
+}
+
 
 # Opkuisen bestanden uit environment
 
@@ -2625,10 +2659,21 @@ rcl_matrix <- matrix(c(
   ), ncol = 2, byrow = TRUE)
 
 
-stapel_sc1 <- c(sc1_bever, sc1_beekherstel, sc1_vrijstromend, sc1_veenherstel)
+
+verwachte_rasters <- c("sc1_bever", "sc1_beekherstel", "sc1_vrijstromend", "sc1_veenherstel")
+
+bestaand <- verwachte_rasters[sapply(verwachte_rasters, exists)]
+ontbrekend <- setdiff(verwachte_rasters, bestaand)
+
+if (length(ontbrekend) > 0) {warning(
+    "De volgende raster(s) ontbreken in het environment en worden overgeslagen: ",
+    paste(ontbrekend, collapse = ", "))}
+if (length(bestaand) == 0) {
+  stop("Berekening afgebroken: geen enkel raster uit de lijst is aangetroffen in het environment.")}
+
+stapel_sc1 <- rast(mget(bestaand))
 
 sc1_ihd <- sum(stapel_sc1, na.rm = TRUE)
-
 sc1_ihd_rcl <- classify(sc1_ihd, rcl = rcl_matrix)
 
 
@@ -2637,26 +2682,43 @@ plot(sc1_ihd_rcl, type = "classes")
 
 
 
-stapel_sc2 <- c(sc2_bever, sc2_beekherstel, sc2_vrijstromend, sc2_veenherstel)
+verwachte_rasters <- c("sc2_bever", "sc2_beekherstel", "sc2_vrijstromend", "sc2_veenherstel")
+
+bestaand <- verwachte_rasters[sapply(verwachte_rasters, exists)]
+ontbrekend <- setdiff(verwachte_rasters, bestaand)
+
+if (length(ontbrekend) > 0) {warning(
+  "De volgende raster(s) ontbreken in het environment en worden overgeslagen: ",
+  paste(ontbrekend, collapse = ", "))}
+if (length(bestaand) == 0) {
+  stop("Berekening afgebroken: geen enkel raster uit de lijst is aangetroffen in het environment.")}
+
+stapel_sc2 <- rast(mget(bestaand))
 
 sc2_ihd <- sum(stapel_sc2, na.rm = TRUE)
-
 sc2_ihd_rcl <- classify(sc2_ihd, rcl = rcl_matrix)
 
 plot(sc2_ihd, type = "classes")
 
 
+verwachte_rasters <- c("sc3_bever", "sc3_vrijstromend", "sc3_veenherstel")
 
-stapel_sc3 <- c(sc3_bever, sc3_vrijstromend, sc3_veenherstel)
+bestaand <- verwachte_rasters[sapply(verwachte_rasters, exists)]
+ontbrekend <- setdiff(verwachte_rasters, bestaand)
+
+if (length(ontbrekend) > 0) {warning(
+  "De volgende raster(s) ontbreken in het environment en worden overgeslagen: ",
+  paste(ontbrekend, collapse = ", "))}
+if (length(bestaand) == 0) {
+  stop("Berekening afgebroken: geen enkel raster uit de lijst is aangetroffen in het environment.")}
+
+stapel_sc3 <- rast(mget(bestaand))
 
 sc3_ihd <- sum(stapel_sc3, na.rm = TRUE)
 
 sc3_ihd_rcl <- classify(sc3_ihd, rcl = rcl_matrix)
 
 plot(sc3_ihd, type = "classes")
-
-plot_part(sc3_ihd, type = "classes")
-
 
 # Wegschrijven resultaten met ruwe codes (1000, 100, 1)
 writeRaster(sc1_ihd, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/natuur_codes_sc1.tif"), overwrite = TRUE)

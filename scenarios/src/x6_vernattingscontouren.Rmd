@@ -72,7 +72,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "rivierbeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -185,6 +185,8 @@ glg_r[is.na(glg_r)] <- 0 # water is NA in raster -> gelijkstellen aan 0 (= maaiv
 **Scenario kiezen**
 
 ```{r scenario_kiezen}
+# Kies het scenario: sc1_veenherstel/sc2_veenherstel/sc3_veenherstel
+# Het script gebruikt de scenarionaam om automatisch de finale bestandsnaam aan te maken. De kaart van veenherstel wordt enkel gebruikt om de vernatting door veenherstel toe te voegen aan de vernatting door natte trerretsrische natuurdoelen.
 
 naam <- "sc3_veenherstel"
 
@@ -338,6 +340,12 @@ percelen_glg_veen <- percelen_glg_veen %>%
   ) %>%
   st_cast("POLYGON")
 
+
+#///////////////////////////////////////////////////////////////
+# Indien geen veen aanwezig -> percelen_glg_veen = percelen_glg
+#///////////////////////////////////////////////////////////////
+
+# percelen_glg_veen <- percelen_glg
 ```
 
 ### Stap 3 - Percelen samenvoegen
@@ -453,9 +461,9 @@ filter_opp <- 5000 # m²
 filter_peil <- 0.01 # m
 
 
-#////////////////////////////////////////////////////////////////////////////////////////////
+#//////////////////////////////////////////////////////////////////////////////////
 # Optie 1 - complexe methode: kleine clusteren en toevoegen aan grote (houdt meer detail over)
-#////////////////////////////////////////////////////////////////////////////////////////////
+#//////////////////////////////////////////////////////////////////////////////////
 
 percelen_bis <- percelen_final %>%
   st_make_valid() %>%
