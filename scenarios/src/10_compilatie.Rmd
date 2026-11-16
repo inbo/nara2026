@@ -441,6 +441,40 @@ tussenstap3_sc1 <- ifel(sc1_ecosysteem_dedrain == 220 & tussenstap2_sc1 %in% c(2
 # Tussenstap 3 wordt gebruikt als input voor de plaatsing van infiltratiecellen en KLE
 writeRaster(tussenstap3_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc1.tif"), overwrite = TRUE)
 
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met huidige KLE's
+tussenstap3_sc1_kle_pre <- ifel(tussenstap3_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap3_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap3_sc1))
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect dedrainagemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap
+tussenstap2_sc1_kle <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc1_kle.tif"))
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap3_sc1_kle <- ifel(tussenstap3_sc1_kle_pre != tussenstap2_sc1_kle, tussenstap3_sc1_kle_pre, ecosysteem_2022_upd)
+
+writeRaster(tussenstap3_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc1_kle.tif"), overwrite = TRUE)
 ```
 
 #### 3. Infiltratie invoegen
@@ -481,8 +515,23 @@ rcl_matrix <- matrix(c(
 
 kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
-# Ecosysteemkaart updaten met KLE's
-tussenstap4_sc1_kle <- ifel(tussenstap4_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc1))
+# Ecosysteemkaart updaten met huidige KLE's
+tussenstap4_sc1_kle_pre <- ifel(tussenstap4_sc1 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc1 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc1))
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect infiltratiemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap3_sc1_kle_pre
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap4_sc1_kle <- ifel(tussenstap4_sc1_kle_pre != tussenstap3_sc1_kle_pre, tussenstap4_sc1_kle_pre, ecosysteem_2022_upd)
+
 
 writeRaster(tussenstap4_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc1_kle.tif"), overwrite = TRUE)
 ```
@@ -519,6 +568,24 @@ tussenstap5_sc1 <- ifel(tussenstap4_sc1 %in% c(201, 202, 204, 205, 210, 220, 230
 
 # Tussenstap 5 wordt gebruikt als input voor de plaatsing van onthardingscellen en een InVestberekening
 writeRaster(tussenstap5_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc1.tif"), overwrite = TRUE)
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect KLE
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap4_sc1_kle_pre
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap5_sc1_kle <- ifel(tussenstap5_sc1 != tussenstap4_sc1_kle_pre, tussenstap5_sc1, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap5_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc1_kle.tif"), overwrite = TRUE)
+
 ```
 
 #### 5. Onthardingscellen invoegen
@@ -539,6 +606,22 @@ scen1_ecosysteem_finaal <- ifel(tussenstap5_sc1 %in% c(101, 102) & !sc1_ecosyste
 
 # De finale kaart wordt gebruikt als input voor een InVestberekening en de andere ESD
 writeRaster(scen1_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen1_ecosysteem_finaal.tif"), overwrite = TRUE)
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect onthardingsmaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap5_sc1
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap6_sc1_kle <- ifel(scen1_ecosysteem_finaal != tussenstap5_sc1, scen1_ecosysteem_finaal, ecosysteem_2022_upd)
+
+writeRaster(tussenstap6_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap6_sc1_kle.tif"), overwrite = TRUE)
 ```
 
 ### 2.2. Scenario 2
@@ -744,6 +827,40 @@ tussenstap3_sc2 <- ifel(!is.na(sc2_dedrain_cellen) & tussenstap2_sc2 %in% c(201,
 # Tussenstap 3 wordt gebruikt als input voor de plaatsing van infiltratiecellen en KLE
 writeRaster(tussenstap3_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc2.tif"), overwrite = TRUE)
 
+
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met huidige KLE's
+tussenstap3_sc2_kle_pre <- ifel(tussenstap3_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap3_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap3_sc2))
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect dedrainagemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap
+tussenstap2_sc2_kle <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc2_kle.tif"))
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap3_sc2_kle <- ifel(tussenstap3_sc2_kle_pre != tussenstap2_sc2_kle, tussenstap3_sc2_kle_pre, ecosysteem_2022_upd)
+
+writeRaster(tussenstap3_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc2_kle.tif"), overwrite = TRUE)
 ```
 
 #### 3. Infiltratie invoegen
@@ -786,7 +903,23 @@ rcl_matrix <- matrix(c(
 kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
-tussenstap4_sc2_kle <- ifel(tussenstap4_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc2))
+tussenstap4_sc2_kle_pre <- ifel(tussenstap4_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc2))
+
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect infiltratiemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap3_sc2_kle_pre
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap4_sc2_kle <- ifel(tussenstap4_sc2_kle_pre != tussenstap3_sc2_kle_pre, tussenstap4_sc2_kle_pre, ecosysteem_2022_upd)
+
 
 writeRaster(tussenstap4_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc2_kle.tif"), overwrite = TRUE)
 ```
@@ -822,6 +955,22 @@ tussenstap5_sc2 <- ifel(tussenstap4_sc2 %in% c(201, 202, 204, 205, 210, 220, 230
 # Tussenstap 5 wordt gebruikt als input voor de plaatsing van onthardingscellen en een InVestberekening
 writeRaster(tussenstap5_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc2.tif"), overwrite = TRUE)
 
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect KLE
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap4_sc2_kle_pre
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap5_sc2_kle <- ifel(tussenstap5_sc2 != tussenstap4_sc2_kle_pre, tussenstap5_sc2, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap5_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc2_kle.tif"), overwrite = TRUE)
 ```
 
 #### 5. Onthardingscellen invoegen
@@ -842,6 +991,23 @@ scen2_ecosysteem_finaal <- ifel(tussenstap5_sc2 %in% c(101, 102) & !sc2_ecosyste
 
 # De finale kaart wordt gebruikt als input voor een InVestberekening en de andere ESD
 writeRaster(scen2_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen2_ecosysteem_finaal.tif"), overwrite = TRUE)
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect onthardingsmaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap5_sc2
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap6_sc2_kle <- ifel(scen2_ecosysteem_finaal != tussenstap5_sc2, scen2_ecosysteem_finaal, ecosysteem_2022_upd)
+
+writeRaster(tussenstap6_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap6_sc2_kle.tif"), overwrite = TRUE)
+
 ```
 
 ### 2.3. Scenario 3
@@ -1041,6 +1207,42 @@ tussenstap3_sc3_75 <- ifel(!is.na(sc3_dedrain_cellen_75) & tussenstap2_sc3 %in% 
 writeRaster(tussenstap3_sc3_75, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3_75.tif"), overwrite = TRUE)
 
 
+#///////////////////////////////////////
+# KLE's toevoegen voor input InVestmodel
+#///////////////////////////////////////
+
+# KLE-kaart opdelen in klassen
+rcl_matrix <- matrix(c(
+  -0.001, 0.00, NA,
+  0.00, 0.1, 5,
+  0.1, 0.2, 15,
+  0.2, 0.3, 25,
+  0.3, 1.00, 35
+), ncol = 3, byrow = TRUE)
+
+kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
+
+# Ecosysteemkaart updaten met huidige KLE's
+tussenstap3_sc3_75_kle_pre <- ifel(tussenstap3_sc3_75 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap3_sc3_75 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap3_sc3_75))
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect dedrainagemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap
+tussenstap2_sc3_kle <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc3_kle.tif"))
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap3_sc3_75_kle <- ifel(tussenstap3_sc3_75_kle_pre != tussenstap2_sc3_kle, tussenstap3_sc3_75_kle_pre, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap3_sc3_75_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3_75_kle.tif"), overwrite = TRUE)
+
+
 
 #//////////////////////////////////////////////////////////////
 # versie 2 (alles wordt natuur)
@@ -1057,6 +1259,19 @@ tussenstap3_sc3_25_bos <- ifel(!is.na(sc3_dedrain_cellen_25) & tussenstap2_sc3 %
 writeRaster(tussenstap3_sc3_25_gras, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3_25_gras.tif"), overwrite = TRUE)
 
 writeRaster(tussenstap3_sc3_25_bos, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3_25_bos.tif"), overwrite = TRUE)
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect dedrainagemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+tussenstap3_sc3_gras_kle <- ifel(tussenstap3_sc3_25_gras != tussenstap2_sc3, tussenstap3_sc3_25_gras, ecosysteem_2022_upd)
+
+tussenstap3_sc3_bos_kle <- ifel(tussenstap3_sc3_25_bos != tussenstap2_sc3, tussenstap3_sc3_25_bos, ecosysteem_2022_upd)
+
+writeRaster(tussenstap3_sc3_gras_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3_gras_kle.tif"), overwrite = TRUE)
+
+writeRaster(tussenstap3_sc3_bos_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc3_bos_kle.tif"), overwrite = TRUE)
 
 ```
 
@@ -1101,9 +1316,25 @@ rcl_matrix <- matrix(c(
 kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
 
 # Ecosysteemkaart updaten met KLE's
-tussenstap4_sc3_75_kle <- ifel(tussenstap4_sc3_75 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_75 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_75))
+tussenstap4_sc3_75_kle_pre <- ifel(tussenstap4_sc3_75 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_75 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_75))
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect infiltratiemaatregelen
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap3_sc3_75_kle_pre
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap4_sc3_75_kle <- ifel(tussenstap4_sc3_75_kle_pre != tussenstap3_sc3_75_kle_pre, tussenstap4_sc3_75_kle_pre, ecosysteem_2022_upd)
+
 
 writeRaster(tussenstap4_sc3_75_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_75_kle.tif"), overwrite = TRUE)
+
 
 
 #////////////////////
@@ -1119,28 +1350,23 @@ sc3_ecosysteem_infilt_25_gras <- rast(str_c("C:/R/NARA2026/nara2026-git/scenario
 
 tussenstap4_sc3_gras <- sc3_ecosysteem_infilt_25_gras
 
-# Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's en de berekening van InVest
+# Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's
 writeRaster(tussenstap4_sc3_gras, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_gras.tif"), overwrite = TRUE)
 
-#///////////////////////////////////////
-# KLE's toevoegen voor input InVestmodel
-#///////////////////////////////////////
 
-# KLE-kaart opdelen in klassen
-rcl_matrix <- matrix(c(
-  -0.001, 0.00, NA,
-  0.00, 0.1, 5,
-  0.1, 0.2, 15,
-  0.2, 0.3, 25,
-  0.3, 1.00, 35
-), ncol = 3, byrow = TRUE)
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect infiltratiemaatregelen
+#////////////////////////////////////////////////////////////////////////////
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
 
-# Ecosysteemkaart updaten met KLE's
-tussenstap4_sc3_gras_kle <- ifel(tussenstap4_sc3_gras %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_gras %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_gras))
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap4_sc3_gras_kle <- ifel(tussenstap4_sc3_gras != tussenstap3_sc3_25_gras, tussenstap4_sc3_gras, ecosysteem_2022_upd)
+
 
 writeRaster(tussenstap4_sc3_gras_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_gras_kle.tif"), overwrite = TRUE)
+
 
 
 # b) bos
@@ -1153,29 +1379,22 @@ sc3_ecosysteem_infilt_25_bos <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios
 
 tussenstap4_sc3_bos <- sc3_ecosysteem_infilt_25_bos
 
-# Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's en de berekening van InVest
+# Tussenstap 4 wordt gebruikt als input voor de plaatsing van KLE's
 writeRaster(tussenstap4_sc3_bos, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_bos.tif"), overwrite = TRUE)
 
 
-#///////////////////////////////////////
-# KLE's toevoegen voor input InVestmodel
-#///////////////////////////////////////
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect infiltratiemaatregelen
+#////////////////////////////////////////////////////////////////////////////
 
-# KLE-kaart opdelen in klassen
-rcl_matrix <- matrix(c(
-  -0.001, 0.00, NA,
-  0.00, 0.1, 5,
-  0.1, 0.2, 15,
-  0.2, 0.3, 25,
-  0.3, 1.00, 35
-), ncol = 3, byrow = TRUE)
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
 
-kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TRUE)
-
-# Ecosysteemkaart updaten met KLE's
-tussenstap4_sc3_bos_kle <- ifel(tussenstap4_sc3_bos %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap4_sc3_bos %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap4_sc3_bos))
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap4_sc3_bos_kle <- ifel(tussenstap4_sc3_bos != tussenstap3_sc3_25_bos, tussenstap4_sc3_bos, ecosysteem_2022_upd)
 
 writeRaster(tussenstap4_sc3_bos_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_bos_kle.tif"), overwrite = TRUE)
+
 ```
 
 #### 4. KLE invoegen
@@ -1218,6 +1437,22 @@ tussenstap5_sc3_75 <- ifel(tussenstap4_sc3_75 %in% c(201, 202, 204, 205, 210, 22
 writeRaster(tussenstap5_sc3_75, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_75.tif"), overwrite = TRUE)
 
 
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect KLE
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen kaart vorige stap 
+tussenstap4_sc3_75_kle_pre
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap5_sc3_75_kle <- ifel(tussenstap5_sc3_75 != tussenstap4_sc3_75_kle_pre, tussenstap5_sc3_75, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap5_sc3_75_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_75_kle.tif"), overwrite = TRUE)
+
 
 #////////////////////
 # 25% scenario's
@@ -1235,6 +1470,20 @@ tussenstap5_sc3_gras <- ifel(tussenstap4_sc3_gras %in% c(201, 202, 204, 205, 210
 
 writeRaster(tussenstap5_sc3_gras, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_gras.tif"), overwrite = TRUE)
 
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect KLE
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap5_sc3_gras_kle <- ifel(tussenstap5_sc3_gras != tussenstap4_sc3_gras, tussenstap5_sc3_gras, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap5_sc3_gras_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_gras_kle.tif"), overwrite = TRUE)
+
+
 
 # b) Bos
 tussenstap4_sc3_bos <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap4_sc3_bos.tif"))
@@ -1248,6 +1497,19 @@ tussenstap5_sc3_bos <- ifel(tussenstap4_sc3_bos %in% c(201, 202, 204, 205, 210, 
 
 writeRaster(tussenstap5_sc3_bos, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_bos.tif"), overwrite = TRUE)
 
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect KLE
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap5_sc3_bos_kle <- ifel(tussenstap5_sc3_bos != tussenstap4_sc3_bos, tussenstap5_sc3_bos, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap5_sc3_bos_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_bos_kle.tif"), overwrite = TRUE)
 ```
 
 #### 5. Onthardingscellen invoegen
@@ -1280,6 +1542,21 @@ scen3_75_ecosysteem_finaal <- ifel(tussenstap5_sc3_75 %in% c(101, 102) & !sc3_75
 writeRaster(scen3_75_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen3_75_ecosysteem_finaal.tif"), overwrite = TRUE)
 
 
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect ontharding
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap6_sc3_75_kle <- ifel(scen3_75_ecosysteem_finaal != tussenstap5_sc3_75, scen3_75_ecosysteem_finaal, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap6_sc3_75_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap6_sc3_75_kle.tif"), overwrite = TRUE)
+
+
+
 #////////////////////
 # 25% scenario's
 #////////////////////
@@ -1295,6 +1572,20 @@ scen3_gras_ecosysteem_finaal <- ifel(tussenstap5_sc3_gras %in% c(101, 102) & !sc
 writeRaster(scen3_gras_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen3_gras_ecosysteem_finaal.tif"), overwrite = TRUE)
 
 
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect ontharding
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap6_sc3_gras_kle <- ifel(scen3_gras_ecosysteem_finaal != tussenstap5_sc3_gras, scen3_gras_ecosysteem_finaal, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap6_sc3_gras_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap6_sc3_gras_kle.tif"), overwrite = TRUE)
+
+
 
 # b) Bos
 tussenstap5_sc3_bos <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_bos.tif"))
@@ -1305,6 +1596,22 @@ scen3_bos_ecosysteem_finaal <- ifel(tussenstap5_sc3_bos %in% c(101, 102) & !sc3_
 
 # De finale kaart wordt gebruikt als input voor een InVestberekening en de andere ESD
 writeRaster(scen3_bos_ecosysteem_finaal, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/scen3_bos_ecosysteem_finaal.tif"), overwrite = TRUE)
+
+
+#////////////////////////////////////////////////////////////////////////////
+# Kaart maken voor berekening effect ontharding
+#////////////////////////////////////////////////////////////////////////////
+
+# Inladen referentiekaart
+ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ecosysteem_2022_upd.tif"))
+
+# Kaart voor InVestmodel = ecosysteem_2022_upd met cellen die veranderd zijn in deze stap
+tussenstap6_sc3_bos_kle <- ifel(scen3_bos_ecosysteem_finaal != tussenstap5_sc3_bos, scen3_bos_ecosysteem_finaal, ecosysteem_2022_upd)
+
+
+writeRaster(tussenstap6_sc3_bos_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap6_sc3_bos_kle.tif"), overwrite = TRUE)
+
+
 
 
 ```
