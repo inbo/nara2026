@@ -1,0 +1,480 @@
+---
+title: "x17_resultaten_berekenen_baseflow"
+author: "NARA"
+output: html_document
+date: "2026-03-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r packages, include=FALSE}
+library(sf)
+library(terra)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(mapview)
+library(tools)     # Handig voor file_ext()
+library(reticulate)
+library(furrr)
+library(scales)
+library(exactextractr)
+library(qgisprocess)
+
+
+studiegebied <- "kleine_nete"
+
+# Inladen functie voor Investmodel
+source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_seasonal_water_yield_baseflow.R")
+
+result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/resultaten")
+```
+
+Het script berekent de **procentuele verandering van het jaarlijkse basisdebiet** in vergelijking met de startsituatie.
+
+## 1. Data inladen en klaarmaken
+
+De data zitten in een map "data" onder de folder van het `studiegebied` (rivierbeek, kleine_nete, dommel, herk_mombeek, ijzer, dijle). De folders van de studiegebieden zitten in de map scenarios, op hetzelfde niveau als het bestand `scenarios.Rproj`. Definieer in de eerste regel het studiegebied.
+
+> | C:/GIS/NARA2026/invest/R/outputs
+> |    \|—– studiegebied
+> |          \|—– scenariomappen -\> map met InVestoutputs per scenario/maatregel
+> | C:/R/NARA2026/nara2026-git
+> |    `scenarios.Rproj`
+> |    \|—– data
+> |    \|—– studiegebied
+> |          \|—– data -\> brondata specifiek voor studiegebied
+> |          \|—– output -\> resultaten scripts
+> |          \|—– temp -\> tijdelijke bestanden / tussenresultaten
+> |          \|—– resultaten -\> kaarten en figuren
+> |          \|—– shapes_natuur -\> natuurgebieden en veengebieden voor afbakening voedingsgebied
+> |    \|—– src -\> `x17_resultaten_berekenen_baseflow.Rmd`
+
+## Verandering basisdebiet
+
+### Data compileren
+
+```{r data}
+
+#/////////////////////////////////////////////////////////////
+# Stap 1: basiskaarten
+#/////////////////////////////////////////////////////////////
+
+# Basiskaart voor afstemming rasters
+ecosysteem_2022 <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/data/ecosysteem_2022.tif"))
+
+# Polygonen natuur en veengebieden
+map_pad <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/shapes_natuur")
+shp_pad <- list.files(map_pad, pattern = "_polygons\\.shp$", full.names = TRUE)
+natuur <- st_read(shp_pad[1], quiet = TRUE)
+
+# OPTIONEEL: kaart met permanente captatieverboden
+# 1. kaart vha met captatieverboden
+# captatie <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/vha_captatieverboden.shp", quiet = TRUE) |> 
+  # filter(groep %in% c("kwetsbare kleine beek", "zeer kwetsbare kleine beek") | selectie_z %in% c("stroomopwaarts van zeer kwetsbare kleine beek"))
+
+# ecosysteem_poly <- as.polygons(ecosysteem_2022, dissolve = TRUE, na.rm = TRUE)
+# captatie <- st_transform(captatie, st_crs(ecosysteem_poly))
+# captatie_dissolve <- st_union(captatie)
+
+# captatie_clip <- st_intersection(captatie_dissolve, st_as_sf(ecosysteem_poly))
+
+
+#/////////////////////////////////////////////////////////////
+# Stap 2: Kaart rivieren volgens InVest 
+#/////////////////////////////////////////////////////////////
+
+# InVest Seasonal Water Yield geeft als output een kaart 'streams_suffix' die de waterlopen in het gebied aanduidt. We gebruiken het resultaat van de SWY-runs voor heel Vlaanderen (de oostelijke en westelijke bekkens apart).
+
+streams_west <- rast("C:/GIS/NARA2026/invest/outputs/swy_west_2020/stream_bek_west_2020_.tif")
+streams_oost <- rast("C:/GIS/NARA2026/invest/outputs/swy_oost_2020/stream_bek_oost_2020_.tif")
+
+# Oostelijke en westelijke riviere samenvoegen
+r_mosaic <- mosaic(streams_west, streams_oost, fun = "max")
+r_mosaic <- resample(r_mosaic, ecosysteem_2022, method = "near")
+r_mosaic <- project(r_mosaic, ecosysteem_2022, method = "near")
+
+# Bijsnijden tot studiegebied
+r_streams <- mask(r_mosaic, ecosysteem_2022)
+r_streams <- ifel(r_streams == 0, NA, 1)
+
+
+#/////////////////////////////////////////////////////////////
+# Stap 3: Selectie rivieren in natuurgebied 
+#/////////////////////////////////////////////////////////////
+
+natuur_vect <- project(vect(natuur), crs(r_streams))
+r_streams_natuur <- mask(r_streams, natuur_vect)
+
+
+
+# OPTIONEEL: Selecteer de cellen van r_stream die overlappen met waterlopen van de captatieverboden
+# streams_binary <- r_streams == 1
+
+# streams_patches <- patches(streams_binary, directions = 4)
+# poly_streams <- as.polygons(streams_patches, dissolve = TRUE, na.rm = TRUE)
+# poly_streams <- st_as_sf(poly_streams)
+
+# captatie_clip <- st_transform(captatie_clip, st_crs(poly_streams))
+
+# overlap <- st_intersects(poly_streams, captatie_clip)
+
+# streams_select <- poly_streams[lengths(overlap) > 0,]
+
+# r_streams_captatie <- rasterize(vect(streams_select), r_streams, field = 1, background = NA)
+
+
+```
+
+### Basisdebiet berekenen
+
+Infiltratiemaatregelen vangen een deel van het afstromende water op waardoor het infiltreert en bijdraagt aan het basisdebiet. Bij de initiële InVestberekeningen wordt het extra infiltratievolume niet mee in rekening gebracht omdat het in een apart script berekend wordt. Voor een correcte berekening van het basisdebiet moeten we dat volume wel in rekening brengen. Dat doe we door het extra infiltratievolume op te tellen bij de kaart van de infiltratie (local recharge) van de initiële InVestberekening en vervolgens het InVestmodel opnieuw te runnen met de aangepaste recharge-laag.
+
+We 'smeren' het berekende infiltratievolume daarvoor uit over de cellen waar infiltratiemaatregelen van toepassing zijn.
+
+#### Aanpassing local recharge
+
+##### Functie get_kaart_name
+
+```{r functie_get_kaart_naam}
+
+get_kaart_naam <- function(scen, maatr = NULL) {
+  scen_str <- as.character(scen)
+  if (scen_str == "0") return("ecosysteem_2022_upd.tif")
+  
+  lookup_tbl <- tibble::tribble(
+    ~scen,    ~maatr, ~kaart,
+    "1",      "nat",  "tussenstap2_sc1_kle.tif",
+    "1",      "inf",  "tussenstap4_sc1_kle.tif",
+    "1",      "kle",  "tussenstap5_sc1_kle.tif",
+    "1",      "ont",  "tussenstap6_sc1_kle.tif",
+    "1",      "fin",  "scen1_ecosysteem_finaal.tif",
+    "2",      "nat",  "tussenstap2_sc2_kle.tif",
+    "2",      "inf",  "tussenstap4_sc2_kle.tif",
+    "2",      "kle",  "tussenstap5_sc2_kle.tif",
+    "2",      "ont",  "tussenstap6_sc2_kle.tif",
+    "2",      "fin",  "scen2_ecosysteem_finaal.tif",
+    "3_gras", "nat",  "tussenstap2_sc3_kle.tif",
+    "3_gras", "inf",  "tussenstap4_sc3_gras_kle.tif",
+    "3_gras", "kle",  "tussenstap5_sc3_gras_kle.tif",
+    "3_gras", "ont",  "tussenstap6_sc3_gras_kle.tif",
+    "3_gras", "fin",  "scen3_gras_ecosysteem_finaal.tif",
+    "3_bos", "nat",  "tussenstap2_sc3_kle.tif",
+    "3_bos", "inf",  "tussenstap4_sc3_bos_kle.tif",
+    "3_bos", "kle",  "tussenstap5_sc3_bos_kle.tif",
+    "3_bos", "ont",  "tussenstap6_sc3_bos_kle.tif",
+    "3_bos", "fin",  "scen3_bos_ecosysteem_finaal.tif",
+    "3_75", "nat",  "tussenstap2_sc3_kle.tif",
+    "3_75", "inf",  "tussenstap4_sc3_75_kle.tif",
+    "3_75", "kle",  "tussenstap5_sc3_75_kle.tif",
+    "3_75", "ont",  "tussenstap6_sc3_75_kle.tif",
+    "3_75", "fin",  "scen3_75_ecosysteem_finaal.tif",
+  )
+  
+  res <- lookup_tbl %>% filter(scen == scen_str & maatr == !!maatr) %>% pull(kaart)
+  if (length(res) == 0) stop("Geen kaart gevonden voor combinatie.")
+  return(res)
+}
+```
+
+##### Berekening update local recharge
+
+```{r}
+
+scenarios_dir  <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
+pad_folder <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+# Lijst met te berekenen scenario's voor update baseflow
+# De infiltratiemaatregelen zijn alleen aanwezig in de kaarten inf en fin
+# In scenario 3 zijn de infiltratiemaatregelen in het bos en grasscenario omgezet in bos of gras -> geen update nodig, alleen voor sc3_75
+runs_tbl <- tibble::tribble(
+  ~scen,    ~maatr,
+  "1",      "inf",
+  "1",      "fin",
+  "2",      "inf",
+  "2",      "fin",
+  "3_75",   "inf",
+  "3_75",   "fin"
+)
+
+
+df_extra_inf <- pmap(runs_tbl, function(scen, maatr) {
+  
+  kaart  <- str_c("sc", scen, "_infilt_cellen.tif")
+  suffix_name <- str_c("sc", scen, "_", maatr)
+  
+  path_lulc <- file.path(scenarios_dir, kaart)
+  
+  path_qf     <- file.path(pad_folder, suffix_name, paste0("QF_", suffix_name, ".tif"))
+  path_lr     <- file.path(pad_folder, suffix_name, paste0("L_", suffix_name, ".tif"))
+  path_lr_new <- file.path(pad_folder, suffix_name, paste0("L_new_", suffix_name, ".tif"))
+  
+  if (file.exists(path_lulc) && file.exists(path_qf) && file.exists(path_lr)) {
+    r_lulc <- rast(path_lulc)
+    r_qf   <- rast(path_qf)
+    r_lr   <- rast(path_lr)
+    
+    cellen_infilt <- project(r_lulc, r_lr, method = "near")
+    r_qf_aligned  <- project(r_qf, r_lr, method = "near")
+    
+    qf_afstroom <- cellen_infilt * r_qf_aligned
+    
+    lr_nieuw <- r_lr + 0.7 * qf_afstroom
+    
+    lr_update <- cover(lr_nieuw, r_lr)
+    
+    writeRaster(lr_update, path_lr_new, overwrite = TRUE)
+  }
+})
+
+```
+
+#### Nieuwe InVestrun met aangepaste recharge layer
+
+```{r}
+
+aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
+
+plan(multisession, workers = aantal_workers)
+
+
+# Loop door scenario's met InVestmodel SWY
+# investmodel_seasonal_water_yield_baseflow.R berekent alleen de nieuwe baseflowkaarten (B_ en B_sum_).
+resultaten_tbl <- future_pmap_dfr(runs_tbl, function(scen, maatr) {
+  
+  kaart  <- get_kaart_naam(scen = scen, maatr = maatr)
+  suffix <- if_else(scen == "0", "", str_c("sc", scen, "_", maatr, "_bf"))
+  recharge <- str_c("L_new_", str_remove(suffix, "_.{3}_bf$"), "_", maatr, ".tif")
+  
+  folder_naam <- if (nchar(suffix) > 0) suffix else "referentie"
+  target_dir  <- file.path(pad_folder, folder_naam)
+  path_lulc   <- file.path(scenarios_dir, kaart)
+  
+  # Check 1: Bestaan de outputs al in de subfolder?
+  bestaande_tifs <- if (dir.exists(target_dir)) list.files(target_dir, pattern = "\\.tif$") else character(0)
+  if (length(bestaande_tifs) >= 5) {
+    return(tibble(scen = scen, maatr = coalesce(maatr, "-"), kaart = kaart, status = "Reeds verwerkt"))
+  }
+  
+  # Check 2: Is de ecosysteemkaart aanwezig?
+  if (!file.exists(path_lulc)) {
+    return(tibble(scen = scen, maatr = coalesce(maatr, "-"), kaart = kaart, status = "Kaart ontbreekt"))
+  }
+  
+  # Run InVEST
+  status_run <- tryCatch({
+    run_invest_swy(studiegebied = studiegebied, kaart = kaart, recharge = recharge, suffix = suffix)
+    "Succesvol uitgevoerd"
+  }, error = function(e) {
+    paste("Fout:", e$message)
+  })
+  
+  return(tibble(scen = scen, maatr = coalesce(maatr, "-"), kaart = kaart, status = status_run))
+}, .options = furrr_options(seed = TRUE))
+
+plan(sequential)
+
+
+# Rapport met overzicht resultaten
+
+cat("\n\n", str_dup("=", 65), "\n", sep = "")
+cat("  EINDRAPPORT BATCH-RUN | Studiegebied:", studiegebied, "\n")
+cat(str_dup("=", 65), "\n\n", sep = "")
+print(resultaten_tbl, n = Inf)
+```
+
+#### Basisdebiet rivieren
+
+```{r basisdebiet}
+
+#//////////////////////////////////////////////////////////////////////////////
+# Stap 1: Rasters inlezen en verandering baseflow berekenen voor alle rivieren
+#//////////////////////////////////////////////////////////////////////////////
+
+# Pad instellen
+pad_folder    <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+# Kies rasterbestand met InVest-rivieren
+streams <- r_streams # r_streams (= alle rivieren) / r_streams_natuur (= rivieren in natuurgebied) / r_streams_captatie (= rivieren met captatieverbod)
+
+
+# 1. Selecteer de B_sum rasterbestanden:
+# De B_sum van de referentiekaart, de B_sum van de initiële run met de geplaatste natuur (_nat), de B_sum op basis van de aangepaste recharge laag en de B_sum van de gras- en bosscenario's.
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^B_sum", basename(tif_bestanden))] 
+tif_bestanden <- tif_bestanden[str_detect(basename(tif_bestanden), "_bf\\.tif$|sc3_gras|sc3_bos|_nat|B_sum.tif")]
+
+# 2. Identificeer het referentiebestand
+ref_bestand <- tif_bestanden[basename(tif_bestanden) == "B_sum.tif"]
+
+if (length(ref_bestand) != 1) {
+  stop("Er moet exact één referentiebestand B_sum.tif aanwezig zijn.")
+}
+
+# 3. Bereken de referentiewaarde
+B_sum_ref <- rast(ref_bestand)
+
+streams <- project(streams, B_sum_ref, method = "near")
+
+result_ref <- global(B_sum_ref * streams, "sum", na.rm = TRUE)[1, 1]
+
+# 4. Selecteer enkel de scenariobestanden
+scenario_bestanden <- tif_bestanden[tif_bestanden != ref_bestand]
+
+# 5. Initialiseer dataframe
+resultaten <- data.frame(
+  scenario = character(),
+  maatregel = character(),
+  resultaat = numeric(),
+  type = character(),
+  stringsAsFactors = FALSE
+)
+
+
+# 6. Loop over alle scenariobestanden
+for (bestand in scenario_bestanden) {
+  
+  # Bestandsnaam ophalen
+  naam <- basename(bestand)
+  
+  # Scenario en maatregel uit bestandsnaam halen
+  scenario  <- str_extract(naam, "sc3_75|sc3_bos|sc3_gras|sc1|sc2")
+  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat)(?=_|\\.)")
+  
+  # Scenarioraster inlezen
+  B_sum_scen <- rast(bestand)
+  
+  if (!compareGeom(B_sum_scen, B_sum_ref, stopOnError = FALSE)) {
+    B_sum_scen <- project(B_sum_scen, B_sum_ref, method = "bilinear")
+  }
+  
+  # Berekening uitvoeren
+  result_scen <- global(B_sum_scen * streams, "sum", na.rm = TRUE)[1, 1]
+  
+  resultaat <- (result_scen - result_ref) / result_ref
+  
+  # Resultaat toevoegen aan dataframe
+  resultaten <- bind_rows(
+    resultaten,
+    data.frame(
+      scenario = scenario,
+      maatregel = maatregel,
+      resultaat = resultaat,
+      type = "all"
+    )
+  )
+}
+
+
+# Andere berekeningswijze (gemiddelde van procentuele celverschillen)
+
+B_streams_ref <- B_sum_ref * streams
+
+for (bestand in scenario_bestanden) {
+  
+  # Bestandsnaam ophalen
+  naam <- basename(bestand)
+  
+  # Scenario en maatregel uit bestandsnaam halen
+  scenario  <- str_extract(naam, "sc3_75|sc3_bos|sc3_gras|sc1|sc2")
+  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat)(?=_|\\.)")
+  
+  # Scenarioraster inlezen
+  B_sum_scen <- rast(bestand)
+
+  # Berekening uitvoeren
+  B_streams_scen <- B_sum_scen * streams
+  
+  streams_result <- (B_streams_scen - B_streams_ref) / B_streams_ref
+  
+  resultaat <- global(streams_result, "mean", na.rm = TRUE)[1, 1]
+    
+  # Resultaat toevoegen aan dataframe
+  resultaten <- bind_rows(
+    resultaten,
+    data.frame(
+      scenario = scenario,
+      maatregel = maatregel,
+      resultaat = resultaat,
+      type = "all"
+    )
+  )
+}
+
+#//////////////////////////////////////////////////////////////////////////////
+# Stap 2: Baseflow berekenen voor rivieren binnen natuurgebieden
+#//////////////////////////////////////////////////////////////////////////////
+
+streams <- r_streams_natuur
+streams <- project(streams, B_sum_ref, method = "near")
+
+result_ref <- global(B_sum_ref * streams, "sum", na.rm = TRUE)[1, 1]
+
+
+# 6. Loop over alle scenariobestanden
+for (bestand in scenario_bestanden) {
+  
+  # Bestandsnaam ophalen
+  naam <- basename(bestand)
+  
+  # Scenario en maatregel uit bestandsnaam halen
+  scenario  <- str_extract(naam, "sc3_75|sc3_bos|sc3_gras|sc1|sc2")
+  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat)(?=_|\\.)")
+  
+  # Scenarioraster inlezen
+  B_sum_scen <- rast(bestand)
+  
+  if (!compareGeom(B_sum_scen, B_sum_ref, stopOnError = FALSE)) {
+    B_sum_scen <- project(B_sum_scen, B_sum_ref, method = "bilinear")
+  }
+  
+  # Berekening uitvoeren
+  result_scen <- global(B_sum_scen * streams, "sum", na.rm = TRUE)[1, 1]
+  
+  resultaat <- (result_scen - result_ref) / result_ref
+  
+  # Resultaat toevoegen aan dataframe
+  resultaten <- bind_rows(
+    resultaten,
+    data.frame(
+      scenario = scenario,
+      maatregel = maatregel,
+      resultaat = resultaat,
+      type = "natuur"
+    )
+  )
+}
+
+
+
+
+#/////////////////////////////////////////////////////////////
+# Stap 3: Baseflow onder hoog impact klimaatscenario
+#/////////////////////////////////////////////////////////////
+
+# Pad instellen
+pad_folder    <- file.path(str_c("C:/GIS/NARA2026/invest/R/outputs/", studiegebied, "_2050"))
+
+# Kies rasterbestand met InVest-rivieren
+streams <- r_streams_captatie # r_streams_captatie (= alle rivieren)/ r_streams_captatie (= rivieren met captatieverbod)
+
+
+# 1. Selecteer alle B_sum rasterbestanden
+tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
+tif_bestanden <- tif_bestanden[grepl("^B_sum", basename(tif_bestanden))] 
+
+# 2. Identificeer het referentiebestand
+ref_bestand_2050 <- tif_bestanden[basename(tif_bestanden) == "B_sum.tif"]
+
+streams <- project(streams, B_sum_ref, method = "near")
+
+# 3. Bereken de referentiewaarde
+B_sum_ref_2050 <- rast(ref_bestand_2050)
+
+result_ref_2050 <- global(B_sum_ref_2050 * streams, "sum", na.rm = TRUE)[1, 1]
+
+resultaat_2050 <- (result_ref_2050 - result_ref) / result_ref
+
+cat("Onder het hoog impact klimaatscenario verandert het totaal jaarlijks basisdebiet met", round(100 * resultaat_2050, 1), "% tov het huidige basisdebiet. De maatregelen van de scenario's veranderen het basisdebiet met maximaal", round(100 * max(resultaten_2022$resultaat), 1), "%")
+
+```
