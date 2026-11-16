@@ -38,7 +38,7 @@ De methodologie wordt meer in detail beschreven in bijlage 2 van Nelissen et al.
 We berekenen telkens het verschil tussen het (risico op) bodemverlies in een scenario en het (risico op) bodemverlies in de huidige situatie (de referentietoestand in 2022). 
 R, K en LS blijven constant met R x K x LS uitgedrukt in ton DS/ha.jaar. 
 
-1. De **C-factoren voor de akkers** in het studiegebied bepalen we op basis van de gewascodes uit de landbouwpercelenkaart van 2022 en de meest recente tabel van departement Omgeving (11-8-2025) die elke gewascode verbindt met een C-factor. 
+1. De **C-factoren voor de akkers** in het studiegebied bepalen we op basis van de gewascodes uit de landbouwpercelenkaart van 2022 en de meest recente tabel van departement Omgeving (11-8-2025) die elke gewascode verbindt met een C-factor (update van Swerts et al. 2020 - Bodemerosierisico-indicator). 
 Op alle paarse (zeer sterk erosiegevoelige) en rode (sterk erosiegevoelige) akkerbouwpercelen rekenen we met een maximumwaarde van 0,5 voor C (veronderstelling: erosiegevoelige gewassen worden gemeden op dergelijke percelen). 
 
 2.  De **C-factoren voor andere ecosystemen** kennen we toe op basis van een samenvattende tabel gebaseerd op Van der Biest et al. (2014), die de codes uit de ecosysteemkaart verbindt met een C-factor. 
@@ -47,7 +47,7 @@ Op alle paarse (zeer sterk erosiegevoelige) en rode (sterk erosiegevoelige) akke
 Zo houden we rekening met de huidige erosierandvoorwaarden en de toepassing van beheermaatregelen als groenbedekkers en niet-kerende bodembewerking op dergelijke percelen. 
 
 4. Om de **P-factor** voor erosiebescherming door **kleine landschapselementen op akkers** in rekening te brengen steunen we op onderstaande formule. 
-Ze beschrijft de erosiereductie op een perceel in functie van de breedte van de KLE (een grasstrook, uitgedrukt in m) (Nelissen et al. 2016): 
+Ze beschrijft de erosiereductie op een perceel in functie van de breedte van de KLE (een grasstrook, uitgedrukt in m) (Nelissen et al., 2016): 
 
     ln(TSSin/TSSuit) = 2,66 * log(breedte grasstrook)
 
@@ -57,7 +57,7 @@ Ze beschrijft de erosiereductie op een perceel in functie van de breedte van de 
   
     We berekenen de P-factoren per 100m²-cel in plaats van per ha-cel (1/100ste van 1 ha), om een waarde tussen 0 en 1 te bekomen vermenigvuldigen we het % KLE (de breedte in cm) per 100m²-cel dus met 100, dwz 1% KLE geeft dezelfde p-waarde als een grasstrook van 1m breedte --> de gemiddelde p-waarde in 1 ha blijft dezelfde, het totale bodemverlies in 1 ha dus ook.
 
-    Om een P-factor tussen 0 en 1 te bekomen, stellen we het minimum % KLE gelijk aan 1. We rekenen met een minimum P-waarde van 0.03, dat is de P-waarde bij 20% KLE (minimumwaarde in de data van Nelissen et al).
+    Om een P-factor tussen 0 en 1 te bekomen, stellen we het minimum % KLE gelijk aan 1. We rekenen met een minimum P-waarde van 0.03, dat is de P-waarde bij 20% KLE (minimumwaarde in de data van Nelissen et al., 2016).
 
 5. Omdat de **P x C-waarde** voor een akker op deze manier nog steeds lager kan worden dan de C-factor van een grasland of zelfs van een bos, limiteren we de PC-waarde tot een minimum gelijk aan de waarde voor grasland of struikachtige vegetatie = 0,01.
 
@@ -95,7 +95,7 @@ studiegebied <- "herk_mombeek"
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022_upd.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022_upd.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp",  "kle_fractie_gecorrigeerd_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3_bos.tif","kle_fractie_gecorrigeerd_sc3_gras.tif", "kle_fractie_gecorrigeerd_sc3_75.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif")
+targets <- c("ecosysteem_2022_upd.tif","erosie.shp", "fysges_ton_ha.tif", "gebied.shp",  "kle_fractie_gecorrigeerd_start.tif", "kle_fractie_gecorrigeerd_sc1.tif", "kle_fractie_gecorrigeerd_sc2.tif", "kle_fractie_gecorrigeerd_sc3_bos.tif","kle_fractie_gecorrigeerd_sc3_gras.tif", "kle_fractie_gecorrigeerd_sc3_75.tif", "deel_3_reclass_gewascode_erosie.xlsx", "deel_3_reclass_ecosysteem_erosie.xlsx", "scen1_ecosysteem_finaal.tif", "scen2_ecosysteem_finaal.tif", "scen3_75_ecosysteem_finaal.tif", "scen3_bos_ecosysteem_finaal.tif", "scen3_gras_ecosysteem_finaal.tif", "hag.tif")
 
 # In welke folders zitten de data?
 
@@ -694,3 +694,196 @@ ggsave(
 )
 ```
 
+# 9. Overzichtstabel
+
+```{r erosie tabel, echo = FALSE, warning = FALSE, message = FALSE}
+
+# ==========================================
+# STAP 1: Resultaten inladen
+# ==========================================
+# 1. erosiekaarten
+scen1 <- rast(file.path(result_path, "scen1_erosie_vermeden.tif"))
+scen2 <- rast(file.path(result_path, "scen2_erosie_vermeden.tif"))
+scen3_bos <- rast(file.path(result_path, "scen3_bos_erosie_vermeden.tif"))
+scen3_gras <- rast(file.path(result_path, "scen3_gras_erosie_vermeden.tif"))
+startkaart <- rast(file.path(result_path, "start_erosie.tif"))
+totaal_start <- global(startkaart, fun = "sum", na.rm = TRUE)$sum
+
+# 2. ecosysteemkaarten
+scen1_lu <- rast(file.path(result_path, "scen1_ecosysteem_finaal.tif"))
+scen2_lu <- rast(file.path(result_path, "scen2_ecosysteem_finaal.tif"))
+scen3_bos_lu <- rast(file.path(result_path, "scen3_bos_ecosysteem_finaal.tif"))
+scen3_gras_lu <- rast(file.path(result_path, "scen3_gras_ecosysteem_finaal.tif"))
+start_lu <- rast(file.path(result_path, "ecosysteem_2022_upd.tif"))
+
+# 3. kle-kaarten
+scen1_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc1.tif"))
+scen2_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc2.tif"))
+scen3_bos_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_bos.tif"))
+scen3_gras_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_sc3_gras.tif"))
+start_kle <- rast(file.path(result_path, "kle_fractie_gecorrigeerd_start.tif"))
+
+# 4. kaarten nieuwe natuur berekenen
+bos_droog <- c(400, 401, 402, 403, 404)
+open_natuur_droog <- c(302, 501, 601, 1102, 1103)
+groen_urbaan <- c(103, 104)
+bos_nat <- c(410, 420)
+open_natuur_nat <- c(320, 701, 702, 901, 902)
+landbouw <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335, 3005, 3015, 3025, 3035)
+landbouw_akker <- c(201, 202, 203, 204, 205, 210, 220, 230, 2005, 2015, 2025, 2035, 2305, 2315, 2325, 2335)
+
+start_bos <- ifel(start_lu %in% bos_droog & start_kle == 0, 1, 0)
+scen1_bos <- ifel(scen1_lu %in% bos_droog & scen1_kle == 0 & start_bos == 0, 1, 0)
+scen2_bos <- ifel(scen2_lu %in% bos_droog & scen2_kle == 0 & start_bos == 0, 1, 0)
+scen3_bos_bos <- ifel(scen3_bos_lu %in% bos_droog & scen3_bos_kle == 0 & start_bos == 0, 1, 0)
+scen3_gras_bos <- ifel(scen3_gras_lu %in% bos_droog & scen3_gras_kle == 0 & start_bos == 0, 1, 0)
+
+start_open <- ifel(start_lu %in% open_natuur_droog & start_kle == 0, 1, 0)
+scen1_open <- ifel(scen1_lu %in% open_natuur_droog & scen1_kle == 0 & start_open == 0, 1, 0)
+scen2_open <- ifel(scen2_lu %in% open_natuur_droog & scen2_kle == 0 & start_open == 0, 1, 0)
+scen3_bos_open <- ifel(scen3_bos_lu %in% open_natuur_droog & scen3_bos_kle == 0 & start_open == 0, 1, 0)
+scen3_gras_open <- ifel(scen3_gras_lu %in% open_natuur_droog & scen3_gras_kle == 0 & start_open == 0, 1, 0)
+
+start_bos_nat <- ifel(start_lu %in% bos_nat & start_kle == 0, 1, 0)
+scen1_bos_nat <- ifel(scen1_lu %in% bos_nat & scen1_kle == 0 & start_bos_nat == 0, 2, 0)
+scen2_bos_nat <- ifel(scen2_lu %in% bos_nat & scen2_kle == 0 & start_bos_nat == 0, 2, 0)
+scen3_bos_bos_nat <- ifel(scen3_bos_lu %in% bos_nat & scen3_bos_kle == 0 & start_bos_nat == 0, 2, 0)
+scen3_gras_bos_nat <- ifel(scen3_gras_lu %in% bos_nat & scen3_gras_kle == 0 & start_bos_nat == 0, 2, 0)
+
+start_open_nat <- ifel(start_lu %in% open_natuur_nat & start_kle == 0, 1, 0)
+scen1_open_nat <- ifel(scen1_lu %in% open_natuur_nat & scen1_kle == 0 & start_open_nat == 0, 2, 0)
+scen2_open_nat <- ifel(scen2_lu %in% open_natuur_nat & scen2_kle == 0 & start_open_nat == 0, 2, 0)
+scen3_bos_open_nat <- ifel(scen3_bos_lu %in% open_natuur_nat & scen3_bos_kle == 0 & start_open_nat == 0, 2, 0)
+scen3_gras_open_nat <- ifel(scen3_gras_lu %in% open_natuur_nat & scen3_gras_kle == 0 & start_open_nat == 0, 2, 0)
+
+start_urbaan <- ifel(start_lu %in% groen_urbaan, 1, 0)
+scen1_urbaan <- ifel(scen1_lu %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen2_urbaan <- ifel(scen2_lu %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen3_bos_urbaan <- ifel(scen3_bos_lu %in% groen_urbaan & start_urbaan == 0, 3, 0)
+scen3_gras_urbaan <- ifel(scen3_gras_lu %in% groen_urbaan & start_urbaan == 0, 3, 0)
+
+scen1_lu_tot <- scen1_bos + scen1_open + scen1_bos_nat + scen1_open_nat + 
+  scen1_urbaan 
+scen1_lu_tot <- ifel(scen1_lu_tot == 0, NA, scen1_lu_tot) |> 
+  as.factor()
+
+scen2_lu_tot <- scen2_bos + scen2_open + scen2_bos_nat + scen2_open_nat + 
+  scen2_urbaan 
+scen2_lu_tot <- ifel(scen2_lu_tot == 0, NA, scen2_lu_tot) |> 
+  as.factor()
+
+scen3_bos_lu_tot <- scen3_bos_bos + scen3_bos_open + scen3_bos_bos_nat + scen3_bos_open_nat + 
+  scen3_bos_urbaan 
+scen3_bos_lu_tot <- ifel(scen3_bos_lu_tot == 0, NA, scen3_bos_lu_tot) |> 
+  as.factor()
+
+scen3_gras_lu_tot <- scen3_gras_bos + scen3_gras_open + scen3_gras_bos_nat + scen3_gras_open_nat + 
+  scen3_gras_urbaan 
+scen3_gras_lu_tot <- ifel(scen3_gras_lu_tot == 0, NA, scen3_gras_lu_tot) |> 
+  as.factor()
+
+# 5. landbouwkaarten
+scen1_lb <- ifel(scen1_lu %in% landbouw | scen1_kle > 0, 1, 0) 
+scen2_lb <- ifel(scen2_lu %in% landbouw | scen2_kle > 0, 1, 0)
+scen3_bos_lb <- ifel(scen3_bos_lu %in% landbouw | scen3_bos_kle > 0, 1, 0)
+scen3_gras_lb <- ifel(scen3_gras_lu %in% landbouw | scen3_gras_kle > 0, 1, 0)
+
+# 6. afstroomgebied en hag
+afstroomgebied <- ifel(is.na(afstroomgebied), 0, 1)
+
+hag <- ifel(is.na(hag), 0, 1)
+
+# ==========================================
+# STAP 2: kruistabellen maken
+# ==========================================
+# 1. kaarten groeperen in lijsten
+lu_lijst <- list(scen1_lu_tot, scen2_lu_tot, scen3_bos_lu_tot, scen3_gras_lu_tot)
+erosie_lijst <- list(scen1, scen2, scen3_bos, scen3_gras)
+landbouw_lijst <- list(scen1_lb, scen2_lb, scen3_bos_lb, scen3_gras_lb)
+
+# 2. referentietabel met gewenste deelindicatoren in de juiste volgorde
+ref_tabel <- data.frame(
+  deelindicator = c(
+    "erosie_tot", "erosie_afstroom", "erosie_rest", "erosie_landbouw", "erosie_nieuwe_natuur_droog", "erosie_nieuwe_natuur_nat", "erosie_nieuwe_natuur_urbaan", "erosie_HAG" 
+  )
+)
+
+# 3. functie voor berekening per scenario in totale waarde (ton DS)
+bereken_scenario <- function(lu_raster, erosie_raster, afstroom_raster, landbouw_raster, hag_raster, naam_kolom) {
+  
+  # A. totale som over de volledige kaart
+  totaal <- global(erosie_raster, fun = "sum", na.rm = TRUE)$sum
+  df_tot <- data.frame(deelindicator = "erosie_tot", waarde = totaal)
+  
+  # B. som binnen (1) en buiten (0) afstroomgebied
+  zonal_afstr <- zonal(erosie_raster, afstroom_raster, fun = "sum", na.rm = TRUE)
+  colnames(zonal_afstr) <- c("code", "waarde")
+  
+  df_afstr <- zonal_afstr %>%
+    mutate(deelindicator = recode(as.character(code),
+      "1" = "erosie_afstroom",
+      "0" = "erosie_rest"
+    )) %>%
+    select(deelindicator, waarde)
+  
+  # C. som in landbouwgebied
+  lb <- global(erosie_raster*landbouw_raster, fun = "sum", na.rm = TRUE)$sum
+  df_lb <- data.frame(deelindicator = "erosie_landbouw", waarde = lb)
+  
+  # D. som per natuurtype (codes 1 t/m 3)
+  zonal_lu <- zonal(erosie_raster, lu_raster, fun = "sum", na.rm = TRUE)
+  colnames(zonal_lu) <- c("code", "waarde")
+  
+  df_lu <- zonal_lu %>%
+    mutate(deelindicator = recode(as.character(code),
+      "1" = "erosie_nieuwe_natuur_droog",
+      "2" = "erosie_nieuwe_natuur_nat",
+      "3" = "erosie_nieuwe_natuur_urbaan",
+    )) %>%
+    select(deelindicator, waarde)
+  
+  # E. som binnen HAG
+  in_hag <- global(erosie_raster*hag_raster, fun = "sum", na.rm = TRUE)$sum
+  df_hag <- data.frame(deelindicator = "erosie_HAG", waarde = in_hag)
+  
+  # F. combineer alles voor dit scenario en geef de kolom de juiste naam
+  res_scenario <- bind_rows(df_tot, df_afstr, df_lb, df_lu, df_hag)
+  colnames(res_scenario)[2] <- naam_kolom
+  
+  return(res_scenario)
+}
+
+# 4. voer de berekening uit voor elk scenario
+res1 <- bereken_scenario(lu_lijst[[1]], erosie_lijst[[1]], afstroomgebied, landbouw_lijst[[1]], hag, "scen1")
+res2 <- bereken_scenario(lu_lijst[[2]], erosie_lijst[[2]], afstroomgebied, landbouw_lijst[[2]], hag, "scen2")
+res3 <- bereken_scenario(lu_lijst[[3]], erosie_lijst[[3]], afstroomgebied, landbouw_lijst[[3]], hag, "scen3_bos")
+res4 <- bereken_scenario(lu_lijst[[4]], erosie_lijst[[4]], afstroomgebied, landbouw_lijst[[4]], hag, "scen3_gras")
+
+# 5. voeg de resultaten samen op basis van de referentietabel (voor juiste volgorde)
+eindtabel <- ref_tabel %>%
+  left_join(res1, by = "deelindicator") %>%
+  left_join(res2, by = "deelindicator") %>%
+  left_join(res3, by = "deelindicator") %>%
+  left_join(res4, by = "deelindicator")
+
+# 6. voeg een kolom met de eenheid toe
+tabel_ton <- eindtabel %>%
+  mutate(eenh = "tonDS", .after = deelindicator)
+
+# 7. maak een tweede tabel waarin alle scenariokolommen worden omgerekend naar %
+tabel_perc <- tabel_ton %>%
+  mutate(
+    eenh = "perc_ref",
+    across(c(scen1, scen2, scen3_bos, scen3_gras), ~ (.x / totaal_start) * 100),
+    ref = totaal_start
+  )
+
+# 8. plak beide tabellen onder elkaar
+tabel_fin <- bind_rows(tabel_ton, tabel_perc) |> 
+  mutate(case = "herk_mombeek", indicator = "vermeden_erosie", .before = deelindicator)
+
+# ======================================================
+# STAP 3: Resultaat checken en wegschrijven naar csv
+# ======================================================
+view(tabel_fin)
+write.csv2(eindtabel_fin, file.path(result_path, "resultaten_vermeden_erosie.csv"), row.names = FALSE)
