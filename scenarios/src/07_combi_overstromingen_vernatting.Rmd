@@ -67,7 +67,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "rivierbeek"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
@@ -858,7 +858,7 @@ r_maxglg <- rasterize(percelen_final, r_base, field = "max_glg")
 
 De invloedssfeer van een peilverlaging in veengebied is o.a. afhankelijk van de diepte van de peilverlaging, de veenkwaliteit, de doorlatendheid van de ondergrond en de aanwezigheid van kwel. In een veengebied met een doorlatende ondergrond en in afwezigheid van kwel kan een peilverlaging ver doordringen in het veenpakket (\> 100 m). In gebieden waar permante kwel zorgt voor een aanvoer van grondwater naar het veenpakket, is de invloed van lokale ontwatering kleiner (\~10 - 20 m).
 
-We schatten de afname van de grondwaterverlaging met de afstand tot het perceel in met een exponentieel vervalmodel (gebaseerd na de stationaire oplossing voor grondwaterstroming met een constante weerstand).
+We schatten de afname van de grondwaterverlaging met de afstand tot het perceel in met een exponentieel vervalmodel (vereenvoudigde analytische lekfactorbenadering gebaseerd na de stationaire oplossing voor grondwaterstroming, met een constante weerstand omdat we alleen het veenpakket in rekening brengen).
 
 ```{r veen_verdrogingssfeer}
 
