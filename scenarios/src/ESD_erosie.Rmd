@@ -886,4 +886,4 @@ tabel_fin <- bind_rows(tabel_ton, tabel_perc) |>
 # STAP 3: Resultaat checken en wegschrijven naar csv
 # ======================================================
 view(tabel_fin)
-write.csv2(eindtabel_fin, file.path(result_path, "resultaten_vermeden_erosie.csv"), row.names = FALSE)
+write.csv2(tabel_fin, file.path(result_path, "resultaten_vermeden_erosie.csv"), row.names = FALSE)
