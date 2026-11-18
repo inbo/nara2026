@@ -1,7 +1,7 @@
 ---
 title: "09_KLEs"
 author: "NARA"
-date: "2026-05-11"
+date: "2026-11-18"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -15,11 +15,7 @@ library(sf)
 library(tidyterra)
 library(tools)
 library(readxl)
-library(igraph)
-library(viridis)
 library(mapview)
-library(leaflet) # Nodig voor colorFactor
-
 ```
 
 ## Inleiding
@@ -53,7 +49,7 @@ De volgende datasets worden gebruikt:
 
 - gebied.shp -\> polygoon van het gebied (zonder buffer)
 - ecosysteem_2022.tif -\> ecosysteemkaart van het gebied (FLEA)
-- tussenstap3_sc....tif -\> ecosysteemkaart van het gebied, na realisatie van natuurdoelen per scenario
+- tussenstap4_sc....tif -\> ecosysteemkaart van het gebied, na realisatie van natuurdoelen per scenario
 - oever_paars.shp -\> polygonen rivieren (wtz) van paarse waterlopen
 - oever_blauw_poly.shp -\> polygonen rivieren (wtz) van blauwe waterlopen
 - oever_blauw_lijn.shp -\> lijnen rivieren (wlas) van rest blauwe waterlopen waarvoor geen wtz-polygonen zijn
@@ -71,7 +67,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "herk_mombeek"
+studiegebied <- "kleine_nete"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
@@ -331,11 +327,11 @@ Het doel voor het ganse landbouwgebied = 10% van alle landbouwcellen. Het tekort
 
 # KLE klasse bosrand telt niet mee (grenzend aan natuur cf regels LUCAS), bosrand apart nodig voor vervolg. Grazige KLE halen we uit grasbufferstroken volgens de landbouwperceelsregistratie.
 KLE_sel <- KLE %>%
-  filter(subklasse != "bosrand")
+  dplyr::filter(subklasse != "bosrand")
 bosrand <- KLE %>%
-  filter(subklasse == "bosrand")
+  dplyr::filter(subklasse == "bosrand")
 grasbuffer_sel <- lbgp_2023 %>%
-  filter(grepl("^BU", ecoscheme_))# ecoscheme begint met BU (BUW, BUB, BUF, BUE...)
+  dplyr::filter(grepl("^BU", ecoscheme_))# ecoscheme begint met BU (BUW, BUB, BUF, BUE...)
 
 # KLE, bosrand en grasbufferstroken inladen als Spat_vect voor snelle verrastering
 KLE_sel <- vect(KLE_sel)
@@ -484,8 +480,8 @@ writeRaster(start_10m_landbouw, file.path(result_path, "kle_fractie_gecorrigeerd
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
 # Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
-landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
-buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
+landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 302, 330) # geen agroforestry = 203
+buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 400, 404)
 
 landbouw_masker <- ifel(tussenstap4_sc1 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
@@ -808,8 +804,8 @@ mapview(prior_gebied) #+ mapview(geel_oranje_rast_fin, col = "blue")
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
 # Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart, tenzij het bosranden zijn.
-landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
-buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
+landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 302, 330) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 400, 404)
 
 landbouw_masker <- ifel(tussenstap4_sc2 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
@@ -1108,8 +1104,8 @@ cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
 # Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
-landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
-buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
+landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 302, 330) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 400, 404)
 
 landbouw_masker <- ifel(tussenstap4_sc3_bos %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
@@ -1391,8 +1387,8 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
 # Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
-landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
-buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
+landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 302, 330) # geen agroforestry = 203
+buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 400, 404)
 
 landbouw_masker <- ifel(tussenstap4_sc3_gras %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
@@ -1675,8 +1671,8 @@ cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealis
 # Enkel KLE's in landbouwgebied tellen mee voor huidige fractie KLE
 # KLE's liggen vaak tussen landbouwpercelen, op boscellen etc.
 # Een buffer rond de landbouwcellen zorgt ervoor dat de KLEs aan perceelsranden meetellen als ze nu als "unspecified" bos of houtkant of permanente gewassen gedefinieerd zijn in de ecosysteemkaart. Bosranden tellen niet mee.
-landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 330) # geen agroforestry
-buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 330, 400, 404)
+landbouw_codes <- c(201, 202, 204, 205, 210, 220, 230, 300, 301, 302, 330) # geen agroforestry
+buffer_codes <- c(201, 202, 203, 204, 205, 210, 220, 230, 300, 301, 302, 330, 400, 404)
 
 landbouw_masker <- ifel(tussenstap4_sc3_75 %in% landbouw_codes & !is.na(gewascode), 1, NA) # enkel landbouwgebied obv perceelsregistratie 2022
 landbouw_masker_buf <- terra::buffer(landbouw_masker, width = 10)
