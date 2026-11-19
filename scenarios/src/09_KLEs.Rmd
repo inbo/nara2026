@@ -67,7 +67,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "dommel"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
@@ -391,14 +391,15 @@ writeRaster(kle_fractie_10m_fin, file.path(result_path,"kle_fractie_tot_start.ti
 ```
 
 ```{r aandeel gras vs houtige kle}
-kle_hout_en_grasbuffer <- ifel(kle_fractie_10m == kle_fractie_10m_fin, kle_fractie_10m_fin, 0)
+kle_hout_en_grasbuffer <- ifel(round(kle_fractie_10m, 2) == round(kle_fractie_10m_fin, 2), kle_fractie_10m_fin, 0)
 kle_hout <- ifel(kle_hout_en_grasbuffer > 0 & kle_fractie_10m_som > 1, 
                  1 - kle_fractie_grasbuffer_10m, 
                  ifel(kle_hout_en_grasbuffer > 0 & kle_fractie_10m_som <= 1, 
                       kle_fractie_hout_10m, 
                       0))
 kle_grasbuffer <- ifel(kle_hout_en_grasbuffer > 0, kle_fractie_grasbuffer_10m, 0)
-kle_oever <- ifel(oever_fractie_kle == kle_fractie_10m_fin, kle_fractie_10m_fin, 0)
+kle_oever <- ifel(round(oever_fractie_kle, 2) == round(kle_fractie_10m_fin, 2), kle_fractie_10m_fin, 0)
+kle_tot <- kle_oever + kle_hout_en_grasbuffer
 kle_gras <- kle_oever + kle_grasbuffer
 opp_kle_hout <- global(kle_hout, "sum", na.rm = TRUE)$sum * 100
 opp_kle_tot <- global(kle_fractie_10m_fin, "sum", na.rm = TRUE)$sum * 100
@@ -407,6 +408,7 @@ opp_kle_hout
 opp_kle_gras
 opp_kle_tot
 opp_kle_hout/opp_kle_tot*100
+opp_kle_gras/opp_kle_tot*100
 ```
 
 #### 3.1.3 Stap 3: resultaat op 100m en terug naar 10m resolutie
@@ -585,8 +587,8 @@ opp_landbouw_prior <- global(landbouw_fractie_ha * landbouw_prior_masker, "sum",
 doel_opp_prior <- opp_landbouw_prior * 0.15
 huidig_opp_prior <- global(huidige_fractie_ha * landbouw_prior_masker, "sum", na.rm = TRUE)$sum
 
-
-tekort_totaal_prior <- doel_opp_prior - huidig_opp_prior
+tekort_totaal_prior_15 <- doel_opp_prior - huidig_opp_prior
+tekort_totaal_prior <- min(tekort_totaal2, tekort_totaal_prior_15)
 
 # 3.2. Bereken potentieel in prioritair gebied
 # Identificeer hectares landbouw in niet-HAG die minder dan 15% KLE hebben
@@ -606,9 +608,12 @@ if(tekort_totaal_prior > 0 && totaal_potentieel_prior > 0) {
   factor_prior <- min(1, tekort_totaal_prior / totaal_potentieel_prior)
   tekort_prior_fin <- potentieel_prior * factor_prior
   
-  # Melding (optioneel)
+  # Meldingen (optioneel)
   if(tekort_totaal_prior > totaal_potentieel_prior) {
     message("Let op: Het doel van 15% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 15%.")
+  }
+  if (tekort_totaal_prior_15 > tekort_totaal) {
+    message("Let op: Het doel van 15% in prioritair gebied wordt niet gerealiseerd. Het totale doel van 10% KLE in landbouwgebied ligt lager.")
   }
 } else {
   tekort_prior_fin <- ifel(landbouw_fractie_ha >= 0, 0, 0)
@@ -629,7 +634,7 @@ cat("Doel: ", doel_opp_prior, " ha\nGerealiseerd: ", prior_nieuwe_opp_ha, " ha")
 
 ```{r scen 1 - deel4 rest invullen}
 # --- 4. REST VAN HET GEBIED (BUDGET INVULLEN TOT 10% TOTAAL) ---
-resterend_budget <- tekort_totaal/10000 - geplaatst_prior
+resterend_budget <- round(tekort_totaal/10000 - geplaatst_prior, 1)
 
 # Bereken potentieel in de rest van het gebied (tot max 10% per hectare)
 rest_masker <- (prior_gebied == 0) & (landbouw_fractie_ha > 0) 
@@ -643,7 +648,7 @@ if(resterend_budget > 0 && totaal_potentieel_rest > 0) {
   tekort_rest_fin <- potentieel_rest * factor_rest
   # Melding (optioneel)
   if(resterend_budget > totaal_potentieel_rest) {
-    message("Let op: Het doel van 10% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 10%.")
+    cat("Let op: Het doel van 10% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 10%.")
   }
 } else {
   tekort_rest_fin <- ifel(landbouw_fractie_ha >= 0, 0, 0)
@@ -706,9 +711,11 @@ scen1_10m_corr <- scen1_10m_landbouw
 
   # Bereken hoeveel landbouw en KLE er echt op 10m resolutie liggen
   opp_landbouw_10m <- global(prior_masker_10m*landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100
-  doel_kle_10m <- opp_landbouw_10m * 0.15
   huidig_kle_10m <- global(scen1_10m_corr * prior_masker_10m, "sum", na.rm = TRUE)$sum * 100
-
+  start_kle_10m <- global(kle_fractie_10m_fin * prior_masker_10m, "sum", na.rm = TRUE)$sum * 100 
+  doel_kle_10m_15 <- opp_landbouw_10m * 0.15
+  doel_kle_10m <- min(doel_kle_10m_15, start_kle_10m + tekort_totaal)
+  
   corr_factor <- doel_kle_10m / huidig_kle_10m
   
   # Pas de correctie toe, maar ENKEL voor de cellen van DIT deelgebied
@@ -773,24 +780,28 @@ afstroming <- ifel(is.na(afstroomgebied), 0, afstroomgebied)
 # Aggregeren naar hectare (100m)
 afstroming_ha <- aggregate(afstroming, fact = 10, fun = max, na.rm = TRUE)
 
-# Voeg (gele en) oranje percelen (met erosiegevoelige gewassen) toe aan het raster met deelafstroomgebieden
-# 1. Haal alle unieke ID's van de deelafstroomgebieden op (behalve NA of 0) en bepaal nieuwe waarde van gele en oranje erosiezones
-unieke_ids <- unique(round(afstroming_ha, 1))[, 1]
-unieke_ids <- unieke_ids[!is.na(unieke_ids) & unieke_ids != 0]
-nieuwe_id <- max(unieke_ids, na.rm = TRUE) + 1
+if (!is.null(geel_oranje) && nrow(geel_oranje) > 0) {
+  # Voeg (gele en) oranje percelen (met erosiegevoelige gewassen) toe aan het raster met deelafstroomgebieden
+  # 1. Haal alle unieke ID's van de deelafstroomgebieden op (behalve NA of 0) en bepaal nieuwe waarde van gele en oranje erosiezones
+  unieke_ids <- unique(round(afstroming_ha, 1))[, 1]
+  unieke_ids <- unieke_ids[!is.na(unieke_ids) & unieke_ids != 0]
+  nieuwe_id <- max(unieke_ids, na.rm = TRUE) + 1
 
-# 2. nieuwe waarde toevoegen aan vector, leeg raster aanmaken, dan verrasteren
-geel_oranje$id_waarde <- nieuwe_id
-leeg_raster <- ifel(afstroming_ha >= 0, 0, 0)
-geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  # 2. nieuwe waarde toevoegen aan vector, leeg raster aanmaken, dan verrasteren
+  geel_oranje$id_waarde <- nieuwe_id
+  leeg_raster <- ifel(afstroming_ha >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
 
-# 3. enkel erosiegevoelige gewassen selecteren
-tbl_gewas_erosie <- deel_3_reclass_gewascode_erosie %>% select(gewascode, c_factor) %>% as.matrix()
-gewas_erosie <- classify(x = gewascode, rcl = tbl_gewas_erosie, others = 0)
-gewas_erosie_ha <- aggregate(gewas_erosie, fact = 10, fun = max, na.rm = TRUE) # of beter project(gewas_erosie, afstroming_ha, fun = max, na.rm = TRUE)?
-geel_oranje_rast_fin <- ifel(gewas_erosie_ha >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  # 3. enkel erosiegevoelige gewassen selecteren
+  tbl_gewas_erosie <- deel_3_reclass_gewascode_erosie %>% select(gewascode, c_factor) %>% as.matrix()
+  gewas_erosie <- classify(x = gewascode, rcl = tbl_gewas_erosie, others = 0)
+  gewas_erosie_ha <- aggregate(gewas_erosie, fact = 10, fun = max, na.rm = TRUE) # of beter project(gewas_erosie, afstroming_ha, fun = max, na.rm = TRUE)?
+  geel_oranje_rast_fin <- ifel(gewas_erosie_ha >= 0.5 & !is.na(geel_oranje_rast), geel_oranje_rast, NA)
 
 prior_gebied <- ifel(afstroming_ha == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, afstroming_ha)
+} else {
+  prior_gebied <- afstroming_ha
+  }
 mapview(prior_gebied) #+ mapview(geel_oranje_rast_fin, col = "blue")
 
 ```
@@ -888,6 +899,18 @@ cat("Doel in landbouwzone scenario 2 ovb ha-cellen:", totaal_doel_opp2, "ha\nTek
 ##### 3.3.2.2 Prioritair gebied invullen - tot 15% KLE per deelzone
 ```{r scen2 - deel2 prioriteit invullen}
 # --- 2. PRIORITEIT: DEELAFSTROOMGEBIEDEN EN GELE/ORANJE EROSIEPERCELEN (15% DOEL PER GEBIED)---
+prior_01 <- ifel(prior_gebied > 0, 1, 0)
+niet_prior_01 <- ifel(prior_gebied > 0, 0, 1)
+max_opp_kle_prior <- tekort_totaal2 + global(prior_01 * huidige_fractie_ha * landbouw_masker2, "sum", na.rm = TRUE)$sum
+opp_prior <- global(prior_01 * landbouw_fractie_ha, "sum", na.rm = TRUE)$sum
+max_perc_kle_prior <- round(max_opp_kle_prior / opp_prior, 3)
+max_perc_kle_prior
+perc <- min(0.15, max_perc_kle_prior)
+perc
+opp_kle_niet_prior <- global(niet_prior_01 * huidige_fractie_ha * landbouw_masker2, "sum", na.rm = TRUE)$sum
+opp_niet_prior <- global(niet_prior_01 * landbouw_fractie_ha, "sum", na.rm = TRUE)$sum
+perc_kle_niet_prior <- round(opp_kle_niet_prior / opp_niet_prior, 3)
+perc_kle_niet_prior
 
 # Maak een leeg raster (alleen nullen) met dezelfde structuur om de tekorten in op te slaan
 tekort_prior_fin <- ifel(landbouw_fractie_ha >= 0, 0, 0)
@@ -909,7 +932,7 @@ for (i in unieke_ids) {
   
   # 2. Bereken lokaal doeloppervlak en huidig opp (in ha)
   opp_landbouw_lokaal <- global(landbouw_fractie_ha * lokaal_masker, "sum", na.rm = TRUE)$sum
-  doel_opp_lokaal <- opp_landbouw_lokaal * 0.15
+  doel_opp_lokaal <- opp_landbouw_lokaal * perc
   huidig_opp_lokaal <- global(huidige_fractie_ha * lokaal_masker, "sum", na.rm = TRUE)$sum
   doel_lokaal_som <- doel_lokaal_som + doel_opp_lokaal
   
@@ -918,7 +941,7 @@ for (i in unieke_ids) {
   tekort_lokaal_som <- tekort_lokaal_som + tekort_lokaal # voor controle
   
   # 4. Bereken lokaal potentieel (ruimte tot 15% per hectare)
-  ruimte_tot_15_ha <- (0.15 * landbouw_fractie_ha) - huidige_fractie_ha
+  ruimte_tot_15_ha <- (perc * landbouw_fractie_ha) - huidige_fractie_ha
   potentieel_lokaal <- ifel(lokaal_masker & (ruimte_tot_15_ha > 0), ruimte_tot_15_ha, 0)
   
   totaal_potentieel_lokaal <- global(potentieel_lokaal, "sum", na.rm = TRUE)$sum
@@ -929,15 +952,15 @@ for (i in unieke_ids) {
     tekort_lokaal_fin <- potentieel_lokaal * factor_lokaal
       # Melding (optioneel)
   if(tekort_lokaal > totaal_potentieel_lokaal) {
-    message("Let op: Het lokale doel van 15% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 15%.")
+    cat("Let op: Het lokale doel van", perc*100, "is fysiek onmogelijk. Alle hectares zijn aangevuld tot max", perc*100, ".")
   }
     
     # Voeg dit lokale resultaat toe aan het cumulatieve raster
     tekort_prior_fin <- tekort_prior_fin + tekort_lokaal_fin
     
-    cat("Deelgebied", i, ": Doel van 15% ingevuld met", (global(tekort_lokaal_fin, "sum", na.rm = TRUE)$sum), "ha\n")
+    cat("Deelgebied", i, ": Doel van ", perc*100, "ingevuld met", (global(tekort_lokaal_fin, "sum", na.rm = TRUE)$sum), "ha\n")
   } else {
-    cat("Deelgebied", i, ": Heeft al voldoende KLE (>= 15% gemiddeld).\n")
+    cat("Deelgebied", i, ": Heeft al voldoende KLE (>= ", perc*100, "gemiddeld).\n")
   }
 }
 
@@ -966,11 +989,11 @@ potentieel_rest <- ifel(rest_masker & (ruimte_tot_10_ha > 0), ruimte_tot_10_ha, 
 
 totaal_potentieel_rest <- global(potentieel_rest, "sum", na.rm = TRUE)$sum
 
-if(resterend_budget > 0 && totaal_potentieel_rest > 0) {
+if (resterend_budget > 0 && totaal_potentieel_rest > 0) {
   factor_rest <- min(1, resterend_budget / totaal_potentieel_rest)
   tekort_rest_fin <- potentieel_rest * factor_rest
   # Melding (optioneel)
-  if(resterend_budget > totaal_potentieel_rest) {
+  if (resterend_budget > totaal_potentieel_rest) {
     message("Let op: Het doel van 10% is fysiek onmogelijk. Alle hectares zijn aangevuld tot max 10%.")
   }
 } else {
@@ -1019,22 +1042,48 @@ mapview(scen2_10m_landbouw)
 
 writeRaster(scen2_10m_landbouw, file.path(result_path, "kle_fractie_sc2.tif"), overwrite = TRUE)
 
-
 # Controle: halen we de 10% in het hele landbouwgebied? --> klopt misschien niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor landbouwgebied en per prioritair gebied? Dan in alle scenario's!
+
+# Afbakening prioritaire gebieden 10m resolutie
+if (!is.null(geel_oranje) && nrow(geel_oranje) > 0) {
+  leeg_raster <- ifel(afstroming >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
+  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+} else {
+  prior_gebied_10m <- afstroming
+}
+
 totaal_nieuwe_opp_m2 <- global(scen2_10m_landbouw, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_m2/10000, 1), " ha")
+
+cat("Doel 10%: ", round(totaal_doel_opp/10000, 1), " ha\nGerealiseerd 10% obv 10m cellen: ", round(totaal_nieuwe_opp_m2/10000, 1), " ha")
+
+prior_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m > 0)
+totaal_prior_doel_m2 <- global(prior_masker_10m, "sum", na.rm = TRUE)$sum*100*perc # op basis van 100m2-cellen
+totaal_nieuwe_opp_prior_m2 <- global(scen2_10m_landbouw*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd  prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 
 # Om de percentages wel mooi te laten kloppen in landbouwgebied en prioritair gebied
 
 # Correctiefactor prioritaire gebieden
 scen2_10m_corr <- scen2_10m_landbouw
 
-  # Afbakening prioritaire gebieden 10m resolutie
-  leeg_raster <- ifel(afstroming >= 0, 0, 0)
-  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
-  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
-  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
-  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+  # corrigeren benodigd % KLE op 10m in geval 15% niet haalbaar
+prior_10m_01 <- ifel(prior_gebied_10m > 0, 1, 0)
+max_opp_kle_prior_10m <- tekort_totaal + global(prior_10m_01 * kle_fractie_10m_fin * landbouw_masker_echt, "sum", na.rm = TRUE)$sum*100
+opp_prior_10m <- global(prior_10m_01 * landbouw_masker_echt, "sum", na.rm = TRUE)$sum*100
+max_perc_kle_prior_10m <- round(max_opp_kle_prior_10m / opp_prior_10m, 3)
+max_perc_kle_prior_10m
+perc_corr <- min(0.15, max_perc_kle_prior_10m)
+perc_corr
+ # ter controle huidig % KLE in niet-prioritair gebied
+niet_prior_10m_01 <- ifel(prior_gebied_10m > 0, 0, 1)
+opp_kle_niet_prior_10m <- global(niet_prior_10m_01 * kle_fractie_10m_fin * landbouw_masker_echt, "sum", na.rm = TRUE)$sum
+opp_niet_prior_10m <- global(niet_prior_10m_01 * landbouw_masker_echt, "sum", na.rm = TRUE)$sum
+perc_kle_niet_prior_10m <- round(opp_kle_niet_prior_10m / opp_niet_prior_10m, 3)
+perc_kle_niet_prior_10m
 
 for (i in unieke_ids) {
 
@@ -1045,7 +1094,7 @@ for (i in unieke_ids) {
   opp_landbouw_10m <- global(lokaal_masker_10m*landbouw_masker_echt, "sum", na.rm = TRUE)$sum * 100
   if (opp_landbouw_10m == 0) next
 
-  doel_kle_10m <- opp_landbouw_10m * 0.15
+  doel_kle_10m <- opp_landbouw_10m * perc_corr
   huidig_kle_10m <- global(scen2_10m_corr * lokaal_masker_10m, "sum", na.rm = TRUE)$sum * 100
 
   # Bereken de correctiefactor voor dit deelgebied
@@ -1073,15 +1122,18 @@ scen2_10m_corr2 <- scen2_10m_corr
     rest_masker_10m <- ifel(prior_gebied_10m == 0 & landbouw_masker_echt > 0, 1, 0)
     totaal_nieuwe_opp_rest_m2 <- global(scen2_10m_corr*rest_masker_10m, "sum", na.rm = TRUE)$sum * 100
     totaal_rest_doel_m2 <- totaal_doel_opp - geplaatst_prior
+    totaal_rest_doel_m2
 
-corr_factor <- totaal_rest_doel_m2 / totaal_nieuwe_opp_rest_m2
+    if (totaal_rest_doel_m2 > 0) {
 
+      corr_factor <- totaal_rest_doel_m2 / totaal_nieuwe_opp_rest_m2
 
-# Pas de correctie toe, maar ENKEL voor de cellen van restgebied
-gecorrigeerde_cellen <- scen2_10m_corr2 * corr_factor
+      # Pas de correctie toe, maar ENKEL voor de cellen van restgebied
+      gecorrigeerde_cellen <- scen2_10m_corr2 * corr_factor
 
-# Update de kaart via ifel
-scen2_10m_corr2 <- ifel(rest_masker_10m == 1, gecorrigeerde_cellen, scen2_10m_corr2)
+      # Update de kaart via ifel
+      scen2_10m_corr2 <- ifel(rest_masker_10m == 1, gecorrigeerde_cellen, scen2_10m_corr2)
+    }
 
 # Veiligheidscheck: fracties mogen nooit groter zijn dan 1.0
 scen2_10m_corr2 <- ifel(scen2_10m_corr2 > 1, 1, scen2_10m_corr2)
@@ -1310,10 +1362,28 @@ writeRaster(scen3_10m_landbouw, file.path(result_path, "kle_fractie_sc3_bos.tif"
 
 
 # Controle: halen we de 10% in het hele restgebied? --> klopt misschien niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor restgebied en per prioritair gebied? Dan in alle scenario's!
-rest_masker_10m <- (landbouw_masker_echt > 0 & afstroming == 0)
+ 
+# Afbakening prioritaire gebieden 10m resolutie
+if (!is.null(geel_oranje) && nrow(geel_oranje) > 0) {
+  leeg_raster <- ifel(afstroming >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
+  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+} else {
+  prior_gebied_10m <- afstroming
+}
+rest_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m == 0)
 totaal_rest_doel_m2 <- global(rest_masker_10m, "sum", na.rm = TRUE)$sum*100*0.10 # op basis van 100m2-cellen
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_landbouw*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+cat("Doel restgebied obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd restgebied obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+prior_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m > 0)
+totaal_prior_doel_m2 <- global(prior_masker_10m, "sum", na.rm = TRUE)$sum*100*0.15 # op basis van 100m2-cellen
+totaal_nieuwe_opp_prior_m2 <- global(scen3_10m_landbouw*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd  prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 
 # Om de percentages wel mooi te laten kloppen in restgebied en prioritair gebied
 # Correctiefactor restgebied
@@ -1331,13 +1401,6 @@ scen3_10m_corr <- ifel(scen3_10m_corr > 1, 1, scen3_10m_corr)
 
 # Correctiefactor prioritaire gebieden
 scen3_10m_corr2 <- scen3_10m_corr
-
-  # Afbakening prioritaire gebieden 10m resolutie
-  leeg_raster <- ifel(afstroming >= 0, 0, 0)
-  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
-  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
-  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
-  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
 
 for (i in unieke_ids) {
 
@@ -1373,8 +1436,11 @@ writeRaster(scen3_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc
 
 # Controle: halen we de 10% in het hele restgebied?
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_corr2*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+cat("Doel restgebied obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd restgebied obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
 
+# Controle: halen we de 15% in het hele prioritaire gebied?
+totaal_nieuwe_opp_prior_m2 <- global(scen3_10m_corr2*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 ```
 
 #### 3.3.4 Scenario 3 - versie gras
@@ -1594,10 +1660,29 @@ writeRaster(scen3_10m_landbouw, file.path(result_path, "kle_fractie_sc3_gras.tif
 
 
 # Controle: halen we de 10% in het hele restgebied? --> klopt niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor restgebied en per prioritair gebied? Dan in alle scenario's!
-rest_masker_10m <- (landbouw_masker_echt > 0 & afstroming == 0)
+
+ # Afbakening prioritaire gebieden 10m resolutie
+if (!is.null(geel_oranje) && nrow(geel_oranje) > 0) {
+  leeg_raster <- ifel(afstroming >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
+  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+} else {
+  prior_gebied_10m <- afstroming
+}
+
+rest_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m == 0)
 totaal_rest_doel_m2 <- global(rest_masker_10m, "sum", na.rm = TRUE)$sum*100*0.10 # op basis van 100m2-cellen
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_landbouw*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+cat("Doel restgebied obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd restgebied obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+prior_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m > 0)
+totaal_prior_doel_m2 <- global(prior_masker_10m, "sum", na.rm = TRUE)$sum*100*0.15 # op basis van 100m2-cellen
+totaal_nieuwe_opp_prior_m2 <- global(scen3_10m_landbouw*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd  prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 
 # Om de percentages wel mooi te laten kloppen in restgebied en prioritair gebied
 # Correctiefactor restgebied
@@ -1615,13 +1700,6 @@ scen3_10m_corr <- ifel(scen3_10m_corr > 1, 1, scen3_10m_corr)
 
 # Correctiefactor prioritaire gebieden
 scen3_10m_corr2 <- scen3_10m_corr
-
-  # Afbakening prioritaire gebieden 10m resolutie
-  leeg_raster <- ifel(afstroming >= 0, 0, 0)
-  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
-  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
-  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
-  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
 
 for (i in unieke_ids) {
 
@@ -1657,7 +1735,11 @@ writeRaster(scen3_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc
 
 # Controle: halen we de 10% in het hele restgebied?
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_corr2*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+cat("Doel restgebied obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd restgebied obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+# Controle: halen we de 15% in het hele prioritaire gebied?
+totaal_nieuwe_opp_prior_m2 <- global(scen3_10m_corr2*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 
 ```
 
@@ -1880,10 +1962,29 @@ writeRaster(scen3_10m_landbouw, file.path(result_path, "kle_fractie_sc3_75.tif")
 
 
 # Controle: halen we de 10% in het hele restgebied? --> klopt niet helemaal door afbakening afstroomgebieden op 1ha-resolutie, 15% per afstroomgebied zal ook niet helemaal kloppen: correctie nodig voor restgebied en per prioritair gebied? Dan in alle scenario's!
-rest_masker_10m <- (landbouw_masker_echt > 0 & afstroming == 0)
+
+# Afbakening prioritaire gebieden 10m resolutie
+if (!is.null(geel_oranje) && nrow(geel_oranje) > 0) {
+  leeg_raster <- ifel(afstroming >= 0, 0, 0)
+  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
+  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
+  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
+  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
+} else {
+  prior_gebied_10m <- afstroming
+}
+
+rest_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m == 0)
 totaal_rest_doel_m2 <- global(rest_masker_10m, "sum", na.rm = TRUE)$sum*100*0.10 # op basis van 100m2-cellen
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_landbouw*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+cat("Doel restgebied obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd restgebied obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+
+prior_masker_10m <- (landbouw_masker_echt > 0 & prior_gebied_10m > 0)
+totaal_prior_doel_m2 <- global(prior_masker_10m, "sum", na.rm = TRUE)$sum*100*0.15 # op basis van 100m2-cellen
+totaal_nieuwe_opp_prior_m2 <- global(scen3_10m_landbouw*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd  prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 
 # Om de percentages wel mooi te laten kloppen in restgebied en prioritair gebied
 # Correctiefactor restgebied
@@ -1901,13 +2002,6 @@ scen3_10m_corr <- ifel(scen3_10m_corr > 1, 1, scen3_10m_corr)
 
 # Correctiefactor prioritaire gebieden
 scen3_10m_corr2 <- scen3_10m_corr
-
-  # Afbakening prioritaire gebieden 10m resolutie
-  leeg_raster <- ifel(afstroming >= 0, 0, 0)
-  geel_oranje_rast <- rasterize(geel_oranje, leeg_raster, field = "id_waarde")
-  geel_oranje_rast_fin <- ifel(gewas_erosie >= 0.5 & !is.na(geel_oranje_rast > 0), geel_oranje_rast, NA)
-  prior_gebied_10m <- ifel(afstroming == 0 & !is.na(geel_oranje_rast_fin), geel_oranje_rast_fin, 0) #ifel blijkt hier niet te werken in 1 stap, daarom opgedeeld in 2 stappen
-  prior_gebied_10m <- ifel(prior_gebied_10m == 0, afstroming, prior_gebied_10m)
 
 for (i in unieke_ids) {
 
@@ -1943,6 +2037,9 @@ writeRaster(scen3_10m_corr2, file.path(result_path, "kle_fractie_gecorrigeerd_sc
 
 # Controle: halen we de 10% in het hele restgebied?
 totaal_nieuwe_opp_rest_m2 <- global(scen3_10m_corr2*rest_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
-cat("Doel obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
+cat("Doel restgebied obv 10m cellen: ", round(totaal_rest_doel_m2/10000, 1), " ha\nGerealiseerd restgebied obv 10m cellen: ", round(totaal_nieuwe_opp_rest_m2/10000, 1), " ha")
 
+# Controle: halen we de 15% in het hele prioritaire gebied?
+totaal_nieuwe_opp_prior_m2 <- global(scen3_10m_corr2*prior_masker_10m, "sum", na.rm = TRUE)$sum*100 # op basis van 100m2-cellen
+cat("Doel prioritair gebied obv 10m cellen: ", round(totaal_prior_doel_m2/10000, 1), " ha\nGerealiseerd prioritair gebied obv 10m cellen: ", round(totaal_nieuwe_opp_prior_m2/10000, 1), " ha")
 ```
