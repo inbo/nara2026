@@ -73,7 +73,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "ijzer"
 
 # Kies de bestanden die je nodig hebt
 
@@ -618,6 +618,8 @@ De **harde bestemmingen** komen overeen met de bestemmingscategorieën ‘Wonen�
 
 Aanvullend brengen we ook de **verharding die er bijkomt tussen 2022 en 2040** in rekening. Het BRV stelt dat het netto bijkomend ruimtebeslag is teruggedrongen tot 0 ha/dag tegen 2040. De HoGent berekende dat het totale quotum bijkomend ruimtebeslag voor Vlaanderen nog maximaal 11.933 ha bedraagt voor de periode 2022 tot 2040. Zowat de helft van het ruimtebeslag is momenteel verhard. We rekenen met eenzelfde verhardingsgraad (50%) voor het bijkomende ruimtebeslag. **We gaan ervan uit dat er alleen ruimtebeslag bijkomt binnen harde bestemmingen.**
 
+In sommige gebieden is de globale doelstelling (verhardingsgraad van het ruimtebeslag terugdringen tot niveau 2015) lager dan de doelstelling voor zonevreemd landgebruik. Dat betekent dat er in het gebied relatief veel zonevreemde verharding is t.o.v. de totale verharding. In dat geval wordt alleen de doelstelling voor zonevreemd landgebruik gerealiseerd.
+
 ##### Globaal doel (verhardingsoppervlakte ruimtebeslag max. 200000 ha)
 
 ```{r doel_brv2026}
@@ -708,12 +710,12 @@ zacht <- st_difference(rbh_gebied, hard) |>
 gebouwen <- Gbg |> select(LBLTYPE)
 
 gebouwen <- st_as_sf(gebouwen)
-zacht    <- st_as_sf(zacht)
+zacht_input    <- st_as_sf(zacht)
 
 qgis_result <- qgis_run_algorithm(
   "native:extractbylocation",
   INPUT = gebouwen,
-  INTERSECT = zacht,
+  INTERSECT = zacht_input,
   PREDICATE = 6 # = are within
 )
 
@@ -789,7 +791,7 @@ doel_zonevreemd <- round(0.2 * verhard_zonevreemd, 0)
 
 doel_globaal_sc1 <- doel_bak
 doel_openruimte_sc1 <- doel_zonevreemd
-doel_hard_sc1 <- doel_globaal_sc1 - doel_openruimte_sc1
+doel_hard_sc1 <- ifelse(doel_globaal_sc1 - doel_openruimte_sc1 < 0, 0, doel_globaal_sc1 - doel_openruimte_sc1)
 
 
 #/////////////////////////
@@ -1217,7 +1219,7 @@ publiek <- ifel(is.na(publiek_owner), 0, 1) # publieke percelen = 1
 
 ontharding_potent$publiek <- exact_extract(publiek, ontharding_potent, "mean")
 
-# Minstens 50% van het perceel moet in hag liggen
+# Minstens 50% van het perceel moet in publiek liggen
 ontharding_potent <- ontharding_potent |> 
   mutate(publiek = if_else(publiek >= 0.5, 1, 0))
 
@@ -1252,7 +1254,7 @@ write_sf(ontharding_potent, str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
 
 ```{r allocatie_sc1}
 
-# ontharding_potent <- st_read(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ontharding_potent.shp"))
+ontharding_potent <- st_read(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/ontharding_potent.shp"), quiet = TRUE)
 
 geselecteerd_sf <- ontharding_potent %>%
   # 1. Koppel het juiste doel aan het betreffende type

@@ -49,11 +49,11 @@ De volgende datasets worden gebruikt:
 - wlas_owl_visdoelen.shp -\> lijnen van soortbeschermingsprogramma's van de vissoorten (spatial join met wlas) - schaal **Vlaanderen**
 - veen1970_poly.shp -\> veenkaart INBO (bodem + bwk) - schaal **Vlaanderen**
 - ffr_finaal_visie_2050.shp -\> riviersegmenten die vrijstromend moeten zijn in 2050 - schaal **Vlaanderen**
-- overstromingsdiepte_t100_flu_plu.tif -\> overstroombaar gebied (t100, fluviale en pluviale overstromingsgebieden gecombineerd -\> zie ArcGIS script) - schaal deelgebied
+- overstromingsdiepte_t10_flu_plu.tif -\> overstroombaar gebied (t10, fluviale en pluviale overstromingsgebieden gecombineerd -\> zie ArcGIS script) - schaal deelgebied
 - vha.shp -\> waterlopen schaal deelgebied
 - textuur.tif -\> bodemtextuur schaal deelgebied
 - intolerant_zone_bever.tif -\> zone die niet mag overstromen door beverdammen om natuurdoelen te vrijwaren - schaal deelgebied
-- intolerant_zone_t100.tif -\> zone die niet mag overstromen onder t100 om natuurdoelen te vrijwaren -schaal deelgebied
+- intolerant_zone_t10.tif -\> zone die niet mag overstromen onder t10 om natuurdoelen te vrijwaren -schaal deelgebied
 - intolerant_zone_veenherstel.tif -\> zone die niet mag vernatten bij veenherstel om natuurdoelen te vrijwaren - schaal deelgebied
 - intolerant_vha_vernatting.tif -\> vha-cellen die niet in in aanmerking komen voor beekherstel om vernatting vanuit de rivier te vermijden ifv de realisatie van natuurdoelen - schaal deelgebied
 - zoekzone3260.shp -\> lijnsegmenten van de zoekzone voor habitattype 3260 - schaal **Vlaanderen**
@@ -66,12 +66,12 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "ijzer"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
 
-targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t100_flu_plu.tif", "grondwaterregime_habitats.xlsx", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t100.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "deel_3_reclass_lu.xlsx")
+targets <- c("gebied.shp", "textuur.tif", "ecosysteem_2022.tif", "veen1970_poly.shp", "ffr_finaal_visie_2050.shp", "vha.shp", "hag.tif", "habrl.shp", "habrl201301.shp", "ven.shp", "rbh.shp", "overstromingsdiepte_t10_flu_plu.tif", "grondwaterregime_habitats.xlsx", "zoekzone3260.shp", "bwk_habitat.shp", "toekomstlaag.shp", "intolerant_zone_veenherstel.tif", "intolerant_zone_bever.tif", "intolerant_zone_t10.tif", "intolerant_vha_vernatting.tif", "zonering_bever.shp", "lbgp_gewasgroep.tif", "wlas_owl_visdoelen.shp", "aquifer_hcov.tif", "ksat_h_hcov.tif", "deel_3_reclass_lu.xlsx")
 
 # In welke folders zitten de data?
 
@@ -181,7 +181,7 @@ list2env(data_list_ok, envir = .GlobalEnv)
 - Voor de analyse nemen we de **terrestrische natuurdoelen als uitgangspunt** en gaan we na in welke mate ze op hun huidige of voorziene locatie haalbaar zijn onder een meer natuurlijk watersysteem. Meer concreet gaan we na welke terrestrische doelen conflicteren met aquatische natuurdoelen (vrijstromendheid, instandhouding bever, vissoorten, habitat 3260 en veenherstel). De **toekomstkaart** (v2025) die aangeeft waar welke terrestrische habitattypes en regionaal belangrijke biotopen gerealiseerd moeten worden, vormt de basis voor de analyse. Die terrestrische natuurdoelen worden in de scenario's als volgt aangepast in functie van de realisatie van aquatische doelen:
   - **Bever**: op plaatsen waar bever getolereerd wordt, worden vegetatiedoelen die niet combineerbaar zijn met een langdurige zomeroverstroming (cf. benadering SBP bever) vervangen door een vegetatietype dat wel combineerbaar is.
   - **Veenherstel**: op plaatsen waar verdroogd oppervlakkig veen hersteld wordt, stijgt het grondwater tot tegen het maaiveld. In die zones kunnen alleen vegetatiedoelen met een zeer nat/veenvormend grondwaterregime voorkomen. Bij hersteld ondiep veen stijgt het grondwater tot minstens 0.5 m onder het maaiveld. In die zones kunnen ook vegetatiedoelen met een nat grondwaterregime voorkomen.
-  - **Vrijstromendheid**: op plaatsen waar rivieren vrijstromend worden, verruwt de rivierbedding waardoor de grondwaterstand in de vallei stijgt en kan de vallei overstromen. Ter hoogte van vrijstromende trajecten kunnen in de vallei alleen vegetatiedoelen voorkomen die compatibel zijn met winteroverstromingen (t100) en een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
+  - **Vrijstromendheid**: op plaatsen waar rivieren vrijstromend worden, verruwt de rivierbedding waardoor de grondwaterstand in de vallei stijgt en kan de vallei overstromen. Ter hoogte van vrijstromende trajecten kunnen in de vallei alleen vegetatiedoelen voorkomen die compatibel zijn met winteroverstromingen (t10) en een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
   - **Habitat 3260 en vissoorten**: langs de onbevaarbare waterlooptrajecten die geselecteerd worden ifv de doelen wordt de hydromorfologie hersteld. Daarvoor wordt een meandergordel gereserveerd waarbinnen erosie en sedimentatie door rivierwerking de vrije hand krijgt. Meandering en waterplanten verruwen de rivierbedding waardoor de afvoer vertraagt en het rivierpeil stijgt. Dat leidt meestal tot een verhoging van de grondwaterstand in de vallei. Zonder verhoging van de rivierbodem kan hermeandering echter een verdere verdroging van de vallei in de hand werken. Binnen de vernattingszone kunnen alleen vegetatiedoelen voorkomen die compatibel zijn met een grondwaterstand die zich maximaal 0.5 m onder het maaiveld bevindt (zeer natte en natte grondwaterregimes).
 
 #### Scenario 1
@@ -198,7 +198,7 @@ In scenario 1 realiseren we de waterregulerende NbO die het huidige beleid voorz
 In scenario 2 realiseren we de waterregulerende NbO die het huidige beleid voorziet prioritair in gebieden die er toe doen voor de huidige (grond)watergebonden natuurdoelen. Natuurdoelen op het land passen we aan op plaatsen waar ze **natuurdoelen in de waterloop** belemmeren. De aquatische natuurdoelen worden als volgt gealloceerd:
 
 - **Bever**: vegetatiedoelen kunnen wijken thv **kernleefgebieden** van bever.
-  - De overstroombare vallei (t100) wordt geselecteerd thv waterlopen die zijn aangeduid als kernleefgebied voor bever.
+  - De overstroombare vallei (t10) wordt geselecteerd thv waterlopen die zijn aangeduid als kernleefgebied voor bever.
 - **Veenherstel**: vernattingsdoel veen bij voorkeur in SBZ, VEN of groene bestemming Gewestplan, [aansluitend bij bestaande niet verdroogde veengebieden]{.underline}. Veenherstel kan onder dit scenario dus ook in HAG en thv vegetatiedoelen die niet combineerbaar zijn met hoge grondwaterstanden.
 - **Vrijstromendheid**: barrières voor de laterale connectiviteit tussen de rivier en de vallei worden bij voorkeur verwijderd binnen SBZ, groene gewestplanbestemmingen of VEN-gebied. Zones met bebouwing blijven gevrijwaard. HAG en akkers buiten HAG kunnen ingeschakeld worden, maar alleen als er te weinig ruimte is in de andere geschikte zones. [Vrijstromendheid wordt toegelaten thv niet-combineerbare vegetatiedoelen]{.underline}.
 - **Habitat 3260 en vissoorten**: trajecten voor hydromorfologisch herstel worden bij voorkeur geselecteerd langs onbevaarbare trajecten binnen de SBZ-H deelgebieden. HAG en akkers buiten HAG kunnen ingeschakeld worden, maar alleen als er te weinig ruimte is in de andere geschikte zones. Vernatting kan ook thv niet-combineerbare natuurdoelen.
@@ -210,7 +210,7 @@ In scenario 3 realiseren we maximaal waterregulerende NbO in de gebieden die er 
 
 - **Hydromorfologisch herstel:** de natuurlijke hydrologie van waterlopen wordt hersteld in alle niet-kunstmatige onbevaarbare waterlopen tot en met categorie 3, zonder de waterlopen die beheerd worden door de polders.
   - Langs deze waterlopen bakenen we een meanderzone en een vernattingszone af.
-  - Alle niet-bebouwde cellen in de t100-kaart kunnen overstromen (komberging). In die zones wordt het landgebruik afgestemd op vernatting en overstromingen (geen akkers, geen niet-combineerbare natuurdoelen.
+  - Alle niet-bebouwde cellen in de t10-kaart kunnen overstromen (komberging). In die zones wordt het landgebruik afgestemd op vernatting en overstromingen (geen akkers, geen niet-combineerbare natuurdoelen.
   - Dat betekent dat al deze waterlopen **vrijstromend** zijn.
 - **Bever**: wordt toegelaten in alle waterlopen \>= categorie 2 waar aan hydromorfologisch herstel gewerkt wordt (**+ waar er op dit moment beverterritoria zijn? = kernleefgebieden**). In de overstroombare delen komen alleen vegetaties voor die combineerbaar zijn met zomeroverstromingen.
 - **Veenherstel**: [Alle verdroogde veengebieden]{.underline} worden hersteld. De bodembedekking thv de veengebieden wordt aangepast in een combineerbaar ecosysteemtype (open vegetaties of elzenbroekbos - 91E0).
@@ -245,7 +245,7 @@ In optie 1 vertrekken we van de zoneringskaart van ANB die aangeeft waar de kern
 
 ```{r leefgebied_bever}
 
-vha_raw <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/wlas_owl.shp")
+vha_raw <- st_read("C:/R/NARA2026/nara2026-git/scenarios/data/wlas_owl.shp", quiet = TRUE)
 
 vha_raw <- vha_raw %>% select(VHAS, CODTYPOWL)
 
@@ -619,7 +619,7 @@ r_vha <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1) %>% project(
 
 # a) Bebouwing in overstromingszone -> niet geschikt 
 # Isoleer bebouwing in overstromingszone
-buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu), 1, NA)
+buffer <- ifel(!is.na(overstromingsdiepte_t10_flu_plu), 1, NA)
 bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
 bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
@@ -643,7 +643,7 @@ intol_bever <- ifel(is.na(intolerant_zone_bever), 0, 1)
 
 
 # 3. Beleid
-r_hag
+# r_hag
 # r_natuur # sbz + ven + groene bestemmingen -> telt niet mee in sc1
 
 # Terrestrische geschiktheden projecteren op vha
@@ -680,7 +680,7 @@ sc1_patches_clean[sc1_patches_clean %in% f$value[f$count <= 10]] <- NA
 
 # Afbakenen van de valleizones die kunnen overstromen door beverdammen
 
-diepte <- overstromingsdiepte_t100_flu_plu
+diepte <- overstromingsdiepte_t10_flu_plu
 r_ffr <- ifel(sc1_patches_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De leefgebiedlijnsegmenten zijn maar een selectie van de vha-lijnen.
@@ -704,8 +704,8 @@ f2 <- freq(lg_patches)
 lg_niet_clean <- lg_patches
 lg_niet_clean[lg_niet_clean %in% f2$value[f2$count <= 5]] <- NA
 
-# Stap 3 - distance-analyse voor selectie t100-cellen
-# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+# Stap 3 - distance-analyse voor selectie t10-cellen
+# Het begaanbare grid is de overstroombare vallei (t10, diepte)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
 # De rivier is een barrière + oeverzone wegknippen anders glipt de distance-analyse langs de oevers naar naburige zones
@@ -732,7 +732,7 @@ vallei_allocatie <- ifel(
   NA
 )
 
-# Resultaat maskeren met t100-kaart
+# Resultaat maskeren met t10-kaart
 bever_overstroombaar <- mask(vallei_allocatie, diepte)
 
 
@@ -765,13 +765,13 @@ dist_tot_intact <- distance(intact_veen)
 # 2.1. Landbouwgebruik
 landbouw <- ifel(!is.na(lbgp_gewasgroep), 1, 0)
 # 2.2. HAG
-r_hag
+# r_hag
 
 # 3. Natuur
 # 3.1. Zone te vrijwaren voor niet-combineerbare natuurdoelen
 natuur_intol <- ifel(is.na(intolerant_zone_veenherstel), 0, 1)
 # 3.2. SBZ, VEN, groene bestemmingen
-r_natuur
+# r_natuur
 
 # 4. Ecosystemen -> reclass ecosysteemkaart
 reclass_lu <- matrix(c( # van, tot en met, wordt
@@ -858,7 +858,7 @@ Vrijstromendheid = de totale lengte van laterale barrières (linker en rechter o
   - bij voorkeur op natuurlijk grasland, bos of moeras
 - Plaats het aantal cellen dat overeenkomt met 80% van de oevercellen per reachID
 - Selecteer de overstroombare cellen in de vallei die grenzen aan de oevercellen die geselecteerd zijn om barrièrevrij te worden onder vrijstromende omstandigheden.
-  - Via een distance-analyse worden de fluviale en pluviale overstromingscellen (t100) toegewezen aan oevercellen die barrièrevrij zijn.
+  - Via een distance-analyse worden de fluviale en pluviale overstromingscellen (t10) toegewezen aan oevercellen die barrièrevrij zijn.
   - Het resultaat is een kaart van de cellen in de vallei die onder vrijstromende condities kunnen overstromen omdat
 
 ```{r vrijstromendheid_sc1}
@@ -877,7 +877,7 @@ ffr_rast <- mask(ffr_rast, ecosysteem_2022)
 
 # a) Bebouwing in vernattings- en overstromingszone -> niet geschikt 
 # Isoleer bebouwing in vernattingszone en overstromingszone
-buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu) | !is.na(vha_buffer), 1, NA)
+buffer <- ifel(!is.na(overstromingsdiepte_t10_flu_plu) | !is.na(vha_buffer), 1, NA)
 bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
 bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
@@ -912,20 +912,20 @@ lu_focal <- focal(lu_in_buffer, w = fw, fun = "mean", na.rm = TRUE)
 
 
 # 2. Combineerbaarheid met overstromingen en vernatting (1 = intolerant)
-intol_t100 <- ifel(is.na(intolerant_zone_t100), 0, 1)
+intol_t10 <- ifel(is.na(intolerant_zone_t10), 0, 1)
 
 intol_vernat <- ifel(is.na(intolerant_vha_vernatting), 0, 1)
 
 
 # 3. Beleid
-r_hag
-r_natuur # sbz + ven + groene bestemmingen
+# r_hag
+# r_natuur # sbz + ven + groene bestemmingen
 
 # Terrestrische geschiktheden projecteren op vha
 # intolerante natuur -> 3x3 venster
 # de beleidskaarten liggen vaak iets verder -> 7x7 venster
 
-intol_t100_max <- focal(intol_t100, w = matrix(1, nrow = 5, ncol = 5), fun = "max", na.rm = TRUE) 
+intol_t10_max <- focal(intol_t10, w = matrix(1, nrow = 5, ncol = 5), fun = "max", na.rm = TRUE) 
 
 hag_max <- focal(r_hag, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na.rm = TRUE)
 vha_hag <- mask(hag_max, r_vha)
@@ -935,7 +935,7 @@ natuur_max <- focal(r_natuur, w = matrix(1, nrow = 7, ncol = 7), fun = "max", na
 # 4. Geschiktheidskaart - sc1: niet hag, niet bebouwing, niet op intolerante natuur, hogere geschiktheid binnen sbz, ven & groene bestemming, gras, bos (exlc. naaldbos) en moeras hogere geschiktheid, akkers laagste geschiktheid
 
 # selecteer de ffr-cellen die geschikt zijn
-niet_geschikt_sc1 <- ifel(vha_bebouwing == 1 | vha_hag == 1 | intol_t100_max == 1 | intol_vernat == 1, 0, 1)
+niet_geschikt_sc1 <- ifel(vha_bebouwing == 1 | vha_hag == 1 | intol_t10_max == 1 | intol_vernat == 1, 0, 1)
 ffr_geschikt <- ifel(ffr_rast * niet_geschikt_sc1 == 0, NA, ffr_rast)
 
 geschikt_sc1 <- ifel(natuur_max == 1, lu_focal + 1, lu_focal)
@@ -1048,7 +1048,7 @@ ffr_vernatting <- ifel(r_cost_dist <= max_cost, 1, NA)
 
 # Zones van de vallei aanduiden die kunnen overstromen bij vrijstromendheid
 
-diepte <- overstromingsdiepte_t100_flu_plu
+diepte <- overstromingsdiepte_t10_flu_plu
 r_ffr <- ifel(ffr_final_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De ffr-lijnsegmenten zijn maar een selectie van de vha-lijnen.
@@ -1073,8 +1073,8 @@ f2 <- freq(oever_patches)
 oever_niet_clean <- oever_patches
 oever_niet_clean[oever_niet_clean %in% f2$value[f2$count <= 5]] <- NA
 
-# Stap 6.3. - distance-analyse voor selectie t100-cellen
-# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+# Stap 6.3. - distance-analyse voor selectie t10-cellen
+# Het begaanbare grid is de overstroombare vallei (t10, diepte)
 begaanbaar_grid <- ifel(!is.na(diepte) | !is.na(oever_zone), 1, NA)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
@@ -1103,7 +1103,7 @@ vallei_allocatie <- ifel(
   NA
 )
 
-# Resultaat maskeren met t100-kaart
+# Resultaat maskeren met t10-kaart
 ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
 
@@ -1249,8 +1249,8 @@ vha_intol <- intolerant_vha_vernatting
 vha_intol <- ifel(is.na(vha_intol) & r_vha == 1, 0, vha_intol)
 
 # 3. Geschiktheid ifv beleid
-r_hag
-r_natuur
+# r_hag
+# r_natuur
 
 # Terrestrische geschiktheden projecteren op vha
 # de beleidskaarten liggen vaak iets verder -> 7x7 venster
@@ -1437,7 +1437,7 @@ r_vha <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1) %>% project(
 
 # a) Bebouwing in overstromingszone -> niet geschikt 
 # Isoleer bebouwing in overstromingszone
-buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu), 1, NA)
+buffer <- ifel(!is.na(overstromingsdiepte_t10_flu_plu), 1, NA)
 bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
 bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
@@ -1492,7 +1492,7 @@ if (length(f$value[f$count <= 10]) > 0) {
 
 # Afbakenen van de valleizones die kunnen overstromen door beverdammen
 
-diepte <- overstromingsdiepte_t100_flu_plu
+diepte <- overstromingsdiepte_t10_flu_plu
 r_ffr <- ifel(sc2_patches_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De leefgebiedlijnsegmenten zijn maar een selectie van de vha-lijnen.
@@ -1520,8 +1520,8 @@ if (length(f2$value[f2$count <= 5]) > 0) {
   lg_niet_clean[lg_niet_clean %in% f2$value[f2$count <= 5]] <- NA
 }
 
-# Stap 3 - distance-analyse voor selectie t100-cellen
-# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+# Stap 3 - distance-analyse voor selectie t10-cellen
+# Het begaanbare grid is de overstroombare vallei (t10, diepte)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
 # De rivier is een barrière + oeverzone wegknippen anders glipt de distance-analyse langs de oevers naar naburige zones
@@ -1548,7 +1548,7 @@ vallei_allocatie <- ifel(
   NA
 )
 
-# Resultaat maskeren met t100-kaart
+# Resultaat maskeren met t10-kaart
 bever_overstroombaar <- mask(vallei_allocatie, diepte)
 
 
@@ -1582,13 +1582,13 @@ veen_clusters <- classify(clusters, rcl = reclass_matrix, others = NA)
 # 2.1. Landbouwgebruik
 landbouw <- ifel(!is.na(lbgp_gewasgroep), 1, 0)
 # 2.2. HAG
-r_hag
+# r_hag
 
 # 3. Natuur
 # 3.1. Zone te vrijwaren voor niet-combineerbare natuurdoelen
 natuur_intol <- ifel(is.na(intolerant_zone_veenherstel), 0, 1)
 # 3.2. SBZ, VEN, groene bestemmingen
-r_natuur
+# r_natuur
 
 # 4. Ecosystemen -> reclass ecosysteemkaart
 reclass_lu <- matrix(c( # van, tot en met, wordt
@@ -1690,7 +1690,7 @@ ffr_rast <- mask(ffr_rast, ecosysteem_2022)
 
 # a) Bebouwing in vernattings- en overstromingszone -> niet geschikt 
 # Isoleer bebouwing in vernattingszone en overstromingszone
-buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu) | !is.na(vha_buffer), 1, NA)
+buffer <- ifel(!is.na(overstromingsdiepte_t10_flu_plu) | !is.na(vha_buffer), 1, NA)
 bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
 bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
@@ -1730,7 +1730,7 @@ lu_focal <- focal(lu_in_buffer, w = fw, fun = "mean", na.rm = TRUE)
 
 # 3. Beleid
 # r_hag -> telt niet mee in scenario 2
-r_natuur # sbz + ven + groene bestemmingen
+# r_natuur # sbz + ven + groene bestemmingen
 
 # Terrestrische geschiktheden projecteren op vha
 # intolerante natuur -> 3x3 venster
@@ -1857,7 +1857,7 @@ ffr_vernatting <- ifel(r_cost_dist <= max_cost, 1, NA)
 
 # Zones van de vallei aanduiden die kunnen overstromen bij vrijstromendheid
 
-diepte <- overstromingsdiepte_t100_flu_plu
+diepte <- overstromingsdiepte_t10_flu_plu
 r_ffr <- ifel(ffr_final_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De ffr-lijnsegmenten zijn maar een selectie van de vha-lijnen.
@@ -1882,8 +1882,8 @@ f2 <- freq(oever_patches)
 oever_niet_clean <- oever_patches
 oever_niet_clean[oever_niet_clean %in% f2$value[f2$count <= 5]] <- NA
 
-# Stap 6.3. - distance-analyse voor selectie t100-cellen
-# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+# Stap 6.3. - distance-analyse voor selectie t10-cellen
+# Het begaanbare grid is de overstroombare vallei (t10, diepte)
 begaanbaar_grid <- ifel(!is.na(diepte) | !is.na(oever_zone), 1, NA)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
@@ -1912,7 +1912,7 @@ vallei_allocatie <- ifel(
   NA
 )
 
-# Resultaat maskeren met t100-kaart
+# Resultaat maskeren met t10-kaart
 ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
 
@@ -2024,7 +2024,6 @@ f <- freq(sc2_patches)
 sc2_patches_clean <- sc2_patches
 sc2_patches_clean[sc2_patches_clean %in% f$value[f$count <= 50]] <- NA
 
-# mapview(sc2_patches, na.color = "transparent") + mapview(patches_geschiktheid, na.color = "transparent")
 
 # Gemiddelde geschiktheid per cluster
 patches_geschiktheid <- zonal(x = geschikt_sc2, z = sc2_patches_clean, fun = "mean", na.rm = TRUE, as.raster = TRUE)
@@ -2171,7 +2170,7 @@ r_vha <- rasterize(vha, ecosysteem_2022, touches = TRUE, field = 1) %>% project(
 
 # a) Bebouwing in overstromingszone -> niet geschikt 
 # Isoleer bebouwing in overstromingszone
-buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu), 1, NA)
+buffer <- ifel(!is.na(overstromingsdiepte_t10_flu_plu), 1, NA)
 bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
 bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
@@ -2221,7 +2220,7 @@ sc3_patches_clean[sc3_patches_clean %in% f$value[f$count <= 10]] <- NA
 
 # Afbakenen van de valleizones die kunnen overstromen door beverdammen
 
-diepte <- overstromingsdiepte_t100_flu_plu
+diepte <- overstromingsdiepte_t10_flu_plu
 r_ffr <- ifel(sc3_patches_clean > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De leefgebiedlijnsegmenten zijn maar een selectie van de vha-lijnen.
@@ -2245,8 +2244,8 @@ f2 <- freq(lg_patches)
 lg_niet_clean <- lg_patches
 lg_niet_clean[lg_niet_clean %in% f2$value[f2$count <= 5]] <- NA
 
-# Stap 3 - distance-analyse voor selectie t100-cellen
-# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+# Stap 3 - distance-analyse voor selectie t10-cellen
+# Het begaanbare grid is de overstroombare vallei (t10, diepte)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
 # De rivier is een barrière + oeverzone wegknippen anders glipt de distance-analyse langs de oevers naar naburige zones
@@ -2273,7 +2272,7 @@ vallei_allocatie <- ifel(
   NA
 )
 
-# Resultaat maskeren met t100-kaart
+# Resultaat maskeren met t10-kaart
 
 bever_overstroombaar <- ifel(!is.na(vallei_allocatie) & !is.na(diepte), 1, NA)
 
@@ -2365,7 +2364,7 @@ ffr_sc3 <- patches(ffr_combi, directions = 8)
 
 # a) Bebouwing in vernattings- en overstromingszone -> niet geschikt 
 # Isoleer bebouwing in vernattingszone en overstromingszone
-buffer <- ifel(!is.na(overstromingsdiepte_t100_flu_plu) | !is.na(vha_buffer), 1, NA)
+buffer <- ifel(!is.na(overstromingsdiepte_t10_flu_plu) | !is.na(vha_buffer), 1, NA)
 bebouwing <- ifel(ecosysteem_2022 == 101, 1, NA)
 bebouwing_in_buffer <- ifel(buffer == 1 & bebouwing == 1, 1, NA)
 
@@ -2467,7 +2466,7 @@ ffr_vernatting <- ifel(r_cost_dist <= max_cost, 1, NA)
 
 # Zones van de vallei aanduiden die kunnen overstromen bij vrijstromendheid
 
-diepte <- overstromingsdiepte_t100_flu_plu
+diepte <- overstromingsdiepte_t10_flu_plu
 r_ffr <- ifel(oever_ffr > 0, 1, NA)
 
 # VHA-lijnen verrasteren om ze te gebruiken als barrière in de distance-analyse. De ffr-lijnsegmenten zijn maar een selectie van de vha-lijnen.
@@ -2492,8 +2491,8 @@ f2 <- freq(oever_patches)
 oever_niet_clean <- oever_patches
 oever_niet_clean[oever_niet_clean %in% f2$value[f2$count <= 5]] <- NA
 
-# Stap 6.3. - distance-analyse voor selectie t100-cellen
-# Het begaanbare grid is de overstroombare vallei (t100, diepte)
+# Stap 6.3. - distance-analyse voor selectie t10-cellen
+# Het begaanbare grid is de overstroombare vallei (t10, diepte)
 begaanbaar_grid <- ifel(!is.na(diepte) | !is.na(oever_zone), 1, NA)
 begaanbaar_grid <- ifel(!is.na(diepte), 1, NA)
 
@@ -2522,7 +2521,7 @@ vallei_allocatie <- ifel(
   NA
 )
 
-# Resultaat maskeren met t100-kaart
+# Resultaat maskeren met t10-kaart
 ffr_overstroombaar <- mask(vallei_allocatie, diepte)
 
 

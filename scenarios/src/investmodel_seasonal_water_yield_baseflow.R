@@ -1,4 +1,4 @@
-run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_2022.tif", recharge = "L_new_sc1_inf.tif", suffix = "") {
+run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_2022.tif", recharge = "L_new_sc1_inf.tif", suffix = "", maatr = "") {
   
   # ==============================================================================
   # 0. CONTROLE EN AUTOMATISCHE ACTIVATIE VAN PACKAGES EN OMGEVING
@@ -40,7 +40,7 @@ run_invest_swy <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   # ==============================================================================
   clean_suffix <- if (nchar(suffix) > 0 && !startsWith(suffix, "_")) paste0("_", suffix) else suffix
   folder_naam  <- if (nchar(suffix) > 0) gsub("^_", "", clean_suffix) else "referentie"
-  folder_oud <- str_c(str_remove(folder_naam, "_.{3}_bf$"), "_inf")
+  folder_oud <- str_c(str_remove(folder_naam, "_.{3}_bf$"), "_", maatr)
     
   
   # Elkeen krijgt een eigen geïsoleerde werkmap om conflicten te vermijden

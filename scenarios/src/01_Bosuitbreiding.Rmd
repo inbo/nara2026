@@ -65,7 +65,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "dommel"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -622,7 +622,7 @@ bosuitbreiding_sc1 <- bosuitbreiding
 writeRaster(bosuitbreiding_sc1, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc1_bosuitbreiding.tif"), overwrite = TRUE)
 
 
-mapview(bosuitbreiding_sc1, na.color = "transparent")
+# mapview(bosuitbreiding_sc1, na.color = "transparent")
 ```
 
 ### 2.2. Scenario 2
@@ -833,7 +833,7 @@ bosuitbreiding_sc2 <- bosuitbreiding
 writeRaster(bosuitbreiding_sc2, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc2_bosuitbreiding.tif"), overwrite = TRUE)
 
 
-mapview(bosuitbreiding_sc2, na.color = "transparent")
+# mapview(bosuitbreiding_sc2, na.color = "transparent")
 ```
 
 ### 2.2. Scenario 3
@@ -867,7 +867,7 @@ bosuitbreiding_sc3 <- ifel(!is.na(bosuitbreiding_sc2) | !is.na(bosuitbreiding_na
 writeRaster(bosuitbreiding_sc3, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/sc3_bosuitbreiding.tif"), overwrite = TRUE)
 
 
-mapview(bosuitbreiding_sc3, na.color = "transparent")
+# mapview(bosuitbreiding_sc3, na.color = "transparent")
 ```
 
 ## 3. Kaarten maken

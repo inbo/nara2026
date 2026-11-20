@@ -13,6 +13,7 @@ library(terra)
 library(dplyr)
 library(tidyverse)
 library(readxl)
+library(writexl)
 library(mapview)
 library(tools)     # Handig voor file_ext()
 library(reticulate)
@@ -22,7 +23,7 @@ library(exactextractr)
 library(qgisprocess)
 
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 # Inladen functie voor Investmodel
 source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_seasonal_water_yield_baseflow.R")
@@ -197,6 +198,10 @@ runs_tbl <- tibble::tribble(
   "3_75",   "fin"
 )
 
+# runs_tbl <- tibble::tribble(
+#   ~scen,    ~maatr,
+#   "2",   "fin"
+# )
 
 df_extra_inf <- pmap(runs_tbl, function(scen, maatr) {
   
@@ -237,7 +242,6 @@ aantal_workers <- 4  # Pas aan op basis van beschikbaar RAM-geheugen
 
 plan(multisession, workers = aantal_workers)
 
-
 # Loop door scenario's met InVestmodel SWY
 # investmodel_seasonal_water_yield_baseflow.R berekent alleen de nieuwe baseflowkaarten (B_ en B_sum_).
 resultaten_tbl <- future_pmap_dfr(runs_tbl, function(scen, maatr) {
@@ -263,7 +267,7 @@ resultaten_tbl <- future_pmap_dfr(runs_tbl, function(scen, maatr) {
   
   # Run InVEST
   status_run <- tryCatch({
-    run_invest_swy(studiegebied = studiegebied, kaart = kaart, recharge = recharge, suffix = suffix)
+    run_invest_swy(studiegebied = studiegebied, kaart = kaart, recharge = recharge, suffix = suffix, maatr = maatr)
     "Succesvol uitgevoerd"
   }, error = function(e) {
     paste("Fout:", e$message)
@@ -299,10 +303,10 @@ streams <- r_streams # r_streams (= alle rivieren) / r_streams_natuur (= riviere
 
 
 # 1. Selecteer de B_sum rasterbestanden:
-# De B_sum van de referentiekaart, de B_sum van de initiële run met de geplaatste natuur (_nat), de B_sum op basis van de aangepaste recharge laag en de B_sum van de gras- en bosscenario's.
+# De B_sum van de initiële run van de infiltratiemaatregelen en de fincale kaart mag niet worden meegenomen omdat die vervangen zijn door B_sum's op basis van de aangepaste recharge-kaart.
 tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
 tif_bestanden <- tif_bestanden[grepl("^B_sum", basename(tif_bestanden))] 
-tif_bestanden <- tif_bestanden[str_detect(basename(tif_bestanden), "_bf\\.tif$|sc3_gras|sc3_bos|_nat|B_sum.tif")]
+tif_bestanden <- str_subset(tif_bestanden, "(?<!gras)(?<!bos)_(inf|fin)\\.tif$", negate = TRUE)
 
 # 2. Identificeer het referentiebestand
 ref_bestand <- tif_bestanden[basename(tif_bestanden) == "B_sum.tif"]
@@ -339,7 +343,7 @@ for (bestand in scenario_bestanden) {
   
   # Scenario en maatregel uit bestandsnaam halen
   scenario  <- str_extract(naam, "sc3_75|sc3_bos|sc3_gras|sc1|sc2")
-  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat)(?=_|\\.)")
+  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat|fin)(?=_|\\.)")
   
   # Scenarioraster inlezen
   B_sum_scen <- rast(bestand)
@@ -377,7 +381,7 @@ for (bestand in scenario_bestanden) {
   
   # Scenario en maatregel uit bestandsnaam halen
   scenario  <- str_extract(naam, "sc3_75|sc3_bos|sc3_gras|sc1|sc2")
-  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat)(?=_|\\.)")
+  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat|fin)(?=_|\\.)")
   
   # Scenarioraster inlezen
   B_sum_scen <- rast(bestand)
@@ -396,7 +400,7 @@ for (bestand in scenario_bestanden) {
       scenario = scenario,
       maatregel = maatregel,
       resultaat = resultaat,
-      type = "all"
+      type = "all2"
     )
   )
 }
@@ -419,7 +423,7 @@ for (bestand in scenario_bestanden) {
   
   # Scenario en maatregel uit bestandsnaam halen
   scenario  <- str_extract(naam, "sc3_75|sc3_bos|sc3_gras|sc1|sc2")
-  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat)(?=_|\\.)")
+  maatregel <- str_extract(naam, "(?<=_)(inf|kle|ont|nat|fin)(?=_|\\.)")
   
   # Scenarioraster inlezen
   B_sum_scen <- rast(bestand)
@@ -476,5 +480,135 @@ result_ref_2050 <- global(B_sum_ref_2050 * streams, "sum", na.rm = TRUE)[1, 1]
 resultaat_2050 <- (result_ref_2050 - result_ref) / result_ref
 
 cat("Onder het hoog impact klimaatscenario verandert het totaal jaarlijks basisdebiet met", round(100 * resultaat_2050, 1), "% tov het huidige basisdebiet. De maatregelen van de scenario's veranderen het basisdebiet met maximaal", round(100 * max(resultaten_2022$resultaat), 1), "%")
+
+```
+
+### Data wegschrijven en grafiek
+
+```{r}
+
+
+df_resultaten <- resultaten %>%
+  mutate(variabele = "B") |> 
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1"      = "sc1",
+                               "Scenario 2"      = "sc2",
+                               "Scenario 3 gras" = "sc3_gras",
+                               "Scenario 3 bos"  = "sc3_bos",
+                               "Scenario 3 75%"  = "sc3_75"
+  )) |>
+  select(variabele, scenario, maatregel, resultaat)
+
+
+volgorde_scenarios <- c(
+    "Scenario 1",
+    "Scenario 2",
+    "Scenario 3 bos",
+    "Scenario 3 gras",
+    "referentie",
+    "Scenario 3 75%"
+    )
+
+df_resultaten_full <- df_resultaten %>%
+  mutate(deelindicator = maatregel) |> 
+  select(variabele, scenario, deelindicator, resultaat) |> 
+  pivot_wider(
+    id_cols     = c(variabele, deelindicator),
+    names_from  = scenario,
+    values_from = resultaat,
+    names_sort  = TRUE
+  ) %>%
+  select(variabele, deelindicator, any_of(volgorde_scenarios))
+
+bestand_pad <- file.path(result_path, paste0("resultaten_baseflow_", studiegebied, ".xlsx"))
+write_xlsx(df_resultaten_full, path = bestand_pad)
+
+
+
+#/////////////////////////////////////////////////////////////
+# Grafiek
+#/////////////////////////////////////////////////////////////
+
+
+df_long <- resultaten %>%
+  dplyr::filter(maatregel == "fin") %>%
+  dplyr::filter(scenario != "sc3_75") |>
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1"      = "sc1",
+                               "Scenario 2"      = "sc2",
+                               "Scenario 3 gras" = "sc3_gras",
+                               "Scenario 3 bos"  = "sc3_bos"
+  )) |> 
+  # Bereken de middenpositie van elk segment voor het tekstlabel
+  group_by(scenario) %>%
+  mutate(
+    Positie_Y = cumsum(resultaat) - (0.5 * resultaat)
+  ) %>%
+  ungroup()
+
+volgorde_x <- c("Scenario 1", "Scenario 2", "Scenario 3 gras", "Scenario 3 bos")
+
+p <- ggplot(df_long, aes(x = scenario, y = resultaat)) +
+  geom_col(aes(fill = "stroomgebied"), width = 0.55) +
+  # Text labels in de staven (op de berekende middenpositie)
+  # geom_text(
+  #   aes(y = Positie_Y, label = Label_Tekst),
+  #   color = "white",        
+  #   fontface = "bold",
+  #   size = 3.0
+  # ) +
+  # geom_point(aes(y = Totaal), color = "black", size = 4, shape = 16, show.legend = FALSE) +
+  scale_x_discrete(position = "top", limits = volgorde_x) +
+  scale_fill_manual(
+    values = c("stroomgebied" = unname(inbo_steun_blauw))
+  ) +
+  scale_y_continuous(
+    expand = c(0, 0),
+    limits = c(min(c(0, min(df_long$resultaat) * 1.05, min(df_long$resultaat) * 1.05)), 
+               max(c(0, max(df_long$resultaat) * 1.05, max(df_long$resultaat) * 1.05))),
+    # labels = label_percent(scale = 1),
+    # voor een constant aantal tekens op de Y-as: 
+    labels = function(x) {
+      # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
+      raw_labels <- label_percent(scale = 100, accuracy = 1)(x)
+      # vul elk label op met spaties tot 5 tekens breedte
+      sprintf("%5s", raw_labels)
+    }
+  ) +
+  labs(
+    # title = str_c("Verandering in bijdrage aan infiltratie als % van huidig totaal"),
+    # title = str_c("Verandering in ", var, " als % van huidig totaal"),
+    x = NULL,
+    y = NULL,
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    #plot.title = element_text(face = "bold", size = 13, margin = margin(b = 15)),
+    axis.text.x.top = element_text(face = "bold", size = 9, 
+                                   color = "black", vjust = 0.5, 
+                                   margin = margin(b = 6, unit = "pt")),
+    axis.text.y = element_text(size = 9, margin = margin(r = 5, unit = "pt")),
+    axis.line.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    
+    # Compacte marges voor beperkte hoogte output
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    legend.position = "bottom",
+    # legend.text = element_text(size = 10),
+    legend.key.size = unit(0.3, "cm")
+  )
+print(p)
+
+
+ggsave(
+  filename = file.path(result_path, "baseflow.png"),
+  plot = p,
+  width = 7,
+  height = 3, 
+  units = "cm",
+  dpi = 300,
+  scaling = 0.6 # om labels te verkleinen
+)
 
 ```

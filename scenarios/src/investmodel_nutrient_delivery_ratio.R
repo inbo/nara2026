@@ -55,7 +55,8 @@ run_invest_ndr <- function(studiegebied = "kleine_nete", kaart = "ecosysteem_202
   
   path_lulc     <- file.path(scenarios_dir, kaart)
   path_bio_in   <- file.path(gis_data_dir, "biophysical_table_nutrient.csv")
-  path_qf <- list.files(path = workspace_path_swy, pattern = "^QF.*\\.tif$", full.names = TRUE)
+  qf_pattern <- ifelse(basename(workspace_path_swy) == "referentie", "^QF\\.tif$", "^QF_new.*\\.tif$")
+  path_qf <- list.files(path = workspace_path_swy, pattern = qf_pattern, full.names = TRUE)
 
   # 2. Biophysical tabel inlezen en checken op LULC codes
   df_bio <- read_delim(path_bio_in, delim = ",", locale = locale(decimal_mark = "."), show_col_types = FALSE) %>% 

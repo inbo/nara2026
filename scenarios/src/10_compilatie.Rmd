@@ -54,7 +54,7 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "dijle"
 
 # Kies de bestanden die je nodig hebt
 
@@ -588,7 +588,7 @@ writeRaster(tussenstap5_sc1_kle, filename = str_c("C:/R/NARA2026/nara2026-git/sc
 
 ```
 
-#### 5. Onthardingscellen invoegen
+#### 5. Onthardingscellen invoegen en finale ecosysteemkaart maken
 
 ```{r ontharding}
 
@@ -722,6 +722,7 @@ gwates <- rasterize(habitat, ecosysteem_2022, field = "gwates")
 gwates <- mask(gwates, ecosysteem_2022)
 
 tussenstap1_sc2 <- ifel(tussenstap1_sc2a == 302 & !is.na(gwates), 320, ifel(tussenstap1_sc2a %in% c(400, 401, 410) & !is.na(moerasbos), 420, ifel(tussenstap1_sc2a %in% c(400, 401) & !is.na(gwates), 410, tussenstap1_sc2a)))
+
 ```
 
 **b) Vernattingscontouren toevoegen en vegetatie aanpassen**
@@ -804,6 +805,7 @@ kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TR
 tussenstap2_sc2_kle <- ifel(tussenstap2_sc2 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc2 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc2))
 
 writeRaster(tussenstap2_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc2_kle.tif"), overwrite = TRUE)
+
 ```
 
 #### 2. Dedrainage invoegen
@@ -861,6 +863,7 @@ ecosysteem_2022_upd <- rast(str_c("C:/R/NARA2026/nara2026-git/scenarios/", studi
 tussenstap3_sc2_kle <- ifel(tussenstap3_sc2_kle_pre != tussenstap2_sc2_kle, tussenstap3_sc2_kle_pre, ecosysteem_2022_upd)
 
 writeRaster(tussenstap3_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap3_sc2_kle.tif"), overwrite = TRUE)
+
 ```
 
 #### 3. Infiltratie invoegen
@@ -973,7 +976,7 @@ tussenstap5_sc2_kle <- ifel(tussenstap5_sc2 != tussenstap4_sc2_kle_pre, tussenst
 writeRaster(tussenstap5_sc2_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc2_kle.tif"), overwrite = TRUE)
 ```
 
-#### 5. Onthardingscellen invoegen
+#### 5. Onthardingscellen invoegen en finale ecosysteemkaart maken
 
 ```{r ontharding_sc2}
 
@@ -1180,6 +1183,7 @@ kle_recl_2022 <- classify(kle_fractie_gecorrigeerd_start, rcl_matrix, right = TR
 tussenstap2_sc3_kle <- ifel(tussenstap2_sc3 %in% c(201, 202, 204, 205, 210, 220, 230) & !is.na(kle_recl_2022), 2000 + kle_recl_2022, ifel(tussenstap2_sc3 %in% c(300, 301, 330) & !is.na(kle_recl_2022), 3000 + kle_recl_2022, tussenstap2_sc3))
 
 writeRaster(tussenstap2_sc3_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap2_sc3_kle.tif"), overwrite = TRUE)
+
 ```
 
 #### 2. Dedrainage invoegen
@@ -1512,7 +1516,7 @@ tussenstap5_sc3_bos_kle <- ifel(tussenstap5_sc3_bos != tussenstap4_sc3_bos, tuss
 writeRaster(tussenstap5_sc3_bos_kle, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/tussenstap5_sc3_bos_kle.tif"), overwrite = TRUE)
 ```
 
-#### 5. Onthardingscellen invoegen
+#### 5. Onthardingscellen invoegen en finale ecosysteemkaart maken
 
 ```{r ontharding_sc3}
 

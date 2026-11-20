@@ -55,7 +55,7 @@ De data zitten in een map "data" onder de folder van het **studiegebied** (rivie
 De volgende datasets worden gebruikt:
 
 - toekomstlaag.shp -\> polygonen natuurdoelen
-- overstromingsdiepte_t100_flu_plu.tif -\> waterdiepte voor fluviale en pluviale overstromingen bij toekomstig klimaat t100 (basiskaarten via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m). Voor combinatie fluviale en pluviale kaarten: zie ArcGIS-model `floodplain_rem`
+- overstromingsdiepte_t10_flu_plu.tif -\> waterdiepte voor fluviale en pluviale overstromingen bij toekomstig klimaat t10 (basiskaarten via WCS: [v2025](https://beta.waterinfo.be/web/?0) & herschaald naar 10 x 10 m). Voor combinatie fluviale en pluviale kaarten: zie ArcGIS-model
   - De pluviale overstromingsgevaarkaart wordt gebruikt om de overstromingszones van de kleinere waterlopen in kaart te brengen. Om alleen de overstromingscellen mee te nemen die grenzen aan een waterloop, wordt een costdistance-analyse vanuit de waterlopen uitgevoerd, waarbij de niet-verstroomde cellen een barrière vormen. Geïsoleerde overstromingszones die alleen via afspoeling overstromen, worden zo uitgesloten.
 - overstromingstolerantie_habitats_gis.xlsx -\> tabel combineerbaarheid natuur en overstromingen
 - grondwaterregime_habitats.xlsx -\> tabel met vereisten van habitattypen en rbb's voor het grondwaterregime (vier klassen voor het grondwaterregime -\> cf. indeling signaalkaart en meetnet natuurlijk milieu)
@@ -67,12 +67,12 @@ De volgende datasets worden gebruikt:
 
 ```{r bestanden_folders}
 
-studiegebied <- "rivierbeek"
+studiegebied <- "ijzer"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem_2022.tif is steeds nodig als referentieraster
 
-targets <- c("ecosysteem_2022.tif", "toekomstlaag.shp", "veen1970_poly.shp", "wegen.shp", "overstromingsdiepte_t100_flu_plu.tif", "vha.shp", "textuur.tif", "overstromingstolerantie_habitats_gis.xlsx", "grondwaterregime_habitats.xlsx", "aquifer_hcov.tif", "ksat_h_hcov.tif")
+targets <- c("ecosysteem_2022.tif", "toekomstlaag.shp", "veen1970_poly.shp", "wegen.shp", "overstromingsdiepte_t10_flu_plu.tif", "vha.shp", "textuur.tif", "overstromingstolerantie_habitats_gis.xlsx", "grondwaterregime_habitats.xlsx", "aquifer_hcov.tif", "ksat_h_hcov.tif")
 
 # In welke folders zitten de data?
 
@@ -170,7 +170,7 @@ list2env(data_list_ok, envir = .GlobalEnv)
 #///////////////////////////////////////////////
 
 tbl_tolerantie <- overstromingstolerantie_habitats_gis
-waterdiepte <- overstromingsdiepte_t100_flu_plu
+waterdiepte <- overstromingsdiepte_t10_flu_plu
 
 
 #///////////////////////////////////////////////
@@ -198,9 +198,9 @@ percelen_df <- as.data.frame(percelen) %>%
 
 ### 2.1. Combineerbaarheid natuurdoelen
 
-#### a) t100
+#### a) t10
 
-De combineerbaarheid van de natuurdoelen met overstromingen wordt bepaald op basis van de waterdiepte bij een overstroming met terugkeerperiode van 100 jaar (**t100**) onder het **toekomstig klimaat** (2050). De tolerantiescores (0 = niet tolerant -\> 3 = tolerant) zijn afkomstig uit de studie van De Nocker. De tabel `overstromingstolerantie_habitats_gis` geeft tolerantiescores voor winter- (w) en zomeroverstromingen (z) bij verschillende dieptes (d \< 20 cm, d tussen 20 en 50 cm en d \> 50 cm). De meeste De Nocker-types kunnen aan meerdere habitattypes gekoppeld worden en omgekeerd. Voor habitattypes die meerdere De Nocker-types hebben, werd voor elke kolom (seizoen & diepte) een hoogste en laagste waarde bepaald op basis van het meest en minst gevoelige type. Bijvoorbeeld:
+De combineerbaarheid van de natuurdoelen met overstromingen wordt bepaald op basis van de waterdiepte bij een overstroming met terugkeerperiode van 10 jaar (**t10**) onder het **toekomstig klimaat** (2050). De tolerantiescores (0 = niet tolerant -\> 3 = tolerant) zijn afkomstig uit de studie van De Nocker. De tabel `overstromingstolerantie_habitats_gis` geeft tolerantiescores voor winter- (w) en zomeroverstromingen (z) bij verschillende dieptes (d \< 20 cm, d tussen 20 en 50 cm en d \> 50 cm). De meeste De Nocker-types kunnen aan meerdere habitattypes gekoppeld worden en omgekeerd. Voor habitattypes die meerdere De Nocker-types hebben, werd voor elke kolom (seizoen & diepte) een hoogste en laagste waarde bepaald op basis van het meest en minst gevoelige type. Bijvoorbeeld:
 
 - wd20 = tolerantie voor een **winter**overstroming met waterdiepte minder dan **20 cm**, op basis van het **meest tolerante** vegetatietype
 - minzd50 = tolerantie voor een **zomer**overstroming met waterdiepte meer dan **50 cm**, op basis van het **minst tolerante** vegetatietype
@@ -216,7 +216,7 @@ Stappen:
 
 **Opmerking**: het script vergelijkt de waterdiepte pixel per pixel met de tolerantie per perceel -\> ook waterdiepte per perceel bereken zodat de vergelijking volledig op perceelsniveau gebeurt?
 
-```{r combi_t100}
+```{r combi_t10}
 
 
 #//////////////////////////////////////////////////////////
@@ -261,15 +261,15 @@ combineerbaarheid <- ifel(waterdiepte < 20, r_wd20,
                  ifel(waterdiepte >= 20 & waterdiepte <= 50, r_w20d50,
                   ifel(waterdiepte > 50, r_w50d, NA)))
 
-combineerbaarheid_t100 <- mask(combineerbaarheid, waterdiepte)
+combineerbaarheid_t10 <- mask(combineerbaarheid, waterdiepte)
 
 # 0 = niet combineerbaar - 3 = combineerbaar
 # Voor de finale beoordeling: score 0 en 1 zijn niet combineerbaar
-combineerbaarheid_t100 <- ifel(combineerbaarheid_t100 <= 1, 1, NA)
+combineerbaarheid_t10 <- ifel(combineerbaarheid_t10 <= 1, 1, NA)
 
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaarheid_t100.tif"), overwrite = TRUE)
+writeRaster(combineerbaarheid_t10, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaarheid_t10.tif"), overwrite = TRUE)
 
 ```
 
@@ -277,7 +277,7 @@ writeRaster(combineerbaarheid_t100, filename = str_c("C:/R/NARA2026/nara2026-git
 
 Om de combineerbaarheid van de natuurdoelen met overstromingen door beveractiviteit te bepalen, hanteren we dezelfde uitgangsprincipes als die voor de opmaak van de indicatorkaart combineerbaarheid vegetatie met overstromingen door bever uit het soortbeschermingsprogramma ([Bijlage SBP bever](https://ecopedia.s3.eu-central-1.amazonaws.com/pdfs/soortenbeschermingsprogramma_bever.pdf) en [kaart](https://natuurenbos.vlaanderen.be/sites/default/files/documenten/indicatorkaart_combineerbaarheid_vegetatie_met_overstromingen_door_bever.pdf)). Daarbij wordt gebruik gemaakt van de combineerbaarheidsscores uit [De Nocker (2007)](https://pureportal.inbo.be/files/5836757/DeNocker_etal_2007_MultifunctionaliteitOverstromingsgebiedenSamenvatting.pdf) voor een **langdurige** overstroming (\> 14 dagen) tijdens de vegetatieperiode (**zomer**) met een overstromingsdiepte van **meer dan 20 cm**.
 
-Alleen natuurdoelen die in een overstroombaar deel van een waterloop liggen (t100), worden in rekening gebracht om te vermijden dat locaties waar geen bevers voorkomen ook als niet-combineerbaar beoordeeld worden.
+Alleen natuurdoelen die in een overstroombaar deel van een waterloop liggen (t10), worden in rekening gebracht om te vermijden dat locaties waar geen bevers voorkomen ook als niet-combineerbaar beoordeeld worden.
 
 Score combineerbaarheid: 0 = dik probleem; 3 = geen probleem
 
@@ -334,10 +334,10 @@ combineerbaarheid <- ifel(waterdiepte < 20, r_zd20,
 combineerbaar_bever <- ifel(combineerbaarheid <= 1, 1, NA)
 
 # Alleen natuur in overstroombare valleien in rekening brengen
-combineerbaar_bever_t100 <- mask(combineerbaar_bever, waterdiepte)
+combineerbaar_bever_t10 <- mask(combineerbaar_bever, waterdiepte)
 
 # Resultaat opslaan (1 = niet combineerbaar)
-writeRaster(combineerbaar_bever_t100, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaar_bever_t100.tif"), overwrite = TRUE)
+writeRaster(combineerbaar_bever_t10, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/combineerbaar_bever_t10.tif"), overwrite = TRUE)
 ```
 
 ### 2.2. Zones vrijwaren van overstromingen
@@ -347,24 +347,24 @@ Het onderstaande script bakent de zones af die niet mogen overstromen om natuurd
 De zones die niet mogen overstromen worden geïdentificeerd via een **patches-analyse** die nagaat welke cellen die lager gelegen zijn dan de natuurcellen een aaneengesloten geheel vormen met de natuurcellen. Daarbij bakent een masker de zones af die een barrière vormen voor de analyse (= hoger gelegen cellen of cellen die aan de andere kant van de waterloop liggen). De volgende stappen worden doorlopen:
 
 - Stap 1 - definieer het masker met cellen die een barrière vormen voor de patches-analyse.
-  - Alleen **overstroombare cellen** worden in rekening gebracht -\> pluviale en fluviale t100-kaart
+  - Alleen **overstroombare cellen** worden in rekening gebracht -\> pluviale en fluviale t10-kaart
   - **Rivieren** vormen een barrière (dijken kunnen er bv. voor zorgen dat de ene oever kan overstromen en de andere niet)
   - **Wegen** vormen een barrière (transportinfrastructuur wordt vaak gevrijwaard van overstromingen)
 - Stap 2 - maak clusters van de cellen met natuurdoelen die niet mogen overstromen. Daarvoor gebruiken we de resultaten van de analyse van combineerbaarheid van natuurdoelen met overstromingen. Omdat de verrasterde percelen van de toekomstkaart niet overal afgestemd zijn op de ecosysteemkaart (bv. overlap met waterlopen), snijden we ze bij met de verrasterde waterlopen. Clusters kleiner dan **10 cellen (0.1 ha)** laten we buiten beschouwing.
-- Stap 3 - Voor elk cluster wordt de bijbehorende zone afgebakend die niet mag overstromen. Voorafgaand aan de patches-analyse wordt het barrièremasker geüpdatet met de cellen in de overstromingszone (t100) die hoger liggen (= minder diep) dan de natuurcellen.
+- Stap 3 - Voor elk cluster wordt de bijbehorende zone afgebakend die niet mag overstromen. Voorafgaand aan de patches-analyse wordt het barrièremasker geüpdatet met de cellen in de overstromingszone (t10) die hoger liggen (= minder diep) dan de natuurcellen.
   - Als drempelwaarde nemen we de P10-waarde van de waterdiepte binnen een cluster.
   - Het script loopt doorheen de afzonderlijke clusters. Bij veel clusters kan het daarom lang duren om het volledige gebied te analyseren. Om de rekentijd te beperken groeperen we clustercellen per 10 cm diepte (bv. clusters met een P10-diepte van 101 cm, 102 cm en 104 cm analyseren we samen in de groep van 100 cm diepte).
 
-#### a) t100
+#### a) t10
 
 ```{r zones_overstroming}
 
 # Resultaat analyse combineerbaarheid
-intolerant <- combineerbaarheid_t100
+intolerant <- combineerbaarheid_t10
 
 # Stap 1 - Masker
 
-# 1.1. Alleen overstroombare cellen (t100)
+# 1.1. Alleen overstroombare cellen (t10)
 
 overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
 
@@ -510,7 +510,7 @@ overstromingsvrije_clusters <- bereikbaar
 
 # mapview(waterdiepte, na.color = "transparent") + mapview(overstromingsvrije_clusters, col.regions = "cadetblue2", na.color = "transparent") + mapview(clusters_clean, col.regions = "darkgreen", na.color = "transparent")
 
-writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/intolerant_zone_t100.tif"), overwrite = TRUE)
+writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/output/intolerant_zone_t10.tif"), overwrite = TRUE)
 ```
 
 #### b) Beverdammen
@@ -518,11 +518,11 @@ writeRaster(overstromingsvrije_clusters, filename = str_c("C:/R/NARA2026/nara202
 ```{r}
 
 # Resultaat analyse combineerbaarheid
-intolerant <- combineerbaar_bever_t100
+intolerant <- combineerbaar_bever_t10
 
 # Stap 1 - Masker
 
-# 1.1. Alleen overstroombare cellen (t100)
+# 1.1. Alleen overstroombare cellen (t10)
 
 overstroombaar_barriere <- ifel(waterdiepte > 0, 0, NA)
 
@@ -938,17 +938,17 @@ r_percelen <- rasterize(percelen_gebied, ecosysteem_2022)
 mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
   mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
   mapview(overstromingsvrije_clusters, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5) +
-    mapview(combineerbaarheid_t100, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
+    mapview(combineerbaarheid_t10, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
 
 mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
   mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
   mapview(vernattingsvrije_clusters, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5) +
-    mapview(combineerbaar_vernatting_t100, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
+    mapview(combineerbaar_vernatting_t10, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
 
 mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
   mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +
   mapview(overstromingsvrije_clusters_bever, col.regions = "darkblue", na.color = "transparent", alpha.regions = 0.5) +
-    mapview(combineerbaar_bever_t100, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
+    mapview(combineerbaar_bever_t10, col.regions = "red", na.color = "transparent", alpha.regions = 0.5)
 
 mapview(gebied, color = "red", alpha.regions = 0, na.color = "transparent") +
   mapview(r_percelen, col.regions = "darkgreen", na.color = "transparent", alpha.regions = 0.5) +

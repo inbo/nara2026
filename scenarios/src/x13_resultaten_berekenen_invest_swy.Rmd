@@ -13,6 +13,7 @@ library(terra)
 library(dplyr)
 library(tidyverse)
 library(readxl)
+library(writexl)
 library(mapview)
 library(tools)     # Handig voor file_ext()
 library(reticulate)
@@ -23,7 +24,7 @@ library(INBOtheme)
 # Inladen functie voor Investmodel
 source("C:/R/NARA2026/nara2026-git/scenarios/src/investmodel_seasonal_water_yield.R")
 
-studiegebied   <- "kleine_nete"
+studiegebied   <- "herk_mombeek"
 
 conflicted::conflicts_prefer(dplyr::filter)
 
@@ -31,9 +32,7 @@ result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/re
 
 ```
 
-Het script berekent de **infiltratie** (L, local recharge), **evapotranspiratie** (aet), **afstroming** (QF, quickflow), bijdrage aan het **basisdebiet** (B, baseflow) en de **cumulatieve bijdrage aan het basisdebiet** (B_sum) via het Investmodel [Seasonal Water Yield](https://storage.googleapis.com/releases.naturalcapitalproject.org/invest-userguide/latest/en/seasonal_water_yield.html). B geeft de bijdrage van elke cel aan het finale basisdebiet en B_sum geeft de hoeveel water die via een cel uiteindelijk in de rivier terechtkomt (trekt verdamping door lager gelegen vegetaties af).
-
-In het tweede deel van het script wordt het effect van de infiltratiemaatregelen en dedrainagemaatregelen in beeld gebracht.
+Het script berekent de **infiltratie** (L, local recharge), **evapotranspiratie** (aet), **afstroming** (QF, quickflow) via het Investmodel [Seasonal Water Yield](https://storage.googleapis.com/releases.naturalcapitalproject.org/invest-userguide/latest/en/seasonal_water_yield.html). De bijdrage aan het **basisdebiet** (B, baseflow) en de **cumulatieve bijdrage aan het basisdebiet** (B_sum) wordt apart berekend via het R-script `x17_resultaten_berekenen_baseflow.Rmd`. B geeft de bijdrage van elke cel aan het finale basisdebiet en B_sum geeft de hoeveel water die via een cel uiteindelijk in de rivier terechtkomt (trekt verdamping door lager gelegen vegetaties af).
 
 ## 1. Data inladen en klaarmaken
 
@@ -59,21 +58,24 @@ Het model wordt gerund voor de drie scenario's, met voor elk scenario een afzond
 
 Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toestand zijn er al KLE's aanwezig. De huidige KLE's worden toegevoegd aan de startkaart (ecosysteem_2022) en tussenstap 2 en 4 -\> aangepaste kaarten zijn ecosysteem_2022_upd, tussenstap2_sc1_kle en tussenstap4_sc1_kle (zie script compilatie).
 
-| Scenario | maatregelenset | suffix | ecosysteemkaart |
-|----|----|----|----|
-| huidige toestand | / | 0 | ecosysteem_2022_upd.tif |
-| scenario 1 | nieuwe natuur | sc1_nat | tussenstap2_sc1_kle.tif |
-|  | infiltratie | sc1_inf | tussenstap4_sc1_kle.tif |
-|  | KLE | sc1_kle | tussenstap5_sc1.tif |
-|  | ontharding | sc1_onth | scen1_ecosysteem_finaal.tif |
-| scenario 2 | nieuwe natuur | sc2_nat | tussenstap2_sc2_kle.tif |
-|  | infiltratie | sc2_inf | tussenstap4_sc2_kle.tif |
-|  | KLE | sc2_kle | tussenstap5_sc2.tif |
-|  | ontharding | sc2_onth | scen2_ecosysteem_finaal.tif |
-| scenario 3 (gras of bos) | nieuwe natuur | sc3_gras_nat | tussenstap2_sc3_kle.tif |
-|  | infiltratie | sc3_gras_inf | tussenstap4_sc3_gras_kle.tif |
-|  | KLE | sc3_gras_kle | tussenstap5_sc3_gras.tif |
-|  | ontharding | sc3_gras_onth | scen3_gras_ecosysteem_finaal.tif |
+| Scenario | maatregelenset | suffix | ecosysteemkaart |   |   |
+|----|----|----|----|----|----|
+| huidige toestand | / | 0 | ecosysteem_2022_upd.tif |  |  |
+| scenario 1 | nieuwe natuur | sc1_nat | tussenstap2_sc1_kle.tif |  |  |
+|  | infiltratie | sc1_inf | tussenstap4_sc1_kle.tif |  |  |
+|  | KLE | sc1_kle | tussenstap5_sc1_kle.tif |  |  |
+|  | ontharding | sc1_onth | tussenstap6_sc1_kle.tif |  |  |
+|  | alle maatregelen samen | sc1_fin | scen1_ecosysteem_finaal.tif |  |  |
+| scenario 2 | nieuwe natuur | sc2_nat | tussenstap2_sc2_kle.tif |  |  |
+|  | infiltratie | sc2_inf | tussenstap4_sc2_kle.tif |  |  |
+|  | KLE | sc2_kle | tussenstap5_sc2_kle.tif |  |  |
+|  | ontharding | sc2_onth | tussenstap6_sc2_kle.tif |  |  |
+|  | alle maatregelen samen | sc2_fin | scen2_ecosysteem_finaal.tif |  |  |
+| scenario 3 (gras of bos) | nieuwe natuur | sc3_gras_nat | tussenstap2_sc3_kle.tif |  |  |
+|  | infiltratie | sc3_gras_inf | tussenstap4_sc3_gras_kle.tif |  |  |
+|  | KLE | sc3_gras_kle | tussenstap5_sc3_gras_kle.tif |  |  |
+|  | ontharding | sc3_gras_onth | tussenstap6_sc3_gras_kle.tif |  |  |
+|  | alle maatregelen samen | sc3_gras_fin | scen3_gras_ecosysteem_finaal.tif |  |  |
 
 ```{r}
 
@@ -160,15 +162,11 @@ runs_tbl <- tibble::tribble(
   "3_75",   "fin"
 )
 
-runs_tbl <- tibble::tribble(
-  ~scen,    ~maatr,
-  "0",      NA_character_,
-  "1",      "ont",
-  "3_gras", "nat",
-  "3_bos",  "inf",
-  "3_bos",  "kle",
-  "3_75",   "kle"
-)
+# Als het script na enkele maatregelen vastloopt door mentale problemen -> run een beperkt aantal maatregelen (check welke al klaar zijn in de outputfolders) 
+# runs_tbl <- tibble::tribble(
+#  ~scen,    ~maatr,
+#  "2",   "nat"
+#)
 
 scenarios_dir  <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
 workspace_path <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
@@ -929,7 +927,7 @@ ggplot(
 
 ```{r combinatie}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 
 # Paden instellen
@@ -950,7 +948,8 @@ refkaart          <- rast(pad_refkaart)
 # 1. RASTERS INLEZEN EN BASIS-SOM BEREKENEN BINNEN EN BUITEN VOEDINGSGEBIED
 # ==============================================================================
 tif_bestanden <- list.files(pad_folder, pattern = "\\.tif$", full.names = TRUE, recursive = TRUE)
-tif_bestanden <- tif_bestanden[grepl("^(QF|B|L|aet)", basename(tif_bestanden)) & 
+# selectie tif-bestanden -> B weglaten want wordt in apart script berekend
+tif_bestanden <- tif_bestanden[grepl("^(QF|L|aet)", basename(tif_bestanden)) & 
                                  !grepl("^B_sum", basename(tif_bestanden))] # eventueel B_sum toch toevoegen
 
 df_raw <- map_df(tif_bestanden, function(f) {
@@ -1113,6 +1112,52 @@ df_resultaten <- df_clean_combi %>%
   select(variabele, scenario, binnen_voeding_pc, buiten_voeding_pc)
 
 
+
+#//////////////////////////////////////////////////////////
+# Resultaten wegschrijven naar overzichtstabel Excel
+#//////////////////////////////////////////////////////////
+
+volgorde_scenarios <- c(
+  "Scenario 1",
+  "Scenario 2",
+  "Scenario 3 bos",
+  "Scenario 3 gras",
+  "referentie",
+  "Scenario 3 75%"
+)
+
+df_resultaten_full <- df_clean_combi %>%
+  filter(!variabele %in% c("L_new", "QF_new")) |> 
+  left_join(df_referentie, by = "variabele") %>%
+  mutate(
+    binnen_voeding_pc = 100 * (som - ref_voed) / ref_totaal,
+    buiten_voeding_pc = 100 * ((som_totaal - ref_totaal) - (som - ref_voed)) / ref_totaal
+  ) %>%
+  mutate(scenario = fct_recode(scenario,
+                               "Scenario 1"      = "sc1",
+                               "Scenario 2"      = "sc2",
+                               "Scenario 3 gras" = "sc3_gras",
+                               "Scenario 3 bos"  = "sc3_bos",
+                               "Scenario 3 75%"  = "sc3_75"
+  )) |>
+  select(variabele, scenario, maatregel, binnen_voeding_pc, buiten_voeding_pc) |> 
+  pivot_longer(
+    cols = c("binnen_voeding_pc", "buiten_voeding_pc"),
+    names_to = "Type",
+    values_to = "Waarde") |> 
+  mutate(deelindicator = str_c(maatregel, "_", Type)) |> 
+  select(variabele, scenario, deelindicator, Waarde) |> 
+  pivot_wider(
+    id_cols     = c(variabele, deelindicator),
+    names_from  = scenario,
+    values_from = Waarde,
+    names_sort  = TRUE
+  ) %>%
+  select(variabele, deelindicator, any_of(volgorde_scenarios))
+
+bestand_pad <- file.path(result_path, paste0("resultaten_swy_", studiegebied, ".xlsx"))
+write_xlsx(df_resultaten_full, path = bestand_pad)
+
 ```
 
 ### 2. Grafiek à la Katrijn
@@ -1120,7 +1165,7 @@ df_resultaten <- df_clean_combi %>%
 ```{r Grafiek_kat}
 
 
-var <- "QF"
+var <- "aet"
 
 df_long <- df_resultaten %>%
   dplyr::filter(variabele == var, scenario != "Scenario 3 75%") |> 
@@ -1155,7 +1200,7 @@ p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
   #   fontface = "bold",
   #   size = 3.0
   # ) +
-  # geom_point(aes(y = Totaal), color = "black", size = 4, shape = 16, show.legend = FALSE) +
+  geom_point(aes(y = Totaal), color = "black", size = 4, shape = 16, show.legend = FALSE) +
   scale_x_discrete(position = "top") +
   scale_fill_manual(
     values = c("binnen_voeding_pc" = inbo_groen, "buiten_voeding_pc" = inbo_steun_blauw),
@@ -1202,7 +1247,7 @@ print(p)
 
 
 ggsave(
-  filename = file.path(result_path, "quickflow.png"),
+  filename = file.path(result_path, "evapotrans.png"),
   plot = p,
   width = 7,
   height = 3, 

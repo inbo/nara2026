@@ -67,6 +67,8 @@ Nieuwe KLE's worden pas in tussenstap 5 ingevoegd, maar ook in de huidige toesta
 |  | KLE | sc3_gras_kle | tussenstap5_sc3_gras.tif |
 |  | ontharding | sc3_gras_onth | scen3_gras_ecosysteem_finaal.tif |
 
+#### Parameters instellen en functie get_kaart_naam
+
 ```{r}
 
 # De resultaten worden weggeschreven naar de folder "C:/GIS/NARA2026/invest/R/outputs/studiegebied/NDR". Elke run heeft een eigen folder met als naam de suffix van de modelrun. 
@@ -92,24 +94,29 @@ get_kaart_naam <- function(scen, maatr = NULL) {
     ~scen,    ~maatr, ~kaart,
     "1",      "nat",  "tussenstap2_sc1_kle.tif",
     "1",      "inf",  "tussenstap4_sc1_kle.tif",
-    "1",      "kle",  "tussenstap5_sc1.tif",
-    "1",      "ont",  "scen1_ecosysteem_finaal.tif",
+    "1",      "kle",  "tussenstap5_sc1_kle.tif",
+    "1",      "ont",  "tussenstap6_sc1_kle.tif",
+    "1",      "fin",  "scen1_ecosysteem_finaal.tif",
     "2",      "nat",  "tussenstap2_sc2_kle.tif",
     "2",      "inf",  "tussenstap4_sc2_kle.tif",
-    "2",      "kle",  "tussenstap5_sc2.tif",
-    "2",      "ont",  "scen2_ecosysteem_finaal.tif",
+    "2",      "kle",  "tussenstap5_sc2_kle.tif",
+    "2",      "ont",  "tussenstap6_sc2_kle.tif",
+    "2",      "fin",  "scen2_ecosysteem_finaal.tif",
     "3_gras", "nat",  "tussenstap2_sc3_kle.tif",
     "3_gras", "inf",  "tussenstap4_sc3_gras_kle.tif",
-    "3_gras", "kle",  "tussenstap5_sc3_gras.tif",
-    "3_gras", "ont",  "scen3_gras_ecosysteem_finaal.tif",
-    "3_bos",  "nat",  "tussenstap2_sc3_kle.tif",
-    "3_bos",  "inf",  "tussenstap4_sc3_bos_kle.tif",
-    "3_bos",  "kle",  "tussenstap5_sc3_bos.tif",
-    "3_bos",  "ont",  "scen3_bos_ecosysteem_finaal.tif",
-    "3_75",   "nat",  "tussenstap2_sc3_kle.tif",
-    "3_75",   "inf",  "tussenstap4_sc3_75_kle.tif",
-    "3_75",   "kle",  "tussenstap5_sc3_75.tif",
-    "3_75",   "ont",  "scen3_75_ecosysteem_finaal.tif",
+    "3_gras", "kle",  "tussenstap5_sc3_gras_kle.tif",
+    "3_gras", "ont",  "tussenstap6_sc3_gras_kle.tif",
+    "3_gras", "fin",  "scen3_gras_ecosysteem_finaal.tif",
+    "3_bos", "nat",  "tussenstap2_sc3_kle.tif",
+    "3_bos", "inf",  "tussenstap4_sc3_bos_kle.tif",
+    "3_bos", "kle",  "tussenstap5_sc3_bos_kle.tif",
+    "3_bos", "ont",  "tussenstap6_sc3_bos_kle.tif",
+    "3_bos", "fin",  "scen3_bos_ecosysteem_finaal.tif",
+    "3_75", "nat",  "tussenstap2_sc3_kle.tif",
+    "3_75", "inf",  "tussenstap4_sc3_75_kle.tif",
+    "3_75", "kle",  "tussenstap5_sc3_75_kle.tif",
+    "3_75", "ont",  "tussenstap6_sc3_75_kle.tif",
+    "3_75", "fin",  "scen3_75_ecosysteem_finaal.tif",
   )
   
   res <- lookup_tbl %>% filter(scen == scen_str & maatr == !!maatr) %>% pull(kaart)
@@ -124,28 +131,110 @@ runs_tbl <- tibble::tribble(
   "1",      "inf",
   "1",      "kle",
   "1",      "ont",
+  "1",      "fin",
   "2",      "nat",
   "2",      "inf",
   "2",      "kle",
   "2",      "ont",
+  "2",      "fin",
   "3_gras", "nat",
   "3_gras", "inf",
   "3_gras", "kle",
   "3_gras", "ont",
+  "3_gras", "fin",
   "3_bos",  "nat",
   "3_bos",  "inf",
   "3_bos",  "kle",
   "3_bos",  "ont",
+  "3_bos",  "fin",
   "3_75",   "nat",
   "3_75",   "inf",
   "3_75",   "kle",
   "3_75",   "ont",
+  "3_75",   "fin"
 )
 
 scenarios_dir  <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied, "output")
 workspace_path <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied, "NDR")
 
 
+```
+
+#### Aangepaste quickflowkaarten maken
+
+```{r aanpassing_qf}
+
+pad_folder <- file.path("C:/GIS/NARA2026/invest/R/outputs", studiegebied)
+
+# Lijst met te berekenen scenario's voor update quickflow
+runs_tbl <- tibble::tribble(
+  ~scen,    ~maatr,
+  "0",      NA_character_,
+  "1",      "nat",
+  "1",      "inf",
+  "1",      "kle",
+  "1",      "ont",
+  "1",      "fin",
+  "2",      "nat",
+  "2",      "inf",
+  "2",      "kle",
+  "2",      "ont",
+  "2",      "fin",
+  "3_gras", "nat",
+  "3_gras", "inf",
+  "3_gras", "kle",
+  "3_gras", "ont",
+  "3_gras", "fin",
+  "3_bos",  "nat",
+  "3_bos",  "inf",
+  "3_bos",  "kle",
+  "3_bos",  "ont",
+  "3_bos",  "fin",
+  "3_75",   "nat",
+  "3_75",   "inf",
+  "3_75",   "kle",
+  "3_75",   "ont",
+  "3_75",   "fin"
+)
+
+runs_tbl <- tibble::tribble(
+  ~scen,    ~maatr,
+  "2",      "nat"
+)
+ 
+df_qf <- pmap(runs_tbl, function(scen, maatr) {
+  
+  scen_kaart  <- ifelse(scen %in% c("3_bos", "3_gras"), "3_25", scen)
+  
+  kaart       <- str_c("sc", scen_kaart, "_infilt_cellen.tif")
+  suffix_name <- str_c("sc", scen, "_", maatr)
+  
+  path_lulc   <- file.path(scenarios_dir, kaart)
+  
+  path_qf     <- file.path(pad_folder, suffix_name, paste0("QF_", suffix_name, ".tif"))
+  path_qf_new <- file.path(pad_folder, suffix_name, paste0("QF_new_", suffix_name, ".tif"))
+  
+  if (file.exists(path_lulc) && file.exists(path_qf)) {
+    r_lulc <- rast(path_lulc)
+    r_qf   <- rast(path_qf)
+
+    cellen_infilt <- project(r_lulc, r_qf, method = "near")
+
+    qf_afstroom <- cellen_infilt * r_qf
+    
+    qf_nieuw <- r_qf - 0.7 * qf_afstroom
+    
+    qf_update <- cover(qf_nieuw, r_qf)
+    
+    writeRaster(qf_update, path_qf_new, overwrite = TRUE)
+  }
+})
+
+```
+
+#### NDR runnen
+
+```{r ndr}
 #/////////////////////////////////////////////////////////////
 # Stap 2: Run model voor verschillende scenario's
 #/////////////////////////////////////////////////////////////
@@ -192,6 +281,7 @@ cat("\n\n", str_dup("=", 65), "\n", sep = "")
 cat("  EINDRAPPORT BATCH-RUN | Studiegebied:", studiegebied, "\n")
 cat(str_dup("=", 65), "\n\n", sep = "")
 print(resultaten_tbl, n = Inf)
+
 ```
 
 ## Deel 1 - Volledig studiegebied
@@ -780,7 +870,7 @@ ggplot(
 
 ### 1. Berekening
 
-#### a) Kaarten
+#### a) Op basis van de kaarten
 
 ```{r combinatie}
 
@@ -828,7 +918,7 @@ df_raw <- map_df(tif_bestanden, function(f) {
 # ==============================================================================
 # 2. DATAFRAME STRUCTUREREN
 # ==============================================================================
-maatregelen      <- c("nat", "inf", "kle", "onth", "ont")
+maatregelen      <- c("nat", "inf", "kle", "onth", "ont", "fin")
 scenarios_labels <- c("sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")
 
 df_clean_combi <- df_raw %>%
@@ -859,7 +949,7 @@ df_clean_combi <- df_raw %>%
 df_clean_combi <- df_clean_combi %>%
   mutate(
     scenario  = factor(scenario, levels = c("referentie", "sc1", "sc2", "sc3_gras", "sc3_bos", "sc3_75")),
-    maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth"))
+    maatregel = factor(maatregel, levels = c("referentie", "nat", "inf", "kle", "onth", "fin"))
   )
 
 
@@ -869,9 +959,9 @@ df_referentie <- df_clean_combi %>%
   select(variabele, ref_voed = som, ref_totaal = som_totaal) %>%
   distinct() # Zorgt voor één unieke referentiewaarde per variabele
 
-# Stap 2: Filter op 'onth', koppel de referentiewaarden en bereken de percentages
+# Stap 2: Filter op 'fin', koppel de referentiewaarden en bereken de percentages
 df_resultaten <- df_clean_combi %>%
-  filter(maatregel == "onth") %>%
+  filter(maatregel == "fin") %>%
   left_join(df_referentie, by = "variabele") %>%
   mutate(
     binnen_voeding_pc = 100 * (som - ref_voed) / ref_totaal,
@@ -889,7 +979,7 @@ df_resultaten <- df_clean_combi %>%
 
 ```
 
-#### b) Syntheseresultaten (geopackages)
+#### b) Op basis van de syntheseresultaten (geopackages)
 
 ```{r}
 
@@ -979,7 +1069,7 @@ df_resultaten_synt <- df_gpkg_clean %>%
 
 ### 2. Grafiek à la Katrijn
 
-#### a) Kaarten
+#### a) Op basis van de kaarten
 
 ```{r Grafiek_kat}
 
@@ -1018,6 +1108,7 @@ p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
   #   fontface = "bold",
   #   size = 3.0
   # ) +
+  geom_point(aes(y = Totaal), color = "black", size = 4, shape = 16, show.legend = FALSE) +
   scale_x_discrete(position = "top") +
   scale_fill_manual(
     values = c("binnen_voeding_pc" = inbo_groen, "buiten_voeding_pc" = inbo_steun_blauw),
@@ -1073,7 +1164,7 @@ ggsave(
 
 ```
 
-#### b) Syntheseresultaten
+#### b) Op basis van de syntheseresultaten
 
 ```{r}
 library(INBOtheme)

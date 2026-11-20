@@ -63,7 +63,7 @@ Het onderstaande script gaat op zoek naar de benodigde bestanden in de datamappe
 
 ```{r bestanden_folders}
 
-studiegebied <- "kleine_nete"
+studiegebied <- "ijzer"
 
 # Kies de bestanden die je nodig hebt
 # ecosysteem.tif is steeds nodig als referentieraster
@@ -153,6 +153,7 @@ data_list_ok <- lapply(data_list, harmoniseer_raster, ref = ref_raster)
 
 # 3. Zet bestanden in je Global Environment
 list2env(data_list_ok, envir = .GlobalEnv)
+
 ```
 
 ## 2. Scenario's
@@ -234,6 +235,7 @@ landb_droogtestress <- lbgp_2022 %>%
 verplichting_peilgestuurd <- st_transform(verplichting_peilgestuurd, crs(ecosysteem_2022))
 
 peilgestuurd <- mask(rasterize(verplichting_peilgestuurd, ecosysteem_2022, field = 1), ecosysteem_2022, updatevalue = NA)
+
 ```
 
 #### b) Bossen voor dedrainage
@@ -532,6 +534,7 @@ geschikt_sc2 <- ifel(!is.na(voedingsgebied_combi) & !is.na(geschikt_zone), 110 +
 
 
 sc2_doel <- sc1_doel
+
 ```
 
 **b) Allocatie maatregelen**

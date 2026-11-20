@@ -24,7 +24,7 @@ library(qgisprocess)
 library(INBOtheme)
 
 
-studiegebied <- "kleine_nete"
+studiegebied <- "herk_mombeek"
 
 result_path <- str_c("C:/R/NARA2026/nara2026-git/scenarios/", studiegebied, "/resultaten")
 ```
@@ -283,12 +283,12 @@ terra::tmpFiles(remove = TRUE)  # ruimt ook interne terra-tussenbestanden op
 base_dir      <- file.path("C:/R/NARA2026/nara2026-git/scenarios", studiegebied)
 scenarios_dir <- file.path(base_dir, "output")
 
-diepte_t100 <- rast(file.path(base_dir, "data/overstromingsdiepte_t100_flu_plu.tif"))
+diepte_t10 <- rast(file.path(base_dir, "data/overstromingsdiepte_t10_flu_plu.tif"))
 
 # Hulpfunctie om per scenario de juiste waterdieptekaart samen te stellen
 bepaal_waterdiepte <- function(scenario_naam) {
   if (scenario_naam == "referentie") {
-    return(diepte_t100)
+    return(diepte_t10)
   }
   
   hand_code <- dplyr::case_when(
@@ -302,13 +302,13 @@ bepaal_waterdiepte <- function(scenario_naam) {
   
   if (!is.na(hand_code) && file.exists(hand_pad)) {
     diepte_hand <- rast(hand_pad)
-    if (!compareGeom(diepte_t100, diepte_hand, stopOnError = FALSE)) {
-      diepte_hand <- resample(diepte_hand, diepte_t100, method = "bilinear")
+    if (!compareGeom(diepte_t10, diepte_hand, stopOnError = FALSE)) {
+      diepte_hand <- resample(diepte_hand, diepte_t10, method = "bilinear")
     }
-    return(ifel(is.na(diepte_t100) & !is.na(diepte_hand), diepte_hand, diepte_t100))
+    return(ifel(is.na(diepte_t10) & !is.na(diepte_hand), diepte_hand, diepte_t10))
   } else {
     warning("Geen HAND-dieptekaart gevonden voor ", scenario_naam, "; enkel diepte_t100 gebruikt.")
-    return(diepte_t100)
+    return(diepte_t10)
   }
 }
 
@@ -461,8 +461,8 @@ p <- ggplot(df_long, aes(x = scenario, y = Waarde, fill = Type)) +
   ) +
   scale_y_continuous(
     expand = c(0, 0),
-    limits = c(min(c(0, min(df_long$Totaal) * 1.05, min(df_long$Waarde) * 1.05)), 
-               max(c(0, max(df_long$Totaal) * 1.05, max(df_long$Waarde) * 1.05))),
+    limits = c(min(c(0, min(df_long$Waarde) * 1.05, min(df_long$Waarde) * 1.05)), 
+               max(c(0, max(df_long$Waarde) * 1.05, max(df_long$Waarde) * 1.05))),
     # labels = label_percent(scale = 1),
     labels = function(x) {
       # genereer de standaard percent-labels zonder decimalen (accuracy = 0.1 voor 1 cijfer na de komma)
